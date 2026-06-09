@@ -1,0 +1,8 @@
+export default function Rendimientos() {
+  return (
+    <div>
+      <h1 className="text-xl font-bold text-gray-800 mb-1">Rendimientos</h1>
+      <p className="text-sm text-gray-400">En construcción</p>
+    </div>
+  )
+}

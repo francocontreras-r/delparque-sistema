@@ -211,6 +211,43 @@ function InstallBanner() {
   )
 }
 
+// ── Banner de nueva versión disponible ────────────────────────────────────────
+function UpdateBanner() {
+  const [waitingWorker, setWaitingWorker] = useState(null)
+
+  useEffect(() => {
+    function onUpdate(e) {
+      setWaitingWorker(e.detail)
+    }
+    window.addEventListener('sw-update-available', onUpdate)
+    return () => window.removeEventListener('sw-update-available', onUpdate)
+  }, [])
+
+  if (!waitingWorker) return null
+
+  function actualizar() {
+    waitingWorker.postMessage('skipWaiting')
+  }
+
+  return (
+    <div
+      className="fixed top-4 left-4 right-4 md:left-auto md:right-4 md:w-96 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg"
+      style={{ backgroundColor: colors.sidebar, border: `1px solid ${colors.sidebarHover}` }}
+    >
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-white">Nueva versión disponible</p>
+      </div>
+      <button
+        onClick={actualizar}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white flex-shrink-0"
+        style={{ backgroundColor: colors.brand }}
+      >
+        Actualizar
+      </button>
+    </div>
+  )
+}
+
 // ── Layout principal ──────────────────────────────────────────────────────────
 export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -290,6 +327,7 @@ export default function Layout() {
       </div>
 
       <InstallBanner />
+      <UpdateBanner />
     </div>
   )
 }

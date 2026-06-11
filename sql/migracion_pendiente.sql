@@ -6,6 +6,7 @@
 -- Después de correr esto, ejecutar los seeds correspondientes:
 --   node --env-file=.env src/scripts/seedBases.js
 --   node --env-file=.env src/scripts/seedImpulsivosPostres.js
+--   node --env-file=.env src/scripts/seedMovimientosDeposito.js
 -- ============================================================================
 
 -- ── 1) Recetas → tab "Bases" ───────────────────────────────────────────────
@@ -32,3 +33,12 @@ ALTER TABLE insumos ADD COLUMN IF NOT EXISTS costo_unitario numeric DEFAULT 0;
 
 -- ── 4) Producción → observaciones por registro ─────────────────────────────
 ALTER TABLE producciones ADD COLUMN IF NOT EXISTS observaciones text;
+
+-- ── 5) Depósito → alta de movimientos (ingreso/egreso) ─────────────────────
+-- La tabla movimientos_deposito existe pero le faltan las columnas que usa
+-- la pantalla Depósito (y el seed de la planilla de Salud Pública).
+ALTER TABLE movimientos_deposito ADD COLUMN IF NOT EXISTS producto_nombre text;
+ALTER TABLE movimientos_deposito ADD COLUMN IF NOT EXISTS lote text;
+ALTER TABLE movimientos_deposito ADD COLUMN IF NOT EXISTS controlo text;
+ALTER TABLE movimientos_deposito ADD COLUMN IF NOT EXISTS proveedor text;
+ALTER TABLE movimientos_deposito ADD COLUMN IF NOT EXISTS operario_recibe text;

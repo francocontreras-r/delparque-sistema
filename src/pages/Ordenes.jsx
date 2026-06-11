@@ -55,7 +55,7 @@ export default function Ordenes() {
 
   async function cargar() {
     const [{ data: ord }, { data: sab }, { data: ops }] = await Promise.all([
-      supabase.from('ordenes_produccion').select('*').order('created_at', { ascending: false }).limit(200),
+      supabase.from('ordenes_produccion').select('*').order('id', { ascending: false }).limit(200),
       supabase.from('stock_camaras').select('id,nombre,tipo').order('nombre'),
       supabase.from('operarios').select('*').order('nombre'),
     ])

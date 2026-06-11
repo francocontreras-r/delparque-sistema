@@ -14,11 +14,11 @@ import { colors, radius, shadow } from '../styles/design-system'
 import { Warehouse, ArrowUp, ArrowDown, Search, Printer, DollarSign } from 'lucide-react'
 import logoUrl from '../assets/logo.png'
 
-const TABS         = ['Movimientos', 'Stock', 'Trazabilidad']
+const TABS         = ['Movimientos', 'Stock', 'Trazabilidad', 'Informes']
 const DESTINOS     = ['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones']
-const PRESENTACIONES = ['Balde', 'Bolsa', 'Lata', 'Caja', 'Frasco', 'Bidón']
-const UNIDADES     = ['kg', 'litros', 'unidades', 'g']
-const PERIODOS_TRZ = ['semana', 'mes', 'todo']
+const PRESENTACIONES = ['Balde', 'Bolsa', 'Lata', 'Caja', 'Botella', 'Bidón', 'Pomo']
+const UNIDADES     = ['u', 'kg', 'L']
+const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const SEM = { verde: colors.success, amarillo: colors.warning, rojo: colors.danger, gris: colors.textMuted }
 const ROLES = ['operario', 'admin']
 
@@ -39,7 +39,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios }
   const [form, setForm] = useState({
     fecha: new Date().toISOString().split('T')[0],
     producto_nombre: '', marca: '', presentacion: 'Balde',
-    cantidad: '', unidad: 'kg', lote: '', fecha_vencimiento: '',
+    cantidad: '', unidad: 'u', lote: '', fecha_vencimiento: '',
     proveedor: '', controlo: '', destino: 'Bases', operario_recibe: '',
     observaciones: '',
   })
@@ -64,42 +64,43 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios }
     >
       <div className="space-y-3">
         <Input label="Fecha *" type="date" value={form.fecha} onChange={e => upd('fecha', e.target.value)} />
-        <div>
-          <Input label="Producto *" type="text" value={form.producto_nombre} onChange={e => upd('producto_nombre', e.target.value)}
-            list="insumos-dl" placeholder="Nombre del insumo" />
-          <datalist id="insumos-dl">{insumos.map(i => <option key={i.id} value={i.nombre} />)}</datalist>
-        </div>
+        <Select label="Producto *" value={form.producto_nombre} onChange={e => upd('producto_nombre', e.target.value)}>
+          <option value="">— Seleccionar insumo —</option>
+          {insumos.map(i => <option key={i.id} value={i.nombre}>{i.nombre}</option>)}
+        </Select>
         <div className="grid grid-cols-2 gap-3">
-          <Input label="Marca" type="text" value={form.marca} onChange={e => upd('marca', e.target.value)} />
-          <Select label="Presentación" value={form.presentacion} onChange={e => upd('presentacion', e.target.value)}>
+          <Input label="Marca *" type="text" value={form.marca} onChange={e => upd('marca', e.target.value)} />
+          <Select label="Presentación *" value={form.presentacion} onChange={e => upd('presentacion', e.target.value)}>
             {PRESENTACIONES.map(p => <option key={p}>{p}</option>)}
           </Select>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Input label="Cantidad *" type="number" step="0.01" value={form.cantidad} onChange={e => upd('cantidad', e.target.value)} />
-          {esIngreso
-            ? <Select label="Unidad" value={form.unidad} onChange={e => upd('unidad', e.target.value)}>
-                {UNIDADES.map(u => <option key={u}>{u}</option>)}
-              </Select>
-            : <Select label="Destino" value={form.destino} onChange={e => upd('destino', e.target.value)}>
-                {DESTINOS.map(d => <option key={d}>{d}</option>)}
-              </Select>
-          }
+          <Input label="Cantidad *" type="number" min="0.01" step="0.01" value={form.cantidad} onChange={e => upd('cantidad', e.target.value)} />
+          <Select label="Unidad *" value={form.unidad} onChange={e => upd('unidad', e.target.value)}>
+            {UNIDADES.map(u => <option key={u}>{u}</option>)}
+          </Select>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Input label="Lote" type="text" value={form.lote} onChange={e => upd('lote', e.target.value)} />
-          <Input label="Vencimiento" type="date" value={form.fecha_vencimiento} onChange={e => upd('fecha_vencimiento', e.target.value)} />
+          <Input label="N° de Lote *" type="text" value={form.lote} onChange={e => upd('lote', e.target.value)} />
+          <Input label="Vencimiento *" type="date" value={form.fecha_vencimiento} onChange={e => upd('fecha_vencimiento', e.target.value)} />
         </div>
+        <Select label="Controló *" value={form.controlo} onChange={e => upd('controlo', e.target.value)}>
+          <option value="">— Seleccionar —</option>
+          {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+        </Select>
         {esIngreso ? (
-          <Input label="Proveedor" type="text" value={form.proveedor} onChange={e => upd('proveedor', e.target.value)} />
+          <Input label="Proveedor *" type="text" value={form.proveedor} onChange={e => upd('proveedor', e.target.value)} />
         ) : (
-          <Select label="Operario que recibe" value={form.operario_recibe} onChange={e => upd('operario_recibe', e.target.value)}>
-            <option value="">— Seleccionar —</option>
-            {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
-          </Select>
+          <div className="grid grid-cols-2 gap-3">
+            <Select label="Destino *" value={form.destino} onChange={e => upd('destino', e.target.value)}>
+              {DESTINOS.map(d => <option key={d}>{d}</option>)}
+            </Select>
+            <Select label="Retira / Solicita *" value={form.operario_recibe} onChange={e => upd('operario_recibe', e.target.value)}>
+              <option value="">— Seleccionar —</option>
+              {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+            </Select>
+          </div>
         )}
-        <Input label="Controló" type="text" value={form.controlo} onChange={e => upd('controlo', e.target.value)}
-          placeholder={esIngreso ? '' : 'Valle'} />
         <div>
           <label className="block text-sm font-medium text-[#374151] mb-1.5">Observaciones</label>
           <textarea value={form.observaciones} onChange={e => upd('observaciones', e.target.value)}
@@ -121,8 +122,12 @@ export default function Deposito() {
   const [saving, setSaving]       = useState(false)
   const [filtroTipo, setFiltroTipo]     = useState('Todos')
   const [busqueda, setBusqueda]         = useState('')
-  const [filtroPeriodo, setFiltroPeriodo] = useState('mes')
+  const [filtroMes, setFiltroMes]       = useState(0)
+  const [filtroAnio, setFiltroAnio]     = useState(0)
   const [filtroDestino, setFiltroDestino] = useState('Todos')
+  const [informeVista, setInformeVista] = useState('proveedores')
+  const [informeMes, setInformeMes]     = useState(0)
+  const [informeAnio, setInformeAnio]   = useState(0)
   const [userRole, setUserRole]         = useState('operario')
 
   const showVal = userRole === 'admin'
@@ -131,7 +136,7 @@ export default function Deposito() {
 
   async function cargar() {
     const [{ data: m }, { data: i }, { data: o }] = await Promise.all([
-      supabase.from('movimientos_deposito').select('*').order('created_at', { ascending: false }).limit(300),
+      supabase.from('movimientos_deposito').select('*').order('id', { ascending: false }).limit(300),
       supabase.from('insumos').select('*').order('nombre'),
       supabase.from('operarios').select('*').order('nombre'),
     ])
@@ -146,25 +151,54 @@ export default function Deposito() {
     setTimeout(() => setToast(null), 3000)
   }
 
+  const operariosUnicos = useMemo(() => {
+    const vistos = new Set()
+    return operarios.filter(o => {
+      if (vistos.has(o.nombre)) return false
+      vistos.add(o.nombre)
+      return true
+    })
+  }, [operarios])
+
+  const CAMPOS_COMUNES = [
+    ['fecha', 'la fecha'],
+    ['producto_nombre', 'el producto'],
+    ['marca', 'la marca'],
+    ['presentacion', 'la presentación'],
+    ['cantidad', 'la cantidad'],
+    ['unidad', 'la unidad'],
+    ['lote', 'el N° de lote'],
+    ['fecha_vencimiento', 'la fecha de vencimiento'],
+    ['controlo', 'quién controló'],
+  ]
+  const CAMPOS_INGRESO = [...CAMPOS_COMUNES, ['proveedor', 'el proveedor']]
+  const CAMPOS_EGRESO = [...CAMPOS_COMUNES, ['destino', 'el destino'], ['operario_recibe', 'quién retira/solicita']]
+
   async function handleSubmit(form) {
-    if (!form.producto_nombre || !form.cantidad) {
-      toast2('Completa producto y cantidad', 'error'); return
+    const campos = modal === 'ingreso' ? CAMPOS_INGRESO : CAMPOS_EGRESO
+    for (const [campo, etiqueta] of campos) {
+      if (!form[campo] || String(form[campo]).trim() === '') {
+        toast2(`Falta completar: ${etiqueta}`, 'error'); return
+      }
+    }
+    if (!(parseFloat(form.cantidad) > 0)) {
+      toast2('La cantidad debe ser mayor a 0', 'error'); return
     }
     setSaving(true)
     const payload = {
       tipo: modal,
       fecha: form.fecha,
       producto_nombre: form.producto_nombre,
-      marca: form.marca || null,
+      marca: form.marca,
       presentacion: form.presentacion,
       cantidad: parseFloat(form.cantidad),
-      unidad: form.unidad || 'kg',
-      lote: form.lote || null,
-      fecha_vencimiento: form.fecha_vencimiento || null,
-      proveedor: modal === 'ingreso' ? (form.proveedor || null) : null,
-      controlo: form.controlo || null,
+      unidad: form.unidad,
+      lote: form.lote,
+      fecha_vencimiento: form.fecha_vencimiento,
+      proveedor: modal === 'ingreso' ? form.proveedor : null,
+      controlo: form.controlo,
       destino: modal === 'egreso' ? form.destino : null,
-      operario_recibe: modal === 'egreso' ? (form.operario_recibe || null) : null,
+      operario_recibe: modal === 'egreso' ? form.operario_recibe : null,
       observaciones: form.observaciones || null,
     }
     const { error } = await supabase.from('movimientos_deposito').insert(payload)
@@ -197,19 +231,65 @@ export default function Deposito() {
     insumos.reduce((a, i) => a + (i.stock_actual || 0) * (i.costo_unitario || 0), 0)
   ), [insumos])
 
+  const aniosDisponibles = useMemo(() => {
+    const set = new Set(movimientos.map(m => m.fecha ? Number(m.fecha.split('-')[0]) : null).filter(Boolean))
+    set.add(new Date().getFullYear())
+    return Array.from(set).sort((a, b) => b - a)
+  }, [movimientos])
+
+  function dentroDePeriodo(fecha, mes, anio) {
+    if (!fecha) return mes === 0 && anio === 0
+    const [a, m] = fecha.split('-').map(Number)
+    if (anio !== 0 && a !== anio) return false
+    if (mes !== 0 && m !== mes) return false
+    return true
+  }
+
   const egresos = useMemo(() => {
     return movimientos.filter(m => {
       if (m.tipo !== 'egreso') return false
       if (filtroDestino !== 'Todos' && m.destino !== filtroDestino) return false
-      if (filtroPeriodo !== 'todo') {
-        const dias = filtroPeriodo === 'semana' ? 7 : 30
-        const limite = new Date(); limite.setDate(limite.getDate() - dias)
-        const fecha = new Date(m.fecha || m.created_at)
-        if (fecha < limite) return false
-      }
+      if (!dentroDePeriodo(m.fecha, filtroMes, filtroAnio)) return false
       return true
     })
-  }, [movimientos, filtroDestino, filtroPeriodo])
+  }, [movimientos, filtroDestino, filtroMes, filtroAnio])
+
+  const movsInforme = useMemo(() => (
+    movimientos.filter(m => dentroDePeriodo(m.fecha, informeMes, informeAnio))
+  ), [movimientos, informeMes, informeAnio])
+
+  const comprasPorProveedor = useMemo(() => {
+    const grupos = {}
+    movsInforme.filter(m => m.tipo === 'ingreso').forEach(m => {
+      const prov = m.proveedor || 'Sin proveedor'
+      if (!grupos[prov]) grupos[prov] = { proveedor: prov, items: [], total: 0 }
+      grupos[prov].items.push(m)
+      grupos[prov].total += Number(m.cantidad) || 0
+    })
+    return Object.values(grupos).sort((a, b) => a.proveedor.localeCompare(b.proveedor))
+  }, [movsInforme])
+
+  const destinoMercaderia = useMemo(() => {
+    const grupos = {}
+    movsInforme.filter(m => m.tipo === 'egreso').forEach(m => {
+      const dest = m.destino || 'Sin destino'
+      if (!grupos[dest]) grupos[dest] = { destino: dest, items: [], total: 0 }
+      grupos[dest].items.push(m)
+      grupos[dest].total += Number(m.cantidad) || 0
+    })
+    return Object.values(grupos).sort((a, b) => a.destino.localeCompare(b.destino))
+  }, [movsInforme])
+
+  const entregasPorOperario = useMemo(() => {
+    const grupos = {}
+    movsInforme.filter(m => m.tipo === 'egreso').forEach(m => {
+      const op = m.operario_recibe || 'Sin asignar'
+      if (!grupos[op]) grupos[op] = { operario: op, items: [], total: 0 }
+      grupos[op].items.push(m)
+      grupos[op].total += Number(m.cantidad) || 0
+    })
+    return Object.values(grupos).sort((a, b) => b.total - a.total)
+  }, [movsInforme])
 
   function imprimirTrazabilidad() {
     const w = window.open('', '_blank')
@@ -418,18 +498,17 @@ export default function Deposito() {
           {tab === 'Trazabilidad' && (
             <div className="space-y-4">
               <div className="flex gap-2 flex-wrap items-center">
-                <div className="flex gap-1.5">
-                  {PERIODOS_TRZ.map(p => (
-                    <button key={p} onClick={() => setFiltroPeriodo(p)}
-                      className="px-3 py-1.5 rounded-full text-xs font-semibold capitalize transition-all duration-150 border"
-                      style={{
-                        backgroundColor: filtroPeriodo === p ? colors.brand : 'transparent',
-                        borderColor: filtroPeriodo === p ? colors.brand : colors.border,
-                        color: filtroPeriodo === p ? 'white' : colors.textSecondary,
-                      }}>
-                      {p === 'semana' ? 'Semana' : p === 'mes' ? 'Mes' : 'Todo'}
-                    </button>
-                  ))}
+                <div className="w-40">
+                  <Select value={filtroMes} onChange={e => setFiltroMes(Number(e.target.value))}>
+                    <option value={0}>Todos los meses</option>
+                    {MESES.map((m, idx) => <option key={m} value={idx + 1}>{m}</option>)}
+                  </Select>
+                </div>
+                <div className="w-28">
+                  <Select value={filtroAnio} onChange={e => setFiltroAnio(Number(e.target.value))}>
+                    <option value={0}>Todos</option>
+                    {aniosDisponibles.map(a => <option key={a} value={a}>{a}</option>)}
+                  </Select>
                 </div>
                 <div className="ml-auto w-44">
                   <Select value={filtroDestino} onChange={e => setFiltroDestino(e.target.value)}>
@@ -478,6 +557,146 @@ export default function Deposito() {
               )}
             </div>
           )}
+
+          {tab === 'Informes' && (
+            <div className="space-y-4">
+              <div className="flex gap-2 flex-wrap items-center">
+                <div className="flex gap-1.5 flex-wrap">
+                  {[
+                    { key: 'proveedores', label: 'Compras por proveedor' },
+                    { key: 'destinos', label: 'Destino de mercadería' },
+                    { key: 'operarios', label: 'Entregas por operario' },
+                  ].map(v => (
+                    <button key={v.key} onClick={() => setInformeVista(v.key)}
+                      className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border"
+                      style={{
+                        backgroundColor: informeVista === v.key ? colors.brand : 'transparent',
+                        borderColor: informeVista === v.key ? colors.brand : colors.border,
+                        color: informeVista === v.key ? 'white' : colors.textSecondary,
+                      }}>
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="ml-auto flex gap-2">
+                  <div className="w-40">
+                    <Select value={informeMes} onChange={e => setInformeMes(Number(e.target.value))}>
+                      <option value={0}>Todos los meses</option>
+                      {MESES.map((m, idx) => <option key={m} value={idx + 1}>{m}</option>)}
+                    </Select>
+                  </div>
+                  <div className="w-28">
+                    <Select value={informeAnio} onChange={e => setInformeAnio(Number(e.target.value))}>
+                      <option value={0}>Todos</option>
+                      {aniosDisponibles.map(a => <option key={a} value={a}>{a}</option>)}
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              {informeVista === 'proveedores' && (
+                comprasPorProveedor.length === 0 ? (
+                  <EmptyState icon={Warehouse} title="Sin ingresos en este período" />
+                ) : (
+                  <div className="space-y-3">
+                    {comprasPorProveedor.map(grupo => (
+                      <div key={grupo.proveedor} className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                        <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                          <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>{grupo.proveedor}</span>
+                          <Badge variant="success">{grupo.items.length} ingresos · Total: {grupo.total.toLocaleString('es-AR', { maximumFractionDigits: 2 })}</Badge>
+                        </div>
+                        <Table>
+                          <Thead>
+                            <Tr><Th>Producto</Th><Th>Cantidad</Th><Th>Fecha</Th><Th>Lote</Th></Tr>
+                          </Thead>
+                          <Tbody>
+                            {grupo.items.map(m => (
+                              <Tr key={m.id}>
+                                <Td className="font-medium">{m.producto_nombre}</Td>
+                                <Td className="font-bold">{m.cantidad} {m.unidad}</Td>
+                                <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{m.fecha}</Td>
+                                <Td className="text-xs" style={{ color: colors.textSecondary }}>{m.lote || '—'}</Td>
+                              </Tr>
+                            ))}
+                          </Tbody>
+                        </Table>
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+
+              {informeVista === 'destinos' && (
+                destinoMercaderia.length === 0 ? (
+                  <EmptyState icon={Warehouse} title="Sin egresos en este período" />
+                ) : (
+                  <div className="space-y-3">
+                    {destinoMercaderia.map(grupo => (
+                      <div key={grupo.destino} className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                        <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                          <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>{grupo.destino}</span>
+                          <Badge variant="info">{grupo.items.length} egresos · Total: {grupo.total.toLocaleString('es-AR', { maximumFractionDigits: 2 })}</Badge>
+                        </div>
+                        <Table>
+                          <Thead>
+                            <Tr><Th>Producto</Th><Th>Cantidad</Th><Th>Fecha</Th><Th>Recibió</Th></Tr>
+                          </Thead>
+                          <Tbody>
+                            {grupo.items.map(m => (
+                              <Tr key={m.id}>
+                                <Td className="font-medium">{m.producto_nombre}</Td>
+                                <Td className="font-bold">{m.cantidad} {m.unidad}</Td>
+                                <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{m.fecha}</Td>
+                                <Td className="text-xs" style={{ color: colors.textSecondary }}>{m.operario_recibe || '—'}</Td>
+                              </Tr>
+                            ))}
+                          </Tbody>
+                        </Table>
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+
+              {informeVista === 'operarios' && (
+                entregasPorOperario.length === 0 ? (
+                  <EmptyState icon={Warehouse} title="Sin egresos en este período" />
+                ) : (
+                  <div className="space-y-3">
+                    {entregasPorOperario.map((grupo, idx) => (
+                      <div key={grupo.operario} className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                        <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                          <div className="flex items-center gap-2">
+                            <span className="flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white flex-shrink-0"
+                              style={{ backgroundColor: idx === 0 ? colors.brand : colors.textMuted }}>
+                              {idx + 1}
+                            </span>
+                            <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>{grupo.operario}</span>
+                          </div>
+                          <Badge variant="warning">{grupo.items.length} retiros · Total: {grupo.total.toLocaleString('es-AR', { maximumFractionDigits: 2 })}</Badge>
+                        </div>
+                        <Table>
+                          <Thead>
+                            <Tr><Th>Producto</Th><Th>Cantidad</Th><Th>Fecha</Th><Th>Destino</Th></Tr>
+                          </Thead>
+                          <Tbody>
+                            {grupo.items.map(m => (
+                              <Tr key={m.id}>
+                                <Td className="font-medium">{m.producto_nombre}</Td>
+                                <Td className="font-bold">{m.cantidad} {m.unidad}</Td>
+                                <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{m.fecha}</Td>
+                                <Td><Badge variant="info">{m.destino || '—'}</Badge></Td>
+                              </Tr>
+                            ))}
+                          </Tbody>
+                        </Table>
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -488,7 +707,7 @@ export default function Deposito() {
           onSubmit={handleSubmit}
           saving={saving}
           insumos={insumos}
-          operarios={operarios}
+          operarios={operariosUnicos}
         />
       )}
     </div>

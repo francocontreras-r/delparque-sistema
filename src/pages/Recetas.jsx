@@ -11,7 +11,55 @@ import Badge from '../components/ui/Badge'
 import { colors, radius, shadow } from '../styles/design-system'
 import { BookOpen, ChevronDown, ChevronUp, ClipboardList, Search } from 'lucide-react'
 
-const TABS = ['Bases', 'Sabores', 'Impulsivos']
+const TABS = ['Bases', 'Sabores', 'Impulsivos', 'Postres']
+
+const POSTRES = [
+  {
+    nombre: 'Barra Almendrado',
+    ingredientes: [
+      { nombre: 'Almendrado', cantidad: 1.5, unidad: 'kg' },
+      { nombre: 'Crocante Mani Almendra', cantidad: 0.05, unidad: 'kg' },
+      { nombre: 'Molde para Postre', cantidad: 1, unidad: 'u' },
+    ],
+    costo_total: 12062.84,
+    mano_de_obra: 570,
+  },
+  {
+    nombre: 'Barra Tricolor',
+    ingredientes: [
+      { nombre: 'Frutilla crema', cantidad: 0.475, unidad: 'kg' },
+      { nombre: 'DDL', cantidad: 0.475, unidad: 'kg' },
+      { nombre: 'Americana', cantidad: 0.475, unidad: 'kg' },
+      { nombre: 'Baño Stracciatella 56-78', cantidad: 0.1, unidad: 'kg' },
+      { nombre: 'Baño cobertura COBLE', cantidad: 0.01, unidad: 'kg' },
+      { nombre: 'DDL Repostero', cantidad: 0.02, unidad: 'kg' },
+      { nombre: 'Molde para Postre', cantidad: 1, unidad: 'u' },
+    ],
+    costo_total: 11631.86,
+    mano_de_obra: 912,
+  },
+  {
+    nombre: 'Pionono',
+    ingredientes: [
+      { nombre: 'Pionono (plancha)', cantidad: 1, unidad: 'u' },
+      { nombre: 'Frutilla crema', cantidad: 0.541, unidad: 'kg' },
+      { nombre: 'Chocolate', cantidad: 0.541, unidad: 'kg' },
+      { nombre: 'DDL', cantidad: 0.541, unidad: 'kg' },
+      { nombre: 'Papel para Pionono', cantidad: 1, unidad: 'u' },
+    ],
+    costo_total: 11832.84,
+    mano_de_obra: 570,
+  },
+  {
+    nombre: 'Torta Helada por kg',
+    ingredientes: [
+      { nombre: 'Base a elección', cantidad: 1, unidad: 'kg' },
+      { nombre: 'Molde para Postre', cantidad: 1, unidad: 'u' },
+    ],
+    costo_total: 0,
+    mano_de_obra: 0,
+  },
+]
 
 function tipoVariant(tipo) {
   switch (tipo) {
@@ -19,6 +67,7 @@ function tipoVariant(tipo) {
     case 'Con Agregado': return 'warning'
     case 'Agua':         return 'success'
     case 'Especial':     return 'danger'
+    case 'Postre':       return 'warning'
     default:             return 'neutral'
   }
 }
@@ -103,6 +152,11 @@ export default function Recetas() {
         id: i.id, nombre: i.nombre, tipo: 'Impulsivo', litros_batch: 0, costoTotal: i.costo_total,
         ingredientes: norm(impIngsPor[i.id] || []),
       })),
+      Postres: POSTRES.map((p, idx) => ({
+        id: `postre-${idx}`, nombre: p.nombre, tipo: 'Postre', litros_batch: 0,
+        costoTotal: p.costo_total, manoDeObra: p.mano_de_obra,
+        ingredientes: p.ingredientes.map(i => ({ insumo: i.nombre, cantidad: i.cantidad, unidad: i.unidad })),
+      })),
     }
   }, [bases, baseIngs, sabores, saborIngs, stockCamaras, impulsivos, impIngs])
 
@@ -172,6 +226,7 @@ export default function Recetas() {
             if (r.litros_batch > 0) partes.push(`${r.litros_batch} L/batch`)
             if (r.baseNombre) partes.push(`Base: ${r.baseNombre}`)
             if (r.costoTotal > 0) partes.push(`Costo: $${Number(r.costoTotal).toFixed(2)}`)
+            if (r.manoDeObra > 0) partes.push(`Mano de obra: $${Number(r.manoDeObra).toFixed(2)}`)
             return (
               <div key={key} className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
                 <button
@@ -190,9 +245,11 @@ export default function Recetas() {
                     )}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <Button variant="primary" size="sm" onClick={e => { e.stopPropagation(); setModalOrden(r) }}>
-                      <ClipboardList size={12} /> Crear orden
-                    </Button>
+                    {tab !== 'Postres' && (
+                      <Button variant="primary" size="sm" onClick={e => { e.stopPropagation(); setModalOrden(r) }}>
+                        <ClipboardList size={12} /> Crear orden
+                      </Button>
+                    )}
                     {abierta ? <ChevronUp size={16} style={{ color: colors.textMuted }} /> : <ChevronDown size={16} style={{ color: colors.textMuted }} />}
                   </div>
                 </button>

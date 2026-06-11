@@ -42,3 +42,11 @@ ALTER TABLE movimientos_deposito ADD COLUMN IF NOT EXISTS lote text;
 ALTER TABLE movimientos_deposito ADD COLUMN IF NOT EXISTS controlo text;
 ALTER TABLE movimientos_deposito ADD COLUMN IF NOT EXISTS proveedor text;
 ALTER TABLE movimientos_deposito ADD COLUMN IF NOT EXISTS operario_recibe text;
+
+-- ── 6) Producción → escaneo/registro y reportes de Rendimientos ───────────
+-- La pantalla Producción (escaneo EAN-13) y el Informe del Día de
+-- Rendimientos usan estas columnas, que faltan en la tabla actual.
+ALTER TABLE producciones ADD COLUMN IF NOT EXISTS producto_codigo integer;
+ALTER TABLE producciones ADD COLUMN IF NOT EXISTS producto_nombre text;
+ALTER TABLE producciones ADD COLUMN IF NOT EXISTS operario_nombre text;
+ALTER TABLE producciones ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();

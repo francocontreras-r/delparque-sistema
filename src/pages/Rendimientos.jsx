@@ -48,6 +48,13 @@ function semaforoPct(pct) {
   return { color: colors.danger, bg: colors.dangerBg }
 }
 
+function nivelDesempeno(pct) {
+  if (pct >= 80) return { label: 'EXCELENTE', variant: 'success', color: colors.success }
+  if (pct >= 60) return { label: 'BUENO',     variant: 'info',    color: colors.info }
+  if (pct >= 40) return { label: 'REGULAR',   variant: 'warning', color: colors.warning }
+  return               { label: 'BAJO',       variant: 'danger',  color: colors.danger }
+}
+
 export default function Rendimientos() {
   const [tab, setTab]           = useState('Rendimientos')
   const [periodo, setPeriodo]   = useState('semana')
@@ -141,6 +148,23 @@ export default function Rendimientos() {
     })
     return Object.entries(mapa).map(([name, value]) => ({ name, value }))
   }, [produccionesDia, categoriaPorCodigo])
+
+  const informePorOperario = useMemo(() => {
+    const nombres = new Set()
+    produccionesDia.forEach(r => { if (r.operario_nombre) nombres.add(r.operario_nombre) })
+    ordenesDia.forEach(o => { if (o.operario_nombre) nombres.add(o.operario_nombre) })
+
+    return Array.from(nombres).map(nombre => {
+      const prods = produccionesDia.filter(r => r.operario_nombre === nombre)
+      const ordenes = ordenesDia.filter(o => o.operario_nombre === nombre)
+      const kg = prods.reduce((a, r) => a + (r.peso_kg || 0), 0)
+      const unidades = prods.length
+      const finalizadas = ordenes.filter(o => o.estado === 'completada').length
+      const totales = ordenes.length
+      const pct = totales === 0 ? 100 : (finalizadas / totales) * 100
+      return { nombre, kg, unidades, finalizadas, totales, pct }
+    }).sort((a, b) => b.kg - a.kg)
+  }, [produccionesDia, ordenesDia])
 
   const evaluacion = useMemo(() => {
     if (ordenesDia.length === 0) return { global: null, porOperario: [] }
@@ -379,28 +403,49 @@ export default function Rendimientos() {
             </div>
 
             <div className="p-5" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-              <h3 className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>Evaluación de desempeño</h3>
-              {evaluacion.global === null ? (
-                <p className="text-sm" style={{ color: colors.textMuted }}>Sin órdenes de producción para esta fecha</p>
+              <h3 className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>Desempeño por operario</h3>
+              {informePorOperario.length === 0 ? (
+                <p className="text-sm" style={{ color: colors.textMuted }}>Sin actividad registrada para esta fecha</p>
               ) : (
                 <>
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="text-3xl font-extrabold" style={{ color: semaforoPct(evaluacion.global).color }}>
-                      {evaluacion.global.toFixed(0)}%
+                  {evaluacion.global !== null && (
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="text-3xl font-extrabold" style={{ color: semaforoPct(evaluacion.global).color }}>
+                        {evaluacion.global.toFixed(0)}%
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>Cumplimiento global del día</p>
+                        <p className="text-xs" style={{ color: colors.textMuted }}>{ordenesDia.length} orden{ordenesDia.length !== 1 ? 'es' : ''}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>Cumplimiento global del día</p>
-                      <p className="text-xs" style={{ color: colors.textMuted }}>{ordenesDia.length} orden{ordenesDia.length !== 1 ? 'es' : ''}</p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {evaluacion.porOperario.map(o => {
-                      const s = semaforoPct(o.pct)
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {informePorOperario.map(op => {
+                      const n = nivelDesempeno(op.pct)
                       return (
-                        <span key={o.nombre} className="px-3 py-1.5 rounded-full text-xs font-semibold"
-                          style={{ backgroundColor: s.bg, color: s.color }}>
-                          {o.nombre}: {o.pct.toFixed(0)}%
-                        </span>
+                        <div key={op.nombre} className="p-4 flex flex-col gap-3"
+                          style={{ backgroundColor: colors.bg, borderRadius: radius.md, border: `1px solid ${colors.border}` }}>
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold flex-shrink-0"
+                              style={{ backgroundColor: `${colors.brand}18`, color: colors.brand }}>
+                              {op.nombre.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-semibold text-sm truncate" style={{ color: colors.textPrimary }}>{op.nombre}</p>
+                              <p className="text-xs" style={{ color: colors.textMuted }}>{op.kg.toFixed(2)} kg · {op.unidades} unidad{op.unidades !== 1 ? 'es' : ''}</p>
+                            </div>
+                            <Badge variant={n.variant}>{n.label}</Badge>
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between text-xs mb-1" style={{ color: colors.textMuted }}>
+                              <span>{op.totales === 0 ? 'Sin órdenes asignadas' : `Órdenes: ${op.finalizadas}/${op.totales} finalizadas`}</span>
+                              <span style={{ color: n.color, fontWeight: 700 }}>{op.pct.toFixed(0)}%</span>
+                            </div>
+                            <div className="h-1.5 w-full rounded-full overflow-hidden" style={{ backgroundColor: colors.surface }}>
+                              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${op.pct}%`, backgroundColor: n.color }} />
+                            </div>
+                          </div>
+                        </div>
                       )
                     })}
                   </div>

@@ -33,6 +33,8 @@ const PRODUCTOS_SEED = [
   { codigo: 116, nombre: 'TORTA HELADA KG',  categoria: 'IMPULSIVO' },
 ]
 
+const textareaClass = 'w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
+
 export default function Produccion() {
   const [operarios, setOperarios]     = useState([])
   const [productos, setProductos]     = useState([])
@@ -42,6 +44,7 @@ export default function Produccion() {
   const [codigo, setCodigo]           = useState('')
   const [preview, setPreview]         = useState(null)
   const [operarioSel, setOperarioSel] = useState('')
+  const [observaciones, setObservaciones] = useState('')
   const [guardando, setGuardando]     = useState(false)
   const inputRef = useRef(null)
 
@@ -103,7 +106,7 @@ export default function Produccion() {
   }
 
   async function registrar() {
-    if (!preview) return
+    if (!preview || !operarioSel) return
     setGuardando(true)
     const operario = operarios.find(o => String(o.id) === operarioSel)
     const { error } = await supabase.from('producciones').insert({
@@ -114,11 +117,13 @@ export default function Produccion() {
       lote,
       operario_id: operario?.id || null,
       operario_nombre: operario?.nombre || '—',
+      observaciones: observaciones.trim() || null,
     })
     setGuardando(false)
     if (error) { toast2('Error: ' + error.message, 'error'); return }
     setPreview(null)
     setCodigo('')
+    setObservaciones('')
     toast2('Registrado correctamente')
     setTimeout(() => inputRef.current?.focus(), 100)
   }
@@ -154,6 +159,17 @@ export default function Produccion() {
           </div>
           <h2 className="text-sm font-semibold" style={{ color: colors.textPrimary }}>Escanear código de barras</h2>
         </div>
+
+        <div className="max-w-xs mb-4">
+          <Select label="Operario *" value={operarioSel} onChange={e => setOperarioSel(e.target.value)}
+            error={!operarioSel ? 'Seleccioná un operario para poder registrar' : undefined}>
+            <option value="">Seleccionar operario...</option>
+            {operarios.map(o => (
+              <option key={o.id} value={String(o.id)}>{o.nombre}</option>
+            ))}
+          </Select>
+        </div>
+
         <input
           ref={inputRef}
           type="text"
@@ -182,22 +198,18 @@ export default function Produccion() {
                 {preview.peso} kg
               </span>
             </div>
-            <div className="flex gap-3 items-end flex-wrap">
-              <div className="flex-1 min-w-[160px]">
-                <Select label="Operario" value={operarioSel} onChange={e => setOperarioSel(e.target.value)}>
-                  {operarios.map(o => (
-                    <option key={o.id} value={String(o.id)}>{o.nombre}</option>
-                  ))}
-                </Select>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="secondary" onClick={() => { setPreview(null); setCodigo('') }}>
-                  Cancelar
-                </Button>
-                <Button variant="primary" onClick={registrar} loading={guardando}>
-                  {guardando ? 'Guardando…' : 'Registrar'}
-                </Button>
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-[#374151] mb-1.5">Observaciones</label>
+              <textarea value={observaciones} onChange={e => setObservaciones(e.target.value)}
+                placeholder="Observaciones (opcional)" rows={2} className={textareaClass} />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="secondary" onClick={() => { setPreview(null); setCodigo(''); setObservaciones('') }}>
+                Cancelar
+              </Button>
+              <Button variant="primary" onClick={registrar} loading={guardando} disabled={!operarioSel}>
+                {guardando ? 'Guardando…' : 'Registrar'}
+              </Button>
             </div>
           </div>
         )}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
@@ -10,7 +11,7 @@ import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import { colors, radius, shadow } from '../styles/design-system'
-import { ClipboardList, Plus, Printer, AlertTriangle } from 'lucide-react'
+import { ClipboardList, Plus, Printer, AlertTriangle, CheckCircle2, Warehouse } from 'lucide-react'
 import logoUrl from '../assets/logo.png'
 
 const LITROS_BATCH = 120
@@ -28,7 +29,12 @@ function estadoInfo(estado) {
   return ESTADOS.find(e => e.key === estado) || ESTADOS[0]
 }
 
+function fmtNum(n) {
+  return Number((n || 0).toFixed(2)).toString()
+}
+
 export default function Ordenes() {
+  const navigate = useNavigate()
   const [ordenes, setOrdenes]     = useState([])
   const [sabores, setSabores]     = useState([])
   const [operarios, setOperarios] = useState([])
@@ -37,6 +43,8 @@ export default function Ordenes() {
   const [modal, setModal]         = useState(false)
   const [saving, setSaving]       = useState(false)
   const [filtroEstado, setFiltroEstado] = useState('Todos')
+  const [stockAlert, setStockAlert] = useState(null)
+  const [checkingId, setCheckingId] = useState(null)
   const [form, setForm] = useState({
     fecha_produccion: new Date().toISOString().split('T')[0],
     sabor_id: '', sabor_nombre: '', operario_id: '', operario_nombre: '',
@@ -103,6 +111,53 @@ export default function Ordenes() {
     if (error) { toast2(error.message, 'error'); return }
     setOrdenes(prev => prev.map(o => o.id === id ? { ...o, estado } : o))
     toast2('Estado actualizado')
+  }
+
+  async function intentarCambiarEstado(orden, estado) {
+    if (estado !== 'en_proceso') {
+      cambiarEstado(orden.id, estado)
+      return
+    }
+    setCheckingId(orden.id)
+    const { data: recetas } = await supabase.from('sabores').select('id,nombre')
+    const receta = (recetas || []).find(r => r.nombre.trim().toLowerCase() === (orden.sabor_nombre || '').trim().toLowerCase())
+
+    if (!receta) {
+      setCheckingId(null)
+      setStockAlert({ orden, items: [], ok: true })
+      return
+    }
+
+    const [{ data: ings }, { data: insumos }] = await Promise.all([
+      supabase.from('sabor_ingredientes').select('*').eq('sabor_id', receta.id),
+      supabase.from('insumos').select('nombre,stock_actual,unidad'),
+    ])
+    const insumoPorNombre = {}
+    ;(insumos || []).forEach(i => { insumoPorNombre[i.nombre.trim().toLowerCase()] = i })
+
+    const faltantes = []
+    for (const ing of ings || []) {
+      const requerido = (ing.cantidad || 0) * (orden.batches || 1)
+      const insumo = insumoPorNombre[(ing.insumo_nombre || '').trim().toLowerCase()]
+      const disponible = insumo?.stock_actual ?? 0
+      if (disponible < requerido) {
+        const faltan = requerido - disponible
+        faltantes.push({
+          nombre: ing.insumo_nombre,
+          requerido, disponible, faltan,
+          unidad: ing.unidad,
+          severo: requerido > 0 && (faltan / requerido) >= 0.5,
+        })
+      }
+    }
+    setCheckingId(null)
+    setStockAlert({ orden, items: faltantes, ok: faltantes.length === 0 })
+  }
+
+  function confirmarInicio() {
+    if (!stockAlert) return
+    cambiarEstado(stockAlert.orden.id, 'en_proceso')
+    setStockAlert(null)
   }
 
   const ordenesFiltradas = useMemo(() => (
@@ -226,7 +281,8 @@ export default function Ordenes() {
 
                 <div className="flex gap-2 flex-wrap items-center">
                   {ESTADOS.filter(es => es.key !== orden.estado && es.key !== 'cancelada').map(es => (
-                    <Button key={es.key} variant="ghost" size="sm" onClick={() => cambiarEstado(orden.id, es.key)}
+                    <Button key={es.key} variant="ghost" size="sm" onClick={() => intentarCambiarEstado(orden, es.key)}
+                      loading={checkingId === orden.id} disabled={checkingId !== null && checkingId !== orden.id}
                       className="!border" style={{ borderColor: es.color, color: es.color }}>
                       → {es.label}
                     </Button>
@@ -303,6 +359,52 @@ export default function Ordenes() {
               rows={2} className={textareaClass} />
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        open={!!stockAlert}
+        onClose={() => setStockAlert(null)}
+        title={stockAlert?.ok ? 'Confirmar inicio de producción' : 'Stock insuficiente en depósito'}
+        maxWidth="max-w-md"
+        footer={
+          stockAlert?.ok ? (
+            <>
+              <Button variant="secondary" onClick={() => setStockAlert(null)} className="flex-1">Cancelar</Button>
+              <Button variant="primary" onClick={confirmarInicio} className="flex-1">Iniciar producción</Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={() => navigate('/deposito')} className="flex-1">
+                <Warehouse size={14} /> Ver depósito
+              </Button>
+              <Button variant="primary" onClick={() => setStockAlert(null)} className="flex-1">Entendido</Button>
+            </>
+          )
+        }
+      >
+        {stockAlert && (
+          stockAlert.ok ? (
+            <div className="flex items-start gap-2.5 px-3 py-3" style={{ backgroundColor: colors.successBg, border: `1px solid ${colors.success}40`, borderRadius: radius.md }}>
+              <CheckCircle2 size={18} style={{ color: colors.success }} className="flex-shrink-0 mt-0.5" />
+              <p className="text-sm" style={{ color: colors.textPrimary }}>
+                Hay stock suficiente de todos los ingredientes para <strong>{stockAlert.orden.sabor_nombre}</strong> ({stockAlert.orden.batches} batch{stockAlert.orden.batches !== 1 ? 'es' : ''}). ¿Confirmás el inicio de la producción?
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm" style={{ color: colors.textSecondary }}>
+                No se puede iniciar <strong>{stockAlert.orden.sabor_nombre}</strong>: faltan los siguientes insumos en depósito.
+              </p>
+              <div className="space-y-1.5">
+                {stockAlert.items.map((it, i) => (
+                  <div key={i} className="text-sm px-3 py-2" style={{ backgroundColor: it.severo ? colors.dangerBg : colors.warningBg, borderRadius: radius.md, color: it.severo ? colors.danger : colors.warning }}>
+                    {it.severo ? '❌' : '⚠️'} {it.nombre}: necesitás {fmtNum(it.requerido)} {it.unidad}, tenés {fmtNum(it.disponible)} {it.unidad} (faltan {fmtNum(it.faltan)} {it.unidad})
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        )}
       </Modal>
     </div>
   )

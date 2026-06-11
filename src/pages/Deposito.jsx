@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
+import KpiCard from '../components/ui/KpiCard'
 import Modal from '../components/ui/Modal'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
@@ -10,7 +11,7 @@ import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { Warehouse, ArrowUp, ArrowDown, Search, Printer } from 'lucide-react'
+import { Warehouse, ArrowUp, ArrowDown, Search, Printer, DollarSign } from 'lucide-react'
 import logoUrl from '../assets/logo.png'
 
 const TABS         = ['Movimientos', 'Stock', 'Trazabilidad']
@@ -19,6 +20,7 @@ const PRESENTACIONES = ['Balde', 'Bolsa', 'Lata', 'Caja', 'Frasco', 'Bidón']
 const UNIDADES     = ['kg', 'litros', 'unidades', 'g']
 const PERIODOS_TRZ = ['semana', 'mes', 'todo']
 const SEM = { verde: colors.success, amarillo: colors.warning, rojo: colors.danger, gris: colors.textMuted }
+const ROLES = ['operario', 'admin']
 
 const textareaClass = 'w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
 
@@ -29,6 +31,8 @@ function semaforo(actual, minimo) {
   if (r >= 0.75) return 'amarillo'
   return 'rojo'
 }
+
+function pesos(n) { return Math.round(n || 0).toLocaleString('es-AR') }
 
 function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios }) {
   const esIngreso = tipo === 'ingreso'
@@ -119,6 +123,9 @@ export default function Deposito() {
   const [busqueda, setBusqueda]         = useState('')
   const [filtroPeriodo, setFiltroPeriodo] = useState('mes')
   const [filtroDestino, setFiltroDestino] = useState('Todos')
+  const [userRole, setUserRole]         = useState('operario')
+
+  const showVal = userRole === 'admin'
 
   useEffect(() => { cargar() }, [])
 
@@ -185,6 +192,10 @@ export default function Deposito() {
     })
     return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0]))
   }, [insumosFiltrados])
+
+  const valorTotalDeposito = useMemo(() => (
+    insumos.reduce((a, i) => a + (i.stock_actual || 0) * (i.costo_unitario || 0), 0)
+  ), [insumos])
 
   const egresos = useMemo(() => {
     return movimientos.filter(m => {
@@ -254,7 +265,7 @@ export default function Deposito() {
           <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Depósito</h1>
           <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Control de materia prima</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           {tab === 'Movimientos' && (
             <>
               <Button variant="success" onClick={() => setModal('ingreso')}>
@@ -270,6 +281,18 @@ export default function Deposito() {
               <Printer size={15} /> Imprimir A4
             </Button>
           )}
+          <div className="flex items-center rounded-lg overflow-hidden" style={{ border: `1px dashed ${colors.border}` }} title="Vista dev">
+            {ROLES.map(r => (
+              <button key={r} onClick={() => setUserRole(r)}
+                className="px-3 py-1.5 text-xs font-medium transition capitalize"
+                style={{
+                  backgroundColor: userRole === r ? colors.brand : 'transparent',
+                  color: userRole === r ? 'white' : colors.textMuted,
+                }}>
+                {r}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -343,6 +366,11 @@ export default function Deposito() {
 
           {tab === 'Stock' && (
             <div className="space-y-4">
+              {showVal && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <KpiCard label="Valor total depósito" value={`$${pesos(valorTotalDeposito)}`} icon={DollarSign} color={colors.brand} />
+                </div>
+              )}
               <Input type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
                 placeholder="Buscar insumo…" icon={Search} />
               {insumos.length === 0 ? (
@@ -369,6 +397,14 @@ export default function Deposito() {
                             </div>
                             <p className="text-[10px] text-right" style={{ color: colors.textMuted }}>mín {ins.stock_minimo ?? '—'}</p>
                           </div>
+                          {showVal && (
+                            <div className="text-right flex-shrink-0 w-24">
+                              <p className="text-sm font-bold" style={{ color: colors.brand }}>
+                                ${pesos((ins.stock_actual || 0) * (ins.costo_unitario || 0))}
+                              </p>
+                              <p className="text-[10px]" style={{ color: colors.textMuted }}>Valor total</p>
+                            </div>
+                          )}
                           <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: SEM[niv] }} />
                         </div>
                       )

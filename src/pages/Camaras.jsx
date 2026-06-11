@@ -23,7 +23,14 @@ const TIPO_BADGE = {
   'Con Agregado': { bg: '#f5f3ff', color: '#6d28d9' },
   Agua:           { bg: '#ecfeff', color: '#0e7490' },
   Especial:       { bg: '#fff7ed', color: '#c2410c' },
+  Impulsivo:      { bg: '#fdf4ff', color: '#a21caf' },
+  Postre:         { bg: '#fef9c3', color: '#854d0e' },
 }
+const TIPOS_PRODUCTO = [
+  { key: 'helado',    label: 'Helados' },
+  { key: 'impulsivo', label: 'Impulsivos' },
+  { key: 'postre',    label: 'Postres' },
+]
 const MOTIVOS_EGRESO = [
   'Venta mostrador', 'Venta mayorista', 'Transferencia',
   'Degustación', 'Merma', 'Consumo interno',
@@ -91,6 +98,9 @@ function TarjetaSabor({ item, onClick, showVal }) {
         {item.baldes}
       </p>
       <p className="text-xs mb-2" style={{ color: colors.textMuted }}>{item.kg} kg</p>
+      {item.lote && (
+        <p className="text-[10px] font-mono mb-1.5" style={{ color: colors.textMuted }}>Lote: {item.lote}</p>
+      )}
       {showVal && precioKg && item.kg > 0 && (
         <p className="text-xs font-bold mb-1.5" style={{ color: colors.brand }}>
           ${pesos(item.kg * precioKg)}
@@ -123,7 +133,12 @@ function FilaLista({ item, onClick, showVal }) {
       <td className="py-3 px-4">
         <div className="flex items-center gap-2.5">
           <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: e.dot }} />
-          <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>{item.nombre}</span>
+          <div>
+            <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>{item.nombre}</span>
+            {item.lote && (
+              <span className="block text-[10px] font-mono" style={{ color: colors.textMuted }}>Lote: {item.lote}</span>
+            )}
+          </div>
         </div>
       </td>
       <td className="py-3 px-4">
@@ -182,6 +197,7 @@ function ModalMovimiento({ item, onClose, onApply }) {
   const [cantBaldes, setCantBaldes] = useState('')
   const [cantKg, setCantKg]         = useState('')
   const [motivo, setMotivo]         = useState(MOTIVOS_EGRESO[0])
+  const [lote, setLote]             = useState(item.lote || '')
   const [saving, setSaving]         = useState(false)
   const [errorMsg, setErrorMsg]     = useState(null)
 
@@ -193,7 +209,7 @@ function ModalMovimiento({ item, onClose, onApply }) {
     if (!b || b <= 0) return
     setSaving(true)
     setErrorMsg(null)
-    const err = await onApply({ id: item.id, tipo: tipoMov, baldes: b, kg: isNaN(k) ? 0 : k, motivo })
+    const err = await onApply({ id: item.id, tipo: tipoMov, baldes: b, kg: isNaN(k) ? 0 : k, motivo, lote: lote.trim() })
     if (err) { setErrorMsg(err); setSaving(false) }
   }
 
@@ -257,6 +273,9 @@ function ModalMovimiento({ item, onClose, onApply }) {
           <Input label="KG" type="number" min="0" step="0.1" value={cantKg} disabled={saving}
             onChange={ev => setCantKg(ev.target.value)} placeholder="0" />
         </div>
+
+        <Input label="Número de lote" type="text" value={lote} disabled={saving}
+          onChange={ev => setLote(ev.target.value)} placeholder="Opcional" />
 
         {tipoMov === 'egreso' && (
           <Select label="Motivo" value={motivo} onChange={ev => setMotivo(ev.target.value)} disabled={saving}>
@@ -368,6 +387,7 @@ export default function Camaras() {
   const [errorCarga, setErrorCarga]     = useState(null)
   const [toast, setToast]               = useState(null)
   const [filtroNombre, setFiltroNombre] = useState('')
+  const [filtroTipoProducto, setFiltroTipoProducto] = useState('helado')
   const [filtroTipo, setFiltroTipo]     = useState('Todos')
   const [filtroEstado, setFiltroEstado] = useState(null)
   const [orden, setOrden]               = useState('az')
@@ -397,18 +417,22 @@ export default function Camaras() {
     setTimeout(() => setToast(null), 3000)
   }
 
-  const totalBaldes = stock.reduce((a, s) => a + s.baldes, 0)
-  const totalKg     = stock.reduce((a, s) => a + s.kg, 0)
-  const conStock    = stock.filter(s => s.baldes > 3).length
-  const pocoStock   = stock.filter(s => s.baldes >= 1 && s.baldes <= 3).length
-  const agotados    = stock.filter(s => s.baldes === 0).length
-  const costoTotal  = showVal ? stock.reduce((a, s) => a + s.kg * (s.costo_kg || TIPO_PRECIOS[s.tipo]?.costo_kg || 0), 0) : 0
-  const valorVenta  = showVal ? stock.reduce((a, s) => a + s.kg * (s.precio_kg || TIPO_PRECIOS[s.tipo]?.precio_kg || 0), 0) : 0
+  const stockTipo = useMemo(() => (
+    stock.filter(s => (s.tipo_producto || 'helado') === filtroTipoProducto)
+  ), [stock, filtroTipoProducto])
+
+  const totalBaldes = stockTipo.reduce((a, s) => a + s.baldes, 0)
+  const totalKg     = stockTipo.reduce((a, s) => a + s.kg, 0)
+  const conStock    = stockTipo.filter(s => s.baldes > 3).length
+  const pocoStock   = stockTipo.filter(s => s.baldes >= 1 && s.baldes <= 3).length
+  const agotados    = stockTipo.filter(s => s.baldes === 0).length
+  const costoTotal  = showVal ? stockTipo.reduce((a, s) => a + s.kg * (s.costo_kg || TIPO_PRECIOS[s.tipo]?.costo_kg || 0), 0) : 0
+  const valorVenta  = showVal ? stockTipo.reduce((a, s) => a + s.kg * (s.precio_kg || TIPO_PRECIOS[s.tipo]?.precio_kg || 0), 0) : 0
 
   const filtrado = useMemo(() => {
-    let arr = stock.filter(s => {
+    let arr = stockTipo.filter(s => {
       const matchN = s.nombre.toLowerCase().includes(filtroNombre.toLowerCase())
-      const matchT = filtroTipo === 'Todos' || s.tipo === filtroTipo
+      const matchT = filtroTipoProducto !== 'helado' || filtroTipo === 'Todos' || s.tipo === filtroTipo
       const matchE = !filtroEstado ||
         (filtroEstado === 'ok'      && s.baldes > 3) ||
         (filtroEstado === 'poco'    && s.baldes >= 1 && s.baldes <= 3) ||
@@ -419,24 +443,29 @@ export default function Camaras() {
     if (orden === 'mas')   arr = [...arr].sort((a, b) => b.baldes - a.baldes)
     if (orden === 'menos') arr = [...arr].sort((a, b) => a.baldes - b.baldes)
     return arr
-  }, [stock, filtroNombre, filtroTipo, orden, filtroEstado])
+  }, [stockTipo, filtroNombre, filtroTipo, filtroTipoProducto, orden, filtroEstado])
 
-  const agrupado = useMemo(() => (
-    ['Lisa', 'Con Agregado', 'Agua', 'Especial']
+  const agrupado = useMemo(() => {
+    if (filtroTipoProducto !== 'helado') {
+      const label = TIPOS_PRODUCTO.find(t => t.key === filtroTipoProducto)?.label || 'Productos'
+      return filtrado.length > 0 ? [{ tipo: label, items: filtrado }] : []
+    }
+    return ['Lisa', 'Con Agregado', 'Agua', 'Especial']
       .map(tipo => ({ tipo, items: filtrado.filter(s => s.tipo === tipo) }))
       .filter(g => g.items.length > 0)
-  ), [filtrado])
+  }, [filtrado, filtroTipoProducto])
 
-  async function aplicarMovimiento({ id, tipo, baldes, kg }) {
+  async function aplicarMovimiento({ id, tipo, baldes, kg, lote }) {
     const sabor = stock.find(s => s.id === id)
     if (!sabor) return 'Sabor no encontrado'
     const nuevoBaldes = tipo === 'ingreso' ? sabor.baldes + baldes : Math.max(0, sabor.baldes - baldes)
     const nuevosKg    = tipo === 'ingreso' ? sabor.kg + kg         : Math.max(0, sabor.kg - kg)
+    const nuevoLote   = lote || null
     const { error } = await supabase.from('stock_camaras')
-      .update({ baldes: nuevoBaldes, kg: nuevosKg, updated_at: new Date().toISOString() })
+      .update({ baldes: nuevoBaldes, kg: nuevosKg, lote: nuevoLote, updated_at: new Date().toISOString() })
       .eq('id', id)
     if (error) return error.message
-    setStock(prev => prev.map(s => s.id === id ? { ...s, baldes: nuevoBaldes, kg: nuevosKg } : s))
+    setStock(prev => prev.map(s => s.id === id ? { ...s, baldes: nuevoBaldes, kg: nuevosKg, lote: nuevoLote } : s))
     setModalItem(null)
     mostrarToast('Movimiento guardado')
     return null
@@ -510,6 +539,17 @@ export default function Camaras() {
         </div>
       )}
 
+      {/* Filtro tipo de producto */}
+      <div className="flex gap-1.5 flex-wrap">
+        {TIPOS_PRODUCTO.map(tp => (
+          <button key={tp.key} onClick={() => { setFiltroTipoProducto(tp.key); setFiltroTipo('Todos'); setFiltroEstado(null) }}
+            className={PILL_BASE}
+            style={pillStyle(filtroTipoProducto === tp.key, colors.brand)}>
+            {tp.label}
+          </button>
+        ))}
+      </div>
+
       {/* Filtros */}
       <div className="space-y-3 p-4 rounded-xl"
         style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
@@ -533,15 +573,17 @@ export default function Camaras() {
           </div>
         </div>
         <div className="flex gap-2 flex-wrap items-center">
-          <div className="flex gap-1.5 flex-wrap">
-            {TIPOS.map(t => (
-              <button key={t} onClick={() => setFiltroTipo(t)}
-                className={PILL_BASE}
-                style={pillStyle(filtroTipo === t, colors.brand)}>
-                {t}
-              </button>
-            ))}
-          </div>
+          {filtroTipoProducto === 'helado' && (
+            <div className="flex gap-1.5 flex-wrap">
+              {TIPOS.map(t => (
+                <button key={t} onClick={() => setFiltroTipo(t)}
+                  className={PILL_BASE}
+                  style={pillStyle(filtroTipo === t, colors.brand)}>
+                  {t}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="ml-auto w-40">
             <Select value={orden} onChange={e => setOrden(e.target.value)}>
               <option value="az">A → Z</option>

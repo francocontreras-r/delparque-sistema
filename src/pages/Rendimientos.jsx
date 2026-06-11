@@ -5,9 +5,16 @@ import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
 import Badge from '../components/ui/Badge'
 import Select from '../components/ui/Select'
+import Input from '../components/ui/Input'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { TrendingUp, Users, Scale, Package } from 'lucide-react'
+import { TrendingUp, Users, Scale, Package, ClipboardCheck, Calendar } from 'lucide-react'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend,
+} from 'recharts'
+
+const TABS = ['Rendimientos', 'Informe del Día']
 
 const PERIODOS = [
   { key: 'hoy',    label: 'Hoy',    dias: 0  },
@@ -15,6 +22,8 @@ const PERIODOS = [
   { key: 'mes',    label: 'Mes',    dias: 30 },
 ]
 const MEDALLAS = ['🥇', '🥈', '🥉']
+const PIE_COLORS = [colors.brand, colors.info, colors.success, colors.warning, colors.danger, '#a21caf', '#0e7490']
+const ESTADO_PCT = { completada: 100, en_proceso: 50, pendiente: 0 }
 
 function desdeHace(dias) {
   const d = new Date()
@@ -29,13 +38,31 @@ function nivel(pct) {
   return               { label: 'BAJO',       variant: 'danger',  color: colors.danger }
 }
 
+function pctOrden(estado) {
+  return ESTADO_PCT[estado] ?? 0
+}
+
+function semaforoPct(pct) {
+  if (pct >= 80) return { color: colors.success, bg: colors.successBg }
+  if (pct >= 50) return { color: colors.warning, bg: colors.warningBg }
+  return { color: colors.danger, bg: colors.dangerBg }
+}
+
 export default function Rendimientos() {
+  const [tab, setTab]           = useState('Rendimientos')
   const [periodo, setPeriodo]   = useState('semana')
   const [filtroOp, setFiltroOp] = useState('Todos')
   const [datos, setDatos]       = useState([])
   const [loading, setLoading]   = useState(true)
 
+  const [fechaInforme, setFechaInforme]         = useState(new Date().toISOString().split('T')[0])
+  const [produccionesDia, setProduccionesDia]   = useState([])
+  const [categoriaPorCodigo, setCategoriaPorCodigo] = useState({})
+  const [ordenesDia, setOrdenesDia]             = useState([])
+  const [loadingInforme, setLoadingInforme]     = useState(true)
+
   useEffect(() => { cargar() }, [periodo])
+  useEffect(() => { cargarInforme() }, [fechaInforme])
 
   async function cargar() {
     setLoading(true)
@@ -46,6 +73,19 @@ export default function Rendimientos() {
     const { data } = await q
     setDatos(data || [])
     setLoading(false)
+  }
+
+  async function cargarInforme() {
+    setLoadingInforme(true)
+    const [{ data: prods }, { data: productosProd }, { data: ords }] = await Promise.all([
+      supabase.from('producciones').select('*').eq('fecha', fechaInforme).order('created_at', { ascending: true }),
+      supabase.from('productos_produccion').select('codigo,categoria'),
+      supabase.from('ordenes_produccion').select('*').eq('fecha_produccion', fechaInforme),
+    ])
+    setProduccionesDia(prods || [])
+    setCategoriaPorCodigo(Object.fromEntries((productosProd || []).map(p => [p.codigo, p.categoria || 'OTRO'])))
+    setOrdenesDia((ords || []).filter(o => o.estado !== 'cancelada'))
+    setLoadingInforme(false)
   }
 
   const opcionesOps = useMemo(() => {
@@ -74,6 +114,50 @@ export default function Rendimientos() {
   const podio   = porOperario.slice(0, 3)
   const resto   = porOperario.slice(3)
 
+  const kpiInforme = useMemo(() => {
+    const unidades = produccionesDia.length
+    const kg = produccionesDia.reduce((a, r) => a + (r.peso_kg || 0), 0)
+    const operariosActivos = new Set(produccionesDia.map(r => r.operario_nombre).filter(Boolean)).size
+    const ordenesCompletadas = ordenesDia.filter(o => o.estado === 'completada').length
+    return { unidades, kg, operariosActivos, ordenesCompletadas }
+  }, [produccionesDia, ordenesDia])
+
+  const porOperarioKg = useMemo(() => {
+    const mapa = {}
+    produccionesDia.forEach(r => {
+      const op = r.operario_nombre || 'Sin asignar'
+      mapa[op] = (mapa[op] || 0) + (r.peso_kg || 0)
+    })
+    return Object.entries(mapa)
+      .map(([nombre, kg]) => ({ nombre, kg: Number(kg.toFixed(2)) }))
+      .sort((a, b) => b.kg - a.kg)
+  }, [produccionesDia])
+
+  const porTipoProducto = useMemo(() => {
+    const mapa = {}
+    produccionesDia.forEach(r => {
+      const tipo = categoriaPorCodigo[r.producto_codigo] || 'OTRO'
+      mapa[tipo] = (mapa[tipo] || 0) + 1
+    })
+    return Object.entries(mapa).map(([name, value]) => ({ name, value }))
+  }, [produccionesDia, categoriaPorCodigo])
+
+  const evaluacion = useMemo(() => {
+    if (ordenesDia.length === 0) return { global: null, porOperario: [] }
+    const global = ordenesDia.reduce((a, o) => a + pctOrden(o.estado), 0) / ordenesDia.length
+    const mapa = {}
+    ordenesDia.forEach(o => {
+      const op = o.operario_nombre || 'Sin asignar'
+      if (!mapa[op]) mapa[op] = { nombre: op, total: 0, suma: 0 }
+      mapa[op].total++
+      mapa[op].suma += pctOrden(o.estado)
+    })
+    const porOp = Object.values(mapa)
+      .map(o => ({ nombre: o.nombre, pct: o.suma / o.total }))
+      .sort((a, b) => b.pct - a.pct)
+    return { global, porOperario: porOp }
+  }, [ordenesDia])
+
   return (
     <div className="space-y-5">
       <div>
@@ -81,6 +165,22 @@ export default function Rendimientos() {
         <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Performance por operario</p>
       </div>
 
+      <div className="flex gap-1.5 flex-wrap">
+        {TABS.map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border"
+            style={{
+              backgroundColor: tab === t ? colors.brand : 'transparent',
+              borderColor: tab === t ? colors.brand : colors.border,
+              color: tab === t ? 'white' : colors.textSecondary,
+            }}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'Rendimientos' && (
+      <>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <KpiCard label="Total unidades"    value={loading ? '—' : filtrado.length}    icon={Package} />
         <KpiCard label="Total KG"          value={loading ? '—' : totalKg.toFixed(1)} icon={Scale} />
@@ -195,6 +295,121 @@ export default function Rendimientos() {
             </div>
           )}
         </>
+      )}
+      </>
+      )}
+
+      {tab === 'Informe del Día' && (
+      <>
+        <div className="p-3 flex flex-wrap gap-2 items-center" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+          <Calendar size={16} style={{ color: colors.textMuted }} />
+          <div className="w-44">
+            <Input type="date" value={fechaInforme} onChange={e => setFechaInforme(e.target.value)} />
+          </div>
+        </div>
+
+        {loadingInforme ? (
+          <div className="flex justify-center py-14"><Spinner size={28} /></div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <KpiCard label="Total unidades"      value={kpiInforme.unidades}          icon={Package} />
+              <KpiCard label="Total KG"            value={kpiInforme.kg.toFixed(1)}      icon={Scale} />
+              <KpiCard label="Operarios activos"   value={kpiInforme.operariosActivos}  icon={Users} color={colors.brand} />
+              <KpiCard label="Órdenes completadas" value={kpiInforme.ordenesCompletadas} icon={ClipboardCheck} color={colors.success} />
+            </div>
+
+            {produccionesDia.length === 0 ? (
+              <EmptyState icon={Package} title="Sin producción registrada" subtitle="No hay registros de producción para la fecha seleccionada" />
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <div className="p-4" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                  <h3 className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>Producción por operario (kg)</h3>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={porOperarioKg}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={colors.border} />
+                      <XAxis dataKey="nombre" tick={{ fontSize: 11 }} interval={0} angle={-30} textAnchor="end" height={70} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip />
+                      <Bar dataKey="kg" fill={colors.brand} radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="p-4" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                  <h3 className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>Distribución por tipo de producto</h3>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <PieChart>
+                      <Pie data={porTipoProducto} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label>
+                        {porTipoProducto.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            <div style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm, overflow: 'hidden' }}>
+              <Table>
+                <Thead>
+                  <Tr>
+                    <Th>Operario</Th>
+                    <Th>Producto</Th>
+                    <Th>Cantidad</Th>
+                    <Th>KG</Th>
+                    <Th>Hora</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {produccionesDia.length === 0 ? (
+                    <Tr><Td colSpan={5} className="text-center" style={{ color: colors.textMuted }}>Sin registros</Td></Tr>
+                  ) : produccionesDia.map(r => (
+                    <Tr key={r.id}>
+                      <Td className="font-medium">{r.operario_nombre || '—'}</Td>
+                      <Td>{r.producto_nombre}</Td>
+                      <Td>1</Td>
+                      <Td>{r.peso_kg} kg</Td>
+                      <Td>{new Date(r.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </div>
+
+            <div className="p-5" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+              <h3 className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>Evaluación de desempeño</h3>
+              {evaluacion.global === null ? (
+                <p className="text-sm" style={{ color: colors.textMuted }}>Sin órdenes de producción para esta fecha</p>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="text-3xl font-extrabold" style={{ color: semaforoPct(evaluacion.global).color }}>
+                      {evaluacion.global.toFixed(0)}%
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>Cumplimiento global del día</p>
+                      <p className="text-xs" style={{ color: colors.textMuted }}>{ordenesDia.length} orden{ordenesDia.length !== 1 ? 'es' : ''}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {evaluacion.porOperario.map(o => {
+                      const s = semaforoPct(o.pct)
+                      return (
+                        <span key={o.nombre} className="px-3 py-1.5 rounded-full text-xs font-semibold"
+                          style={{ backgroundColor: s.bg, color: s.color }}>
+                          {o.nombre}: {o.pct.toFixed(0)}%
+                        </span>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </>
       )}
     </div>
   )

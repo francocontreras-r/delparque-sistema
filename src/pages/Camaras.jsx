@@ -1,10 +1,15 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import logoUrl from '../assets/logo.png'
 import { colors, shadow, radius } from '../styles/design-system'
 import KpiCard from '../components/ui/KpiCard'
 import Toast from '../components/ui/Toast'
-import Spinner from '../components/ui/Spinner'
+import Badge from '../components/ui/Badge'
+import Button from '../components/ui/Button'
+import Input from '../components/ui/Input'
+import Select from '../components/ui/Select'
+import Modal from '../components/ui/Modal'
 
 const TIPO_PRECIOS = {
   Lisa:           { costo_kg: 1200, precio_kg: 2800 },
@@ -31,6 +36,12 @@ function estadoSabor(baldes) {
   if (baldes === 0)  return { dot: colors.danger,  label: 'Agotado', accent: '#dc2626' }
   if (baldes <= 3)   return { dot: colors.warning, label: 'Bajo',    accent: '#d97706' }
   return                    { dot: colors.success, label: 'OK',      accent: '#16a34a' }
+}
+
+function estadoBadgeVariant(baldes) {
+  if (baldes === 0) return 'danger'
+  if (baldes <= 3)  return 'warning'
+  return 'success'
 }
 
 function pesos(n) { return Math.round(n).toLocaleString('es-AR') }
@@ -85,10 +96,13 @@ function TarjetaSabor({ item, onClick, showVal }) {
           ${pesos(item.kg * precioKg)}
         </p>
       )}
-      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md inline-block"
-        style={{ backgroundColor: tb.bg, color: tb.color }}>
-        {item.tipo}
-      </span>
+      <div className="flex items-center gap-1 flex-wrap">
+        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md inline-block"
+          style={{ backgroundColor: tb.bg, color: tb.color }}>
+          {item.tipo}
+        </span>
+        <Badge variant={estadoBadgeVariant(item.baldes)} className="!text-[10px] !px-1.5 !py-0.5">{e.label}</Badge>
+      </div>
     </button>
   )
 }
@@ -122,10 +136,7 @@ function FilaLista({ item, onClick, showVal }) {
         </td>
       )}
       <td className="py-3 px-4">
-        <span className="text-xs font-semibold px-2.5 py-1 rounded-full"
-          style={{ backgroundColor: e.dot + '18', color: e.dot }}>
-          {e.label}
-        </span>
+        <Badge variant={estadoBadgeVariant(item.baldes)}>{e.label}</Badge>
       </td>
     </tr>
   )
@@ -186,138 +197,96 @@ function ModalMovimiento({ item, onClose, onApply }) {
     if (err) { setErrorMsg(err); setSaving(false) }
   }
 
-  const INPUT = {
-    border: `1px solid ${colors.border}`,
-    borderRadius: radius.md,
-    padding: '10px 12px',
-    fontSize: 14,
-    outline: 'none',
-    width: '100%',
-    color: colors.textPrimary,
-  }
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
-      style={{ backgroundColor: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)' }}
-    >
-      <div
-        className="w-full max-w-sm flex flex-col"
-        style={{
-          backgroundColor: colors.surface,
-          borderRadius: radius.xl,
-          boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
-          animation: 'modal-in 180ms cubic-bezier(0.16,1,0.3,1)',
-        }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 flex-shrink-0"
-          style={{ borderBottom: `1px solid ${colors.border}` }}>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: colors.textMuted }}>Movimiento</p>
-            <p className="text-base font-bold mt-0.5" style={{ color: colors.textPrimary }}>{item.nombre}</p>
-          </div>
-          <div className="text-right">
-            <span className="text-2xl font-extrabold" style={{ color: e.dot }}>{item.baldes}</span>
-            <p className="text-xs" style={{ color: colors.textMuted }}>{item.kg} kg en cámara</p>
-          </div>
-        </div>
-
-        <div className="p-5 space-y-4">
-          {/* Toggle ingreso/egreso */}
-          <div className="flex gap-1.5 p-1 rounded-lg" style={{ backgroundColor: colors.bg }}>
-            {['ingreso', 'egreso'].map(t => (
-              <button
-                key={t}
-                onClick={() => setTipoMov(t)}
-                disabled={saving}
-                className="flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-semibold transition-all"
-                style={{
-                  backgroundColor: tipoMov === t ? (t === 'ingreso' ? colors.success : colors.danger) : 'transparent',
-                  color: tipoMov === t ? 'white' : colors.textMuted,
-                  boxShadow: tipoMov === t ? shadow.sm : 'none',
-                }}
-              >
-                {t === 'ingreso' ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
-                {t === 'ingreso' ? 'Ingreso' : 'Egreso'}
-              </button>
-            ))}
-          </div>
-
-          {/* Inputs */}
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="block text-xs font-medium mb-1.5" style={{ color: colors.textSecondary }}>Baldes</label>
-              <input type="number" min="1" value={cantBaldes} disabled={saving}
-                onChange={e => setCantBaldes(e.target.value)} placeholder="0"
-                style={INPUT}
-                onFocus={e => { e.target.style.borderColor = colors.brand }}
-                onBlur={e => { e.target.style.borderColor = colors.border }}
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-xs font-medium mb-1.5" style={{ color: colors.textSecondary }}>KG</label>
-              <input type="number" min="0" step="0.1" value={cantKg} disabled={saving}
-                onChange={e => setCantKg(e.target.value)} placeholder="0"
-                style={INPUT}
-                onFocus={e => { e.target.style.borderColor = colors.brand }}
-                onBlur={e => { e.target.style.borderColor = colors.border }}
-              />
-            </div>
-          </div>
-
-          {tipoMov === 'egreso' && (
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: colors.textSecondary }}>Motivo</label>
-              <select value={motivo} onChange={e => setMotivo(e.target.value)} disabled={saving}
-                style={{ ...INPUT, backgroundColor: 'white' }}>
-                {MOTIVOS_EGRESO.map(m => <option key={m}>{m}</option>)}
-              </select>
-            </div>
-          )}
-
-          {cantBaldes && parseInt(cantBaldes) > 0 && (
-            <div className="rounded-lg px-4 py-3 text-sm font-semibold text-center"
-              style={{
-                backgroundColor: tipoMov === 'ingreso' ? colors.successBg : colors.dangerBg,
-                color: tipoMov === 'ingreso' ? colors.success : colors.danger,
-              }}>
-              {tipoMov === 'ingreso' ? '↑' : '↓'} {item.baldes} →{' '}
-              <strong>
-                {tipoMov === 'ingreso'
-                  ? item.baldes + parseInt(cantBaldes)
-                  : Math.max(0, item.baldes - parseInt(cantBaldes))}
-              </strong> baldes
-            </div>
-          )}
-
-          {errorMsg && (
-            <div className="rounded-lg px-4 py-2.5 text-xs font-medium"
-              style={{ backgroundColor: colors.dangerBg, color: colors.danger }}>
-              {errorMsg}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex gap-2 px-5 pb-5">
-          <button onClick={onClose} disabled={saving}
-            className="flex-1 py-2.5 text-sm font-medium transition-colors rounded-lg"
-            style={{ border: `1px solid ${colors.border}`, color: colors.textSecondary, backgroundColor: 'transparent' }}
-            onMouseEnter={e => { e.currentTarget.style.backgroundColor = colors.bg }}
-            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent' }}>
+    <Modal
+      open
+      onClose={onClose}
+      title={item.nombre}
+      maxWidth="max-w-sm"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">
             Cancelar
-          </button>
-          <button onClick={handleApply}
-            disabled={saving || !cantBaldes || parseInt(cantBaldes) <= 0}
-            className="flex-1 py-2.5 text-sm font-semibold text-white rounded-lg transition-all flex items-center justify-center gap-2 disabled:opacity-40"
-            style={{ backgroundColor: colors.brand }}>
-            {saving && <Spinner size={14} />}
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleApply}
+            loading={saving}
+            disabled={!cantBaldes || parseInt(cantBaldes) <= 0}
+            className="flex-1"
+          >
             {saving ? 'Guardando…' : 'Confirmar'}
-          </button>
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {/* Stock actual */}
+        <div className="flex items-center justify-between rounded-lg px-4 py-3" style={{ backgroundColor: colors.bg }}>
+          <span className="text-sm" style={{ color: colors.textSecondary }}>Stock actual</span>
+          <div className="text-right">
+            <span className="text-xl font-extrabold" style={{ color: e.dot }}>{item.baldes}</span>
+            <span className="text-xs ml-1.5" style={{ color: colors.textMuted }}>baldes · {item.kg} kg</span>
+          </div>
         </div>
+
+        {/* Toggle ingreso/egreso */}
+        <div className="flex gap-1.5 p-1 rounded-lg" style={{ backgroundColor: colors.bg }}>
+          {['ingreso', 'egreso'].map(t => (
+            <button
+              key={t}
+              onClick={() => setTipoMov(t)}
+              disabled={saving}
+              className="flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-semibold transition-all"
+              style={{
+                backgroundColor: tipoMov === t ? (t === 'ingreso' ? colors.success : colors.danger) : 'transparent',
+                color: tipoMov === t ? 'white' : colors.textMuted,
+                boxShadow: tipoMov === t ? shadow.sm : 'none',
+              }}
+            >
+              {t === 'ingreso' ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
+              {t === 'ingreso' ? 'Ingreso' : 'Egreso'}
+            </button>
+          ))}
+        </div>
+
+        {/* Inputs */}
+        <div className="flex gap-3">
+          <Input label="Baldes" type="number" min="1" value={cantBaldes} disabled={saving}
+            onChange={ev => setCantBaldes(ev.target.value)} placeholder="0" />
+          <Input label="KG" type="number" min="0" step="0.1" value={cantKg} disabled={saving}
+            onChange={ev => setCantKg(ev.target.value)} placeholder="0" />
+        </div>
+
+        {tipoMov === 'egreso' && (
+          <Select label="Motivo" value={motivo} onChange={ev => setMotivo(ev.target.value)} disabled={saving}>
+            {MOTIVOS_EGRESO.map(m => <option key={m}>{m}</option>)}
+          </Select>
+        )}
+
+        {cantBaldes && parseInt(cantBaldes) > 0 && (
+          <div className="rounded-lg px-4 py-3 text-sm font-semibold text-center"
+            style={{
+              backgroundColor: tipoMov === 'ingreso' ? colors.successBg : colors.dangerBg,
+              color: tipoMov === 'ingreso' ? colors.success : colors.danger,
+            }}>
+            {tipoMov === 'ingreso' ? '↑' : '↓'} {item.baldes} →{' '}
+            <strong>
+              {tipoMov === 'ingreso'
+                ? item.baldes + parseInt(cantBaldes)
+                : Math.max(0, item.baldes - parseInt(cantBaldes))}
+            </strong> baldes
+          </div>
+        )}
+
+        {errorMsg && (
+          <div className="rounded-lg px-4 py-2.5 text-xs font-medium"
+            style={{ backgroundColor: colors.dangerBg, color: colors.danger }}>
+            {errorMsg}
+          </div>
+        )}
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -357,8 +326,8 @@ function generarInforme(stock, showVal) {
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Informe Cámaras - Del Parque</title>
 <style>*{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:24px}
-.header{display:flex;justify-content:space-between;border-bottom:2px solid ${colors.brand};padding-bottom:12px;margin-bottom:16px}
-.logo{font-size:22px;font-weight:900}.logo .a{color:${colors.brand}}
+.header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid ${colors.brand};padding-bottom:12px;margin-bottom:16px}
+.logo-img{height:32px;display:block}
 .sub{font-size:10px;color:#666;margin-top:4px}.fecha{font-size:10px;color:#444;text-align:right}
 .kpis{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}
 .kpi{border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;flex:1;min-width:80px}
@@ -374,7 +343,7 @@ tfoot tr td{border-top:1px solid #cbd5e1;background:#f8fafc}
 .firma{flex:1;border-top:1px solid #374151;margin-top:32px;padding-top:6px;font-size:9px;color:#64748b}
 @media print{body{padding:0}}</style></head><body>
 <div class="header">
-  <div><div class="logo"><span class="a">Del</span> Parque</div><div class="sub">Informe de Stock — Cámaras</div></div>
+  <div><img src="${logoUrl}" class="logo-img" alt="Del Parque" /><div class="sub">Informe de Stock — Cámaras</div></div>
   <div class="fecha"><strong>Fecha:</strong> ${ahora}</div>
 </div>
 <div class="kpis">
@@ -498,13 +467,9 @@ export default function Camaras() {
           <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Stock de producto elaborado · tiempo real</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={imprimir} disabled={loading || !!errorCarga}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-40"
-            style={{ borderColor: colors.border, color: colors.textSecondary, backgroundColor: colors.surface }}
-            onMouseEnter={e => { e.currentTarget.style.backgroundColor = colors.bg }}
-            onMouseLeave={e => { e.currentTarget.style.backgroundColor = colors.surface }}>
+          <Button variant="secondary" onClick={imprimir} disabled={loading || !!errorCarga}>
             <Printer size={15} /> Imprimir
-          </button>
+          </Button>
           <div className="flex items-center rounded-lg overflow-hidden" style={{ border: `1px dashed ${colors.border}` }} title="Vista dev">
             {ROLES.map(r => (
               <button key={r} onClick={() => setUserRole(r)}
@@ -549,15 +514,9 @@ export default function Camaras() {
       <div className="space-y-3 p-4 rounded-xl"
         style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
         <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: colors.textMuted }} />
-            <input type="text" value={filtroNombre} onChange={e => setFiltroNombre(e.target.value)}
-              placeholder="Buscar sabor…"
-              className="w-full text-sm pl-8 pr-3 py-2 transition"
-              style={{ border: `1px solid ${colors.border}`, borderRadius: radius.md, outline: 'none', color: colors.textPrimary }}
-              onFocus={e => { e.target.style.borderColor = colors.brand }}
-              onBlur={e => { e.target.style.borderColor = colors.border }}
-            />
+          <div className="flex-1">
+            <Input type="text" value={filtroNombre} onChange={e => setFiltroNombre(e.target.value)}
+              placeholder="Buscar sabor…" icon={Search} />
           </div>
           <div className="flex rounded-lg overflow-hidden" style={{ border: `1px solid ${colors.border}` }}>
             {[{ v: 'grilla', I: LayoutGrid }, { v: 'lista', I: List }].map(({ v, I }) => (
@@ -583,13 +542,13 @@ export default function Camaras() {
               </button>
             ))}
           </div>
-          <select value={orden} onChange={e => setOrden(e.target.value)}
-            className="ml-auto text-xs py-1.5 px-3 transition"
-            style={{ border: `1px solid ${colors.border}`, borderRadius: radius.md, outline: 'none', color: colors.textSecondary, backgroundColor: colors.surface }}>
-            <option value="az">A → Z</option>
-            <option value="mas">Más baldes</option>
-            <option value="menos">Menos baldes</option>
-          </select>
+          <div className="ml-auto w-40">
+            <Select value={orden} onChange={e => setOrden(e.target.value)}>
+              <option value="az">A → Z</option>
+              <option value="mas">Más baldes</option>
+              <option value="menos">Menos baldes</option>
+            </Select>
+          </div>
         </div>
       </div>
 

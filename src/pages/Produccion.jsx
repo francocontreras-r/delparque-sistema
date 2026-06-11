@@ -4,6 +4,9 @@ import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
 import KpiCard from '../components/ui/KpiCard'
 import EmptyState from '../components/ui/EmptyState'
+import Button from '../components/ui/Button'
+import Select from '../components/ui/Select'
+import Badge from '../components/ui/Badge'
 import { colors, radius, shadow } from '../styles/design-system'
 import { Package, Users, Scale, Hash, ScanLine } from 'lucide-react'
 
@@ -29,17 +32,6 @@ const PRODUCTOS_SEED = [
   { codigo: 102, nombre: 'PIONONO',          categoria: 'IMPULSIVO' },
   { codigo: 116, nombre: 'TORTA HELADA KG',  categoria: 'IMPULSIVO' },
 ]
-
-const fieldStyle = {
-  width: '100%',
-  border: `1px solid ${colors.border}`,
-  borderRadius: radius.md,
-  padding: '8px 12px',
-  fontSize: 14,
-  outline: 'none',
-  color: colors.textPrimary,
-  backgroundColor: colors.surface,
-}
 
 export default function Produccion() {
   const [operarios, setOperarios]     = useState([])
@@ -168,20 +160,23 @@ export default function Produccion() {
           value={codigo}
           onChange={e => setCodigo(e.target.value)}
           onKeyDown={handleKey}
-          placeholder="Escaneá o pegá el código EAN-13 y presioná Enter…"
+          placeholder="Escanear código de barra..."
           autoFocus
-          className="w-full font-mono tracking-wide outline-none transition-colors"
-          style={{ padding: '18px 20px', fontSize: 17, borderRadius: radius.lg, border: `2px solid ${colors.border}`, color: colors.textPrimary }}
+          className="w-full font-mono tracking-wide text-center outline-none transition-colors"
+          style={{ padding: '20px 24px', fontSize: 18, borderRadius: radius.lg, border: `2px solid ${colors.border}`, color: colors.textPrimary }}
           onFocus={e => { e.target.style.borderColor = colors.brand }}
           onBlur={e => { e.target.style.borderColor = colors.border }}
         />
 
         {preview && (
-          <div className="mt-4 p-5 space-y-3" style={{ backgroundColor: `${colors.brand}0d`, border: `1px solid ${colors.brand}30`, borderRadius: radius.lg, animation: 'slide-up 220ms ease-out' }}>
+          <div className="mt-4 p-5 space-y-3" style={{ backgroundColor: `${colors.brand}0d`, border: `1px solid ${colors.brand}30`, borderRadius: radius.lg, animation: 'slide-down 220ms ease-out' }}>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="font-bold" style={{ color: colors.textPrimary }}>{preview.nombre}</p>
-                <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>{preview.categoria} · Código #{preview.prod} · Lote {lote}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-bold" style={{ color: colors.textPrimary }}>{preview.nombre}</p>
+                  <Badge variant="info">{preview.categoria}</Badge>
+                </div>
+                <p className="text-xs mt-1" style={{ color: colors.textMuted }}>Código #{preview.prod} · Lote {lote}</p>
               </div>
               <span className="text-2xl font-extrabold flex-shrink-0" style={{ color: colors.brand }}>
                 {preview.peso} kg
@@ -189,27 +184,19 @@ export default function Produccion() {
             </div>
             <div className="flex gap-3 items-end flex-wrap">
               <div className="flex-1 min-w-[160px]">
-                <label className="block text-xs font-medium mb-1" style={{ color: colors.textSecondary }}>Operario</label>
-                <select value={operarioSel} onChange={e => setOperarioSel(e.target.value)} style={fieldStyle}>
+                <Select label="Operario" value={operarioSel} onChange={e => setOperarioSel(e.target.value)}>
                   {operarios.map(o => (
                     <option key={o.id} value={String(o.id)}>{o.nombre}</option>
                   ))}
-                </select>
+                </Select>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => { setPreview(null); setCodigo('') }}
-                  className="px-4 py-2 text-sm font-medium transition-colors"
-                  style={{ borderRadius: radius.md, border: `1px solid ${colors.border}`, color: colors.textSecondary, backgroundColor: 'transparent' }}
-                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = colors.bg }}
-                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent' }}>
+                <Button variant="secondary" onClick={() => { setPreview(null); setCodigo('') }}>
                   Cancelar
-                </button>
-                <button onClick={registrar} disabled={guardando}
-                  className="px-4 py-2 text-sm font-semibold text-white flex items-center gap-2 transition-all disabled:opacity-40"
-                  style={{ borderRadius: radius.md, backgroundColor: colors.brand }}>
-                  {guardando && <Spinner size={14} />}
+                </Button>
+                <Button variant="primary" onClick={registrar} loading={guardando}>
                   {guardando ? 'Guardando…' : 'Registrar'}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -237,9 +224,12 @@ export default function Produccion() {
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold truncate" style={{ color: colors.textPrimary }}>{r.producto_nombre}</p>
-                    <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>
-                      {r.categoria || '—'} · {r.operario_nombre} · {new Date(r.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                    </p>
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                      {r.categoria && <Badge variant="neutral">{r.categoria}</Badge>}
+                      <span className="text-xs" style={{ color: colors.textMuted }}>
+                        {r.operario_nombre} · {new Date(r.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
                   </div>
                   <span className="text-base font-bold flex-shrink-0" style={{ color: colors.brand }}>{r.peso_kg} kg</span>
                 </div>

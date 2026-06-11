@@ -1,22 +1,33 @@
+import { tokens } from './tokens'
+
+// Compatibilidad con páginas existentes: mapea los tokens nuevos a los
+// nombres de color usados históricamente en el código.
 export const colors = {
-  brand:       '#D4521A',
-  brandDark:   '#b84415',
-  sidebar:     '#1a1a1a',
-  sidebarHover:'#2a2a2a',
-  bg:          '#f8fafc',
-  surface:     '#ffffff',
-  border:      '#e2e8f0',
-  textPrimary: '#0f172a',
-  textSecondary:'#64748b',
-  textMuted:   '#94a3b8',
-  success:     '#16a34a',
-  successBg:   '#f0fdf4',
-  warning:     '#d97706',
-  warningBg:   '#fffbeb',
-  danger:      '#dc2626',
-  dangerBg:    '#fef2f2',
-  info:        '#2563eb',
-  infoBg:      '#eff6ff',
+  brand:        tokens.colors.brand,
+  brandDark:    tokens.colors.brandDark,
+  brandLight:   tokens.colors.brandLight,
+  sidebar:      tokens.colors.sidebar,
+  sidebarActive:tokens.colors.sidebarActive,
+  sidebarHover: tokens.colors.sidebarHover,
+  bg:           tokens.colors.bg,
+  surface:      tokens.colors.surface,
+  border:       tokens.colors.border,
+  borderStrong: tokens.colors.borderStrong,
+  textPrimary:  tokens.colors.text,
+  textSecondary:tokens.colors.textSecondary,
+  textMuted:    tokens.colors.textMuted,
+  success:      tokens.colors.success,
+  successBg:    tokens.colors.successBg,
+  successBorder:tokens.colors.successBorder,
+  warning:      tokens.colors.warning,
+  warningBg:    tokens.colors.warningBg,
+  warningBorder:tokens.colors.warningBorder,
+  danger:       tokens.colors.danger,
+  dangerBg:     tokens.colors.dangerBg,
+  dangerBorder: tokens.colors.dangerBorder,
+  info:         tokens.colors.info,
+  infoBg:       tokens.colors.infoBg,
+  infoBorder:   tokens.colors.infoBorder,
 }
 
 export const radius = {
@@ -29,9 +40,9 @@ export const radius = {
 
 export const shadow = {
   xs: '0 1px 2px 0 rgb(0 0 0 / 0.05)',
-  sm: '0 1px 3px 0 rgb(0 0 0 / 0.07), 0 1px 2px -1px rgb(0 0 0 / 0.05)',
-  md: '0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.05)',
-  lg: '0 10px 15px -3px rgb(0 0 0 / 0.07), 0 4px 6px -4px rgb(0 0 0 / 0.05)',
+  sm: tokens.shadow.sm,
+  md: tokens.shadow.md,
+  lg: tokens.shadow.lg,
   xl: '0 20px 25px -5px rgb(0 0 0 / 0.1),  0 8px 10px -6px rgb(0 0 0 / 0.05)',
 }
 

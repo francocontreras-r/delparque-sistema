@@ -5,8 +5,14 @@ import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
 import Modal from '../components/ui/Modal'
+import Button from '../components/ui/Button'
+import Input from '../components/ui/Input'
+import Select from '../components/ui/Select'
+import Badge from '../components/ui/Badge'
+import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { TrendingDown, Plus } from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 const TABS   = ['Por Sabor', 'Por Operario', 'Por Causa', 'Historial']
 const CAUSAS = [
@@ -14,16 +20,7 @@ const CAUSAS = [
   'Vencimiento', 'Error de pesaje', 'Limpieza de línea', 'Otra',
 ]
 
-const fieldStyle = {
-  width: '100%',
-  border: `1px solid ${colors.border}`,
-  borderRadius: radius.md,
-  padding: '8px 12px',
-  fontSize: 14,
-  outline: 'none',
-  color: colors.textPrimary,
-  backgroundColor: colors.surface,
-}
+const textareaClass = 'w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
 
 function pctColor(pct) {
   if (pct < 3)  return colors.success
@@ -31,23 +28,10 @@ function pctColor(pct) {
   return colors.danger
 }
 
-function PctBadge({ pct }) {
-  const c = pctColor(pct)
-  return (
-    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-      style={{ backgroundColor: `${c}18`, color: c }}>
-      {pct.toFixed(1)}%
-    </span>
-  )
-}
-
-function Field({ label, required, children }) {
-  return (
-    <div>
-      <label className="block text-xs font-medium mb-1" style={{ color: colors.textSecondary }}>{label}{required && ' *'}</label>
-      {children}
-    </div>
-  )
+function pctVariant(pct) {
+  if (pct < 3)  return 'success'
+  if (pct < 8)  return 'warning'
+  return 'danger'
 }
 
 function AgrupacionList({ filas }) {
@@ -55,13 +39,14 @@ function AgrupacionList({ filas }) {
   return (
     <div className="space-y-2">
       {filas.map(f => (
-        <div key={f.nombre} className="p-4 flex items-center gap-4" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+        <div key={f.nombre} className="p-4 flex items-center gap-3" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: pctColor(f.pct) }} />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold truncate" style={{ color: colors.textPrimary }}>{f.nombre}</p>
             <p className="text-xs" style={{ color: colors.textMuted }}>{f.cnt} registro{f.cnt !== 1 ? 's' : ''} · {f.teo.toFixed(1)} kg teóricos</p>
           </div>
-          <span className="text-sm font-bold" style={{ color: colors.danger }}>{f.dif.toFixed(2)} kg</span>
-          <PctBadge pct={f.pct} />
+          <span className="text-sm font-bold flex-shrink-0" style={{ color: colors.danger }}>{f.dif.toFixed(2)} kg</span>
+          <Badge variant={pctVariant(f.pct)}>{f.pct.toFixed(1)}%</Badge>
         </div>
       ))}
     </div>
@@ -169,11 +154,9 @@ export default function Mermas() {
           <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Mermas</h1>
           <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Tolerancia: &lt;3% verde · 3-8% amarillo · &gt;8% rojo</p>
         </div>
-        <button onClick={() => setModal(true)}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white transition-all"
-          style={{ borderRadius: radius.md, backgroundColor: colors.brand }}>
+        <Button variant="primary" onClick={() => setModal(true)}>
           <Plus size={15} /> Registrar
-        </button>
+        </Button>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
@@ -182,14 +165,14 @@ export default function Mermas() {
         <KpiCard label="Registros"   value={loading ? '—' : mermas.length} />
       </div>
 
-      <div className="flex gap-1 p-1 rounded-xl" style={{ backgroundColor: colors.bg }}>
+      <div className="flex gap-1.5 flex-wrap">
         {TABS.map(t => (
           <button key={t} onClick={() => setTab(t)}
-            className="flex-1 py-2 text-xs font-semibold rounded-lg transition-all leading-tight"
+            className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border"
             style={{
-              backgroundColor: tab === t ? colors.surface : 'transparent',
-              color: tab === t ? colors.textPrimary : colors.textMuted,
-              boxShadow: tab === t ? shadow.sm : 'none',
+              backgroundColor: tab === t ? colors.brand : 'transparent',
+              borderColor: tab === t ? colors.brand : colors.border,
+              color: tab === t ? 'white' : colors.textSecondary,
             }}>
             {t}
           </button>
@@ -206,17 +189,48 @@ export default function Mermas() {
           {tab === 'Por Causa' && (
             porCausa.length === 0
               ? <EmptyState icon={TrendingDown} title="Sin registros" />
-              : <div className="space-y-2">
-                  {porCausa.map(c => (
-                    <div key={c.causa} className="p-4 flex items-center gap-4" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>{c.causa}</p>
-                        <p className="text-xs" style={{ color: colors.textMuted }}>{c.cnt} registro{c.cnt !== 1 ? 's' : ''}</p>
-                      </div>
-                      <span className="text-sm font-bold" style={{ color: colors.danger }}>{c.dif.toFixed(2)} kg</span>
-                    </div>
-                  ))}
+              : (
+                <div className="space-y-3">
+                  <div className="p-4" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                    <ResponsiveContainer width="100%" height={260}>
+                      <BarChart data={porCausa} margin={{ top: 8, right: 8, left: -16, bottom: 48 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={colors.border} vertical={false} />
+                        <XAxis dataKey="causa" tick={{ fontSize: 10, fill: colors.textMuted }} angle={-30} textAnchor="end" interval={0} height={70} />
+                        <YAxis tick={{ fontSize: 11, fill: colors.textMuted }} />
+                        <Tooltip
+                          contentStyle={{ borderRadius: radius.md, border: `1px solid ${colors.border}`, fontSize: 12 }}
+                          formatter={v => [`${Number(v).toFixed(2)} kg`, 'Pérdida']}
+                        />
+                        <Bar dataKey="dif" radius={[6, 6, 0, 0]}>
+                          {porCausa.map((_, i) => <Cell key={i} fill={colors.danger} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                    <Table>
+                      <Thead>
+                        <Tr>
+                          <Th>Causa</Th>
+                          <Th>Registros</Th>
+                          <Th>KG perdidos</Th>
+                          <Th>% del total</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {porCausa.map(c => (
+                          <Tr key={c.causa}>
+                            <Td className="font-medium">{c.causa}</Td>
+                            <Td>{c.cnt}</Td>
+                            <Td className="font-bold" style={{ color: colors.danger }}>{c.dif.toFixed(2)} kg</Td>
+                            <Td>{totalDif > 0 ? ((c.dif / totalDif) * 100).toFixed(1) : '0.0'}%</Td>
+                          </Tr>
+                        ))}
+                      </Tbody>
+                    </Table>
+                  </div>
                 </div>
+              )
           )}
 
           {tab === 'Historial' && (
@@ -224,33 +238,34 @@ export default function Mermas() {
               ? <EmptyState icon={TrendingDown} title="Sin historial" subtitle="Los registros aparecen aquí" />
               : (
                 <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[620px]">
-                      <thead>
-                        <tr style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                          {['Fecha', 'Sabor', 'Operario', 'KG teórico', 'KG real', 'Diferencia', '%', 'Causa'].map(h => (
-                            <th key={h} className="py-2.5 px-3 text-left font-semibold uppercase" style={{ fontSize: 10, color: colors.textMuted, letterSpacing: '0.06em' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {mermas.map(m => (
-                          <tr key={m.id} style={{ borderBottom: `1px solid ${colors.border}` }}
-                            onMouseEnter={e => { e.currentTarget.style.backgroundColor = colors.bg }}
-                            onMouseLeave={e => { e.currentTarget.style.backgroundColor = '' }}>
-                            <td className="py-2.5 px-3 text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{m.fecha}</td>
-                            <td className="py-2.5 px-3 text-xs font-medium" style={{ color: colors.textPrimary }}>{m.sabor_nombre}</td>
-                            <td className="py-2.5 px-3 text-xs" style={{ color: colors.textSecondary }}>{m.operario_nombre || '—'}</td>
-                            <td className="py-2.5 px-3 text-xs text-right" style={{ color: colors.textSecondary }}>{m.kg_teoricos}</td>
-                            <td className="py-2.5 px-3 text-xs text-right" style={{ color: colors.textSecondary }}>{m.kg_reales}</td>
-                            <td className="py-2.5 px-3 text-xs font-semibold text-right" style={{ color: colors.danger }}>{(m.diferencia || 0).toFixed(2)}</td>
-                            <td className="py-2.5 px-3"><PctBadge pct={m.porcentaje || 0} /></td>
-                            <td className="py-2.5 px-3 text-xs" style={{ color: colors.textMuted }}>{m.causa}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <Table className="min-w-[620px]">
+                    <Thead>
+                      <Tr>
+                        <Th>Fecha</Th>
+                        <Th>Sabor</Th>
+                        <Th>Operario</Th>
+                        <Th>KG teórico</Th>
+                        <Th>KG real</Th>
+                        <Th>Diferencia</Th>
+                        <Th>%</Th>
+                        <Th>Causa</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {mermas.map(m => (
+                        <Tr key={m.id}>
+                          <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{m.fecha}</Td>
+                          <Td className="font-medium">{m.sabor_nombre}</Td>
+                          <Td className="text-xs" style={{ color: colors.textSecondary }}>{m.operario_nombre || '—'}</Td>
+                          <Td className="text-xs text-right" style={{ color: colors.textSecondary }}>{m.kg_teoricos}</Td>
+                          <Td className="text-xs text-right" style={{ color: colors.textSecondary }}>{m.kg_reales}</Td>
+                          <Td className="font-semibold text-right" style={{ color: colors.danger }}>{(m.diferencia || 0).toFixed(2)}</Td>
+                          <Td><Badge variant={pctVariant(m.porcentaje || 0)}>{(m.porcentaje || 0).toFixed(1)}%</Badge></Td>
+                          <Td className="text-xs" style={{ color: colors.textMuted }}>{m.causa}</Td>
+                        </Tr>
+                      ))}
+                    </Tbody>
+                  </Table>
                 </div>
               )
           )}
@@ -263,50 +278,35 @@ export default function Mermas() {
         title="Registrar Merma"
         maxWidth="max-w-md"
         footer={
-          <div className="flex gap-2">
-            <button onClick={() => setModal(false)} disabled={saving}
-              className="flex-1 py-2.5 text-sm font-medium transition-colors"
-              style={{ borderRadius: radius.md, border: `1px solid ${colors.border}`, color: colors.textSecondary, backgroundColor: 'transparent' }}
-              onMouseEnter={e => { e.currentTarget.style.backgroundColor = colors.bg }}
-              onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent' }}>
+          <>
+            <Button variant="secondary" onClick={() => setModal(false)} disabled={saving} className="flex-1">
               Cancelar
-            </button>
-            <button onClick={guardar} disabled={saving}
-              className="flex-1 py-2.5 text-sm font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-40 transition-all"
-              style={{ borderRadius: radius.md, backgroundColor: colors.brand }}>
-              {saving && <Spinner size={14} />}
+            </Button>
+            <Button variant="primary" onClick={guardar} loading={saving} className="flex-1">
               {saving ? 'Guardando…' : 'Registrar'}
-            </button>
-          </div>
+            </Button>
+          </>
         }
       >
-        <div className="p-6 space-y-3">
+        <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Fecha" required>
-              <input type="date" value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} style={fieldStyle} />
-            </Field>
-            <Field label="Sabor" required>
-              <input type="text" value={form.sabor_nombre} onChange={e => setForm(f => ({ ...f, sabor_nombre: e.target.value }))}
-                list="sabores-list" placeholder="Nombre del sabor" style={fieldStyle} />
+            <Input label="Fecha *" type="date" value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} />
+            <div>
+              <Input label="Sabor *" type="text" value={form.sabor_nombre} onChange={e => setForm(f => ({ ...f, sabor_nombre: e.target.value }))}
+                list="sabores-list" placeholder="Nombre del sabor" />
               <datalist id="sabores-list">{sabores.map(s => <option key={s.id} value={s.nombre} />)}</datalist>
-            </Field>
+            </div>
           </div>
-          <Field label="Operario">
-            <select value={form.operario_nombre} onChange={e => setForm(f => ({ ...f, operario_nombre: e.target.value }))} style={fieldStyle}>
-              <option value="">— Sin asignar —</option>
-              {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
-            </select>
-          </Field>
+          <Select label="Operario" value={form.operario_nombre} onChange={e => setForm(f => ({ ...f, operario_nombre: e.target.value }))}>
+            <option value="">— Sin asignar —</option>
+            {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+          </Select>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="KG Teóricos" required>
-              <input type="number" step="0.01" value={form.kg_teoricos} onChange={e => setForm(f => ({ ...f, kg_teoricos: e.target.value }))} style={fieldStyle} />
-            </Field>
-            <Field label="KG Reales" required>
-              <input type="number" step="0.01" value={form.kg_reales} onChange={e => setForm(f => ({ ...f, kg_reales: e.target.value }))} style={fieldStyle} />
-            </Field>
+            <Input label="KG Teóricos *" type="number" step="0.01" value={form.kg_teoricos} onChange={e => setForm(f => ({ ...f, kg_teoricos: e.target.value }))} />
+            <Input label="KG Reales *" type="number" step="0.01" value={form.kg_reales} onChange={e => setForm(f => ({ ...f, kg_reales: e.target.value }))} />
           </div>
           {diferencia && (
-            <div className="flex gap-4 rounded-lg px-4 py-2.5" style={{ backgroundColor: colors.bg, borderRadius: radius.md }}>
+            <div className="flex gap-4 px-4 py-2.5" style={{ backgroundColor: colors.bg, borderRadius: radius.md }}>
               <div className="text-center flex-1">
                 <p className="text-xs" style={{ color: colors.textMuted }}>Diferencia</p>
                 <p className="text-sm font-bold" style={{ color: colors.danger }}>{diferencia.dif.toFixed(2)} kg</p>
@@ -317,15 +317,14 @@ export default function Mermas() {
               </div>
             </div>
           )}
-          <Field label="Causa">
-            <select value={form.causa} onChange={e => setForm(f => ({ ...f, causa: e.target.value }))} style={fieldStyle}>
-              {CAUSAS.map(c => <option key={c}>{c}</option>)}
-            </select>
-          </Field>
-          <Field label="Observaciones">
+          <Select label="Causa" value={form.causa} onChange={e => setForm(f => ({ ...f, causa: e.target.value }))}>
+            {CAUSAS.map(c => <option key={c}>{c}</option>)}
+          </Select>
+          <div>
+            <label className="block text-sm font-medium text-[#374151] mb-1.5">Observaciones</label>
             <textarea value={form.observaciones} onChange={e => setForm(f => ({ ...f, observaciones: e.target.value }))}
-              rows={2} style={{ ...fieldStyle, resize: 'none' }} />
-          </Field>
+              rows={2} className={textareaClass} />
+          </div>
         </div>
       </Modal>
     </div>

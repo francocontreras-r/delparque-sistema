@@ -5,46 +5,27 @@ import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
 import Modal from '../components/ui/Modal'
+import Button from '../components/ui/Button'
+import Input from '../components/ui/Input'
+import Select from '../components/ui/Select'
+import Badge from '../components/ui/Badge'
 import { colors, radius, shadow } from '../styles/design-system'
 import { ClipboardList, Plus, Printer, AlertTriangle } from 'lucide-react'
+import logoUrl from '../assets/logo.png'
 
 const LITROS_BATCH = 120
 
 const ESTADOS = [
-  { key: 'pendiente',   label: 'Pendiente',  color: colors.warning, bg: colors.warningBg },
-  { key: 'en_proceso',  label: 'En proceso', color: colors.info,    bg: colors.infoBg    },
-  { key: 'completada',  label: 'Completada', color: colors.success, bg: colors.successBg },
-  { key: 'cancelada',   label: 'Cancelada',  color: colors.textMuted, bg: colors.bg      },
+  { key: 'pendiente',  label: 'Pendiente',  color: colors.warning,   variant: 'warning' },
+  { key: 'en_proceso', label: 'En proceso', color: colors.info,      variant: 'info'    },
+  { key: 'completada', label: 'Completada', color: colors.success,   variant: 'success' },
+  { key: 'cancelada',  label: 'Cancelada',  color: colors.textMuted, variant: 'neutral' },
 ]
 
-const fieldStyle = {
-  width: '100%',
-  border: `1px solid ${colors.border}`,
-  borderRadius: radius.md,
-  padding: '8px 12px',
-  fontSize: 14,
-  outline: 'none',
-  color: colors.textPrimary,
-  backgroundColor: colors.surface,
-}
+const textareaClass = 'w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
 
-function EstadoBadge({ estado }) {
-  const e = ESTADOS.find(e => e.key === estado) || ESTADOS[0]
-  return (
-    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
-      style={{ backgroundColor: e.bg, color: e.color }}>
-      {e.label}
-    </span>
-  )
-}
-
-function Field({ label, required, children }) {
-  return (
-    <div>
-      <label className="block text-xs font-medium mb-1" style={{ color: colors.textSecondary }}>{label}{required && ' *'}</label>
-      {children}
-    </div>
-  )
+function estadoInfo(estado) {
+  return ESTADOS.find(e => e.key === estado) || ESTADOS[0]
 }
 
 export default function Ordenes() {
@@ -139,9 +120,9 @@ export default function Ordenes() {
     <style>
       *{box-sizing:border-box;margin:0;padding:0}
       body{font-family:Arial,sans-serif;font-size:11px;padding:24px}
-      h1{font-size:18px;font-weight:900;margin-bottom:2px}
-      .naranja{color:${colors.brand}}
-      .sub{font-size:10px;color:#666;margin-bottom:20px}
+      .header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:20px}
+      .logo-img{height:32px;display:block}
+      .sub{font-size:10px;color:#666}
       .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
       .campo{background:#f9fafb;border-radius:8px;padding:10px}
       .campo-label{font-size:8px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin-bottom:2px}
@@ -150,8 +131,10 @@ export default function Ordenes() {
       .firma{flex:1;border-top:1px solid #374151;padding-top:8px;font-size:9px;color:#6b7280}
       @media print{body{padding:0}}
     </style></head><body>
-    <h1>Del <span class="naranja">Parque</span></h1>
-    <div class="sub">Orden de Producción ${orden.numero} · Emitida: ${new Date().toLocaleDateString('es-AR')}</div>
+    <div class="header">
+      <img src="${logoUrl}" class="logo-img" alt="Del Parque" />
+      <div class="sub">Orden de Producción ${orden.numero} · Emitida: ${new Date().toLocaleDateString('es-AR')}</div>
+    </div>
     <div class="grid">
       <div class="campo"><div class="campo-label">Sabor</div><div class="campo-val">${orden.sabor_nombre}</div></div>
       <div class="campo"><div class="campo-label">Fecha programada</div><div class="campo-val">${orden.fecha_produccion || '—'}</div></div>
@@ -179,11 +162,9 @@ export default function Ordenes() {
           <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Órdenes</h1>
           <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Órdenes de producción · {LITROS_BATCH} L/batch</p>
         </div>
-        <button onClick={() => setModal(true)}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white transition-all"
-          style={{ borderRadius: radius.md, backgroundColor: colors.brand }}>
+        <Button variant="primary" onClick={() => setModal(true)}>
           <Plus size={15} /> Nueva orden
-        </button>
+        </Button>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
@@ -212,55 +193,57 @@ export default function Ordenes() {
         <EmptyState icon={ClipboardList} title="Sin órdenes" subtitle="Creá una orden de producción para comenzar" />
       ) : (
         <div className="space-y-3">
-          {ordenesFiltradas.map(orden => (
-            <div key={orden.id} className="p-4 space-y-3" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-bold" style={{ color: colors.textPrimary }}>{orden.sabor_nombre}</p>
-                    <EstadoBadge estado={orden.estado} />
+          {ordenesFiltradas.map(orden => {
+            const e = estadoInfo(orden.estado)
+            return (
+              <div key={orden.id} className="p-4 space-y-3"
+                style={{
+                  backgroundColor: colors.surface,
+                  borderRadius: radius.lg,
+                  border: `1px solid ${colors.border}`,
+                  borderLeft: `4px solid ${e.color}`,
+                  boxShadow: shadow.sm,
+                }}>
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-bold" style={{ color: colors.textPrimary }}>{orden.sabor_nombre}</p>
+                      <Badge variant={e.variant}>{e.label}</Badge>
+                    </div>
+                    <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>
+                      {orden.numero} · {orden.fecha_produccion} · {orden.operario_nombre || 'Sin asignar'}
+                    </p>
                   </div>
-                  <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>
-                    {orden.numero} · {orden.fecha_produccion} · {orden.operario_nombre || 'Sin asignar'}
-                  </p>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-xl font-extrabold" style={{ color: colors.brand }}>{orden.litros_total} L</p>
+                    <p className="text-xs" style={{ color: colors.textMuted }}>{orden.batches} batch{orden.batches !== 1 ? 'es' : ''}</p>
+                  </div>
                 </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="text-xl font-extrabold" style={{ color: colors.brand }}>{orden.litros_total} L</p>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>{orden.batches} batch{orden.batches !== 1 ? 'es' : ''}</p>
-                </div>
-              </div>
 
-              {orden.observaciones && (
-                <p className="text-xs px-3 py-2" style={{ color: colors.textSecondary, backgroundColor: colors.bg, borderRadius: radius.md }}>{orden.observaciones}</p>
-              )}
-
-              <div className="flex gap-2 flex-wrap items-center">
-                {ESTADOS.filter(e => e.key !== orden.estado && e.key !== 'cancelada').map(e => (
-                  <button key={e.key} onClick={() => cambiarEstado(orden.id, e.key)}
-                    className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-all hover:opacity-80"
-                    style={{ borderColor: e.color, color: e.color }}>
-                    → {e.label}
-                  </button>
-                ))}
-                {orden.estado !== 'cancelada' && (
-                  <button onClick={() => cambiarEstado(orden.id, 'cancelada')}
-                    className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-colors"
-                    style={{ borderColor: colors.border, color: colors.textMuted }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = colors.bg }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent' }}>
-                    Cancelar
-                  </button>
+                {orden.observaciones && (
+                  <p className="text-xs px-3 py-2" style={{ color: colors.textSecondary, backgroundColor: colors.bg, borderRadius: radius.md }}>{orden.observaciones}</p>
                 )}
-                <button onClick={() => imprimirOrden(orden)}
-                  className="ml-auto flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg transition-colors"
-                  style={{ color: colors.textMuted }}
-                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = colors.bg; e.currentTarget.style.color = colors.textSecondary }}
-                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = colors.textMuted }}>
-                  <Printer size={12} /> Imprimir
-                </button>
+
+                <div className="flex gap-2 flex-wrap items-center">
+                  {ESTADOS.filter(es => es.key !== orden.estado && es.key !== 'cancelada').map(es => (
+                    <Button key={es.key} variant="ghost" size="sm" onClick={() => cambiarEstado(orden.id, es.key)}
+                      className="!border" style={{ borderColor: es.color, color: es.color }}>
+                      → {es.label}
+                    </Button>
+                  ))}
+                  {orden.estado !== 'cancelada' && (
+                    <Button variant="ghost" size="sm" onClick={() => cambiarEstado(orden.id, 'cancelada')}
+                      className="!border" style={{ borderColor: colors.border, color: colors.textMuted }}>
+                      Cancelar
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="sm" onClick={() => imprimirOrden(orden)} className="ml-auto">
+                    <Printer size={12} /> Imprimir
+                  </Button>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -270,36 +253,25 @@ export default function Ordenes() {
         title="Nueva Orden de Producción"
         maxWidth="max-w-md"
         footer={
-          <div className="flex gap-2">
-            <button onClick={() => setModal(false)} disabled={saving}
-              className="flex-1 py-2.5 text-sm font-medium transition-colors"
-              style={{ borderRadius: radius.md, border: `1px solid ${colors.border}`, color: colors.textSecondary, backgroundColor: 'transparent' }}
-              onMouseEnter={e => { e.currentTarget.style.backgroundColor = colors.bg }}
-              onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent' }}>
+          <>
+            <Button variant="secondary" onClick={() => setModal(false)} disabled={saving} className="flex-1">
               Cancelar
-            </button>
-            <button onClick={crearOrden} disabled={saving}
-              className="flex-1 py-2.5 text-sm font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-40 transition-all"
-              style={{ borderRadius: radius.md, backgroundColor: colors.brand }}>
-              {saving && <Spinner size={14} />}
+            </Button>
+            <Button variant="primary" onClick={crearOrden} loading={saving} className="flex-1">
               {saving ? 'Creando…' : 'Crear orden'}
-            </button>
-          </div>
+            </Button>
+          </>
         }
       >
-        <div className="p-6 space-y-3">
-          <Field label="Fecha de producción" required>
-            <input type="date" value={form.fecha_produccion} onChange={e => upd('fecha_produccion', e.target.value)} style={fieldStyle} />
-          </Field>
-          <Field label="Sabor" required>
-            <select value={form.sabor_id} onChange={e => {
-              const s = sabores.find(s => String(s.id) === e.target.value)
-              upd('sabor_id', e.target.value)
-              upd('sabor_nombre', s?.nombre || '')
-            }} style={fieldStyle}>
-              {sabores.map(s => <option key={s.id} value={String(s.id)}>{s.nombre} ({s.tipo})</option>)}
-            </select>
-          </Field>
+        <div className="space-y-3">
+          <Input label="Fecha de producción *" type="date" value={form.fecha_produccion} onChange={e => upd('fecha_produccion', e.target.value)} />
+          <Select label="Sabor *" value={form.sabor_id} onChange={e => {
+            const s = sabores.find(s => String(s.id) === e.target.value)
+            upd('sabor_id', e.target.value)
+            upd('sabor_nombre', s?.nombre || '')
+          }}>
+            {sabores.map(s => <option key={s.id} value={String(s.id)}>{s.nombre} ({s.tipo})</option>)}
+          </Select>
 
           {faltaStock && (
             <div className="flex items-start gap-2 px-3 py-2.5 text-xs" style={{ backgroundColor: colors.warningBg, border: `1px solid ${colors.warning}40`, borderRadius: radius.md, color: colors.warning }}>
@@ -308,20 +280,16 @@ export default function Ordenes() {
             </div>
           )}
 
-          <Field label="Operario asignado">
-            <select value={form.operario_id} onChange={e => {
-              const o = operarios.find(o => String(o.id) === e.target.value)
-              upd('operario_id', e.target.value)
-              upd('operario_nombre', o?.nombre || '')
-            }} style={fieldStyle}>
-              <option value="">— Sin asignar —</option>
-              {operarios.map(o => <option key={o.id} value={String(o.id)}>{o.nombre}</option>)}
-            </select>
-          </Field>
-          <Field label="Batches" required>
-            <input type="number" min="1" max="20" value={form.batches}
-              onChange={e => upd('batches', e.target.value)} style={fieldStyle} />
-          </Field>
+          <Select label="Operario asignado" value={form.operario_id} onChange={e => {
+            const o = operarios.find(o => String(o.id) === e.target.value)
+            upd('operario_id', e.target.value)
+            upd('operario_nombre', o?.nombre || '')
+          }}>
+            <option value="">— Sin asignar —</option>
+            {operarios.map(o => <option key={o.id} value={String(o.id)}>{o.nombre}</option>)}
+          </Select>
+          <Input label="Batches *" type="number" min="1" max="20" value={form.batches}
+            onChange={e => upd('batches', e.target.value)} />
           <div className="px-4 py-3 text-center" style={{ backgroundColor: `${colors.brand}0d`, border: `1px solid ${colors.brand}30`, borderRadius: radius.lg }}>
             <p className="text-xs" style={{ color: colors.textMuted }}>Total a producir</p>
             <p className="text-2xl font-extrabold" style={{ color: colors.brand }}>
@@ -329,10 +297,11 @@ export default function Ordenes() {
             </p>
             <p className="text-xs" style={{ color: colors.textMuted }}>{form.batches} batch{parseInt(form.batches) !== 1 ? 'es' : ''} × {LITROS_BATCH} L</p>
           </div>
-          <Field label="Observaciones">
+          <div>
+            <label className="block text-sm font-medium text-[#374151] mb-1.5">Observaciones</label>
             <textarea value={form.observaciones} onChange={e => upd('observaciones', e.target.value)}
-              rows={2} style={{ ...fieldStyle, resize: 'none' }} />
-          </Field>
+              rows={2} className={textareaClass} />
+          </div>
         </div>
       </Modal>
     </div>

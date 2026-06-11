@@ -18,18 +18,16 @@ const NAV = [
   { to: '/recetas',      label: 'Recetas',      Icon: BookOpen      },
 ]
 
-// ── Clock con actualización cada segundo ──────────────────────────────────────
+// ── Reloj HH:MM, actualizado cada minuto ──────────────────────────────────────
 function Clock() {
   const [now, setNow] = useState(new Date())
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000)
+    const id = setInterval(() => setNow(new Date()), 60000)
     return () => clearInterval(id)
   }, [])
   return (
-    <span className="text-sm tabular-nums hidden sm:block" style={{ color: colors.textMuted }}>
-      {now.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: 'short' })}
-      {' · '}
-      {now.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+    <span className="text-sm font-medium tabular-nums hidden sm:block" style={{ color: colors.textSecondary }}>
+      {now.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
     </span>
   )
 }
@@ -68,10 +66,11 @@ function NavItem({ to, label, Icon, onClick }) {
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 select-none"
+      className="flex items-center gap-3 mx-2 rounded-lg text-sm font-medium transition-all duration-150 select-none"
       style={({ isActive }) => ({
-        backgroundColor: isActive ? colors.brand : hovered ? colors.sidebarHover : 'transparent',
-        color: isActive ? '#ffffff' : hovered ? '#f1f5f9' : '#9ca3af',
+        padding: '10px 16px',
+        backgroundColor: isActive ? colors.sidebarActive : hovered ? colors.sidebarHover : 'transparent',
+        color: isActive || hovered ? '#ffffff' : colors.textMuted,
       })}
     >
       <Icon size={16} />
@@ -83,30 +82,24 @@ function NavItem({ to, label, Icon, onClick }) {
 // ── Sidebar content (definido fuera de Layout para evitar remounts) ───────────
 function SidebarContent({ onClose, user, onLogout }) {
   const initial = user?.email?.charAt(0).toUpperCase() || 'U'
+  const username = user?.email?.split('@')[0] || 'Usuario'
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: colors.sidebar }}>
       {/* Logo */}
       <div
         className="flex items-center justify-between px-5 py-5 flex-shrink-0"
-        style={{ borderBottom: '1px solid #252525' }}
+        style={{ borderBottom: `1px solid ${colors.sidebarHover}` }}
       >
         <div className="flex items-center gap-3">
-          <LogoDelParque size={34} />
-          <div className="leading-tight">
-            <p className="font-bold text-white text-lg leading-none">
-              Del <span style={{ color: colors.brand }}>Parque</span>
-            </p>
-            <p className="text-[10px] uppercase tracking-widest mt-0.5" style={{ color: '#4b5563' }}>
-              Gestión
-            </p>
-          </div>
+          <LogoDelParque size={32} />
+          <p className="font-bold text-white text-lg leading-none">Del Parque</p>
         </div>
         {onClose && (
           <button
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[#2a2a2a] md:hidden"
-            style={{ color: '#6b7280' }}
+            className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[#1f2937] md:hidden"
+            style={{ color: colors.textMuted }}
           >
             <X size={16} />
           </button>
@@ -114,43 +107,31 @@ function SidebarContent({ onClose, user, onLogout }) {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        <p
-          className="text-[10px] font-bold uppercase px-3 mb-3"
-          style={{ color: '#4b5563', letterSpacing: '0.1em' }}
-        >
-          Módulos
-        </p>
+      <nav className="flex-1 py-4 space-y-1 overflow-y-auto">
         {NAV.map(n => (
           <NavItem key={n.to} to={n.to} label={n.label} Icon={n.Icon} onClick={onClose} />
         ))}
       </nav>
 
       {/* User footer */}
-      <div className="px-3 py-4 flex-shrink-0" style={{ borderTop: '1px solid #252525' }}>
+      <div className="px-4 py-4 flex-shrink-0" style={{ borderTop: `1px solid ${colors.sidebarHover}` }}>
         {user && (
-          <div className="flex items-center gap-2.5 px-3 py-2 mb-1 rounded-lg">
+          <div className="flex items-center gap-2.5 mb-3">
             <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
               style={{ backgroundColor: colors.brand }}
             >
               {initial}
             </div>
-            <p className="text-xs truncate" style={{ color: '#6b7280' }}>{user.email}</p>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white truncate capitalize">{username}</p>
+              <p className="text-xs truncate" style={{ color: colors.textMuted }}>{user.email}</p>
+            </div>
           </div>
         )}
         <button
           onClick={onLogout}
-          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150"
-          style={{ color: '#6b7280' }}
-          onMouseEnter={e => {
-            e.currentTarget.style.backgroundColor = 'rgba(220,38,38,0.15)'
-            e.currentTarget.style.color = '#f87171'
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.backgroundColor = 'transparent'
-            e.currentTarget.style.color = '#6b7280'
-          }}
+          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-[#9ca3af] hover:bg-[#1f2937] hover:text-white"
         >
           <LogOut size={15} />
           Cerrar sesión
@@ -220,7 +201,7 @@ export default function Layout() {
             >
               <Menu size={18} />
             </button>
-            <h1 className="text-base font-semibold" style={{ color: colors.textPrimary }}>
+            <h1 className="text-lg font-semibold" style={{ color: colors.textPrimary }}>
               {pageTitle}
             </h1>
           </div>

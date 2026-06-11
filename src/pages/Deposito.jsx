@@ -4,8 +4,14 @@ import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
 import Modal from '../components/ui/Modal'
+import Button from '../components/ui/Button'
+import Input from '../components/ui/Input'
+import Select from '../components/ui/Select'
+import Badge from '../components/ui/Badge'
+import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { Warehouse, ArrowUp, ArrowDown, Search, Printer } from 'lucide-react'
+import logoUrl from '../assets/logo.png'
 
 const TABS         = ['Movimientos', 'Stock', 'Trazabilidad']
 const DESTINOS     = ['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones']
@@ -14,16 +20,7 @@ const UNIDADES     = ['kg', 'litros', 'unidades', 'g']
 const PERIODOS_TRZ = ['semana', 'mes', 'todo']
 const SEM = { verde: colors.success, amarillo: colors.warning, rojo: colors.danger, gris: colors.textMuted }
 
-const fieldStyle = {
-  width: '100%',
-  border: `1px solid ${colors.border}`,
-  borderRadius: radius.md,
-  padding: '8px 12px',
-  fontSize: 14,
-  outline: 'none',
-  color: colors.textPrimary,
-  backgroundColor: colors.surface,
-}
+const textareaClass = 'w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
 
 function semaforo(actual, minimo) {
   if (!minimo || minimo <= 0) return 'gris'
@@ -31,15 +28,6 @@ function semaforo(actual, minimo) {
   if (r >= 1.5) return 'verde'
   if (r >= 0.75) return 'amarillo'
   return 'rojo'
-}
-
-function Field({ label, required, children }) {
-  return (
-    <div>
-      <label className="block text-xs font-medium mb-1" style={{ color: colors.textSecondary }}>{label}{required && ' *'}</label>
-      {children}
-    </div>
-  )
 }
 
 function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios }) {
@@ -60,85 +48,59 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios }
       title={esIngreso ? '↑ Registrar Ingreso' : '↓ Registrar Egreso'}
       maxWidth="max-w-md"
       footer={
-        <div className="flex gap-2">
-          <button onClick={onClose} disabled={saving}
-            className="flex-1 py-2.5 text-sm font-medium transition-colors"
-            style={{ borderRadius: radius.md, border: `1px solid ${colors.border}`, color: colors.textSecondary, backgroundColor: 'transparent' }}
-            onMouseEnter={e => { e.currentTarget.style.backgroundColor = colors.bg }}
-            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent' }}>
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">
             Cancelar
-          </button>
-          <button onClick={() => onSubmit(form)} disabled={saving}
-            className="flex-1 py-2.5 text-sm font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-40 transition-all"
-            style={{ borderRadius: radius.md, backgroundColor: esIngreso ? colors.success : colors.danger }}>
-            {saving && <Spinner size={14} />}
+          </Button>
+          <Button variant={esIngreso ? 'success' : 'danger'} onClick={() => onSubmit(form)} loading={saving} className="flex-1">
             {saving ? 'Guardando…' : 'Registrar'}
-          </button>
-        </div>
+          </Button>
+        </>
       }
     >
-      <div className="p-6 space-y-3">
-        <Field label="Fecha" required>
-          <input type="date" value={form.fecha} onChange={e => upd('fecha', e.target.value)} style={fieldStyle} />
-        </Field>
-        <Field label="Producto" required>
-          <input type="text" value={form.producto_nombre} onChange={e => upd('producto_nombre', e.target.value)}
-            list="insumos-dl" placeholder="Nombre del insumo" style={fieldStyle} />
+      <div className="space-y-3">
+        <Input label="Fecha *" type="date" value={form.fecha} onChange={e => upd('fecha', e.target.value)} />
+        <div>
+          <Input label="Producto *" type="text" value={form.producto_nombre} onChange={e => upd('producto_nombre', e.target.value)}
+            list="insumos-dl" placeholder="Nombre del insumo" />
           <datalist id="insumos-dl">{insumos.map(i => <option key={i.id} value={i.nombre} />)}</datalist>
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Marca">
-            <input type="text" value={form.marca} onChange={e => upd('marca', e.target.value)} style={fieldStyle} />
-          </Field>
-          <Field label="Presentación">
-            <select value={form.presentacion} onChange={e => upd('presentacion', e.target.value)} style={fieldStyle}>
-              {PRESENTACIONES.map(p => <option key={p}>{p}</option>)}
-            </select>
-          </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Cantidad" required>
-            <input type="number" step="0.01" value={form.cantidad} onChange={e => upd('cantidad', e.target.value)} style={fieldStyle} />
-          </Field>
-          <Field label={esIngreso ? 'Unidad' : 'Destino'}>
-            {esIngreso
-              ? <select value={form.unidad} onChange={e => upd('unidad', e.target.value)} style={fieldStyle}>
-                  {UNIDADES.map(u => <option key={u}>{u}</option>)}
-                </select>
-              : <select value={form.destino} onChange={e => upd('destino', e.target.value)} style={fieldStyle}>
-                  {DESTINOS.map(d => <option key={d}>{d}</option>)}
-                </select>
-            }
-          </Field>
+          <Input label="Marca" type="text" value={form.marca} onChange={e => upd('marca', e.target.value)} />
+          <Select label="Presentación" value={form.presentacion} onChange={e => upd('presentacion', e.target.value)}>
+            {PRESENTACIONES.map(p => <option key={p}>{p}</option>)}
+          </Select>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Lote">
-            <input type="text" value={form.lote} onChange={e => upd('lote', e.target.value)} style={fieldStyle} />
-          </Field>
-          <Field label="Vencimiento">
-            <input type="date" value={form.fecha_vencimiento} onChange={e => upd('fecha_vencimiento', e.target.value)} style={fieldStyle} />
-          </Field>
+          <Input label="Cantidad *" type="number" step="0.01" value={form.cantidad} onChange={e => upd('cantidad', e.target.value)} />
+          {esIngreso
+            ? <Select label="Unidad" value={form.unidad} onChange={e => upd('unidad', e.target.value)}>
+                {UNIDADES.map(u => <option key={u}>{u}</option>)}
+              </Select>
+            : <Select label="Destino" value={form.destino} onChange={e => upd('destino', e.target.value)}>
+                {DESTINOS.map(d => <option key={d}>{d}</option>)}
+              </Select>
+          }
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Lote" type="text" value={form.lote} onChange={e => upd('lote', e.target.value)} />
+          <Input label="Vencimiento" type="date" value={form.fecha_vencimiento} onChange={e => upd('fecha_vencimiento', e.target.value)} />
         </div>
         {esIngreso ? (
-          <Field label="Proveedor">
-            <input type="text" value={form.proveedor} onChange={e => upd('proveedor', e.target.value)} style={fieldStyle} />
-          </Field>
+          <Input label="Proveedor" type="text" value={form.proveedor} onChange={e => upd('proveedor', e.target.value)} />
         ) : (
-          <Field label="Operario que recibe">
-            <select value={form.operario_recibe} onChange={e => upd('operario_recibe', e.target.value)} style={fieldStyle}>
-              <option value="">— Seleccionar —</option>
-              {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
-            </select>
-          </Field>
+          <Select label="Operario que recibe" value={form.operario_recibe} onChange={e => upd('operario_recibe', e.target.value)}>
+            <option value="">— Seleccionar —</option>
+            {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+          </Select>
         )}
-        <Field label="Controló">
-          <input type="text" value={form.controlo} onChange={e => upd('controlo', e.target.value)}
-            placeholder={esIngreso ? '' : 'Valle'} style={fieldStyle} />
-        </Field>
-        <Field label="Observaciones">
+        <Input label="Controló" type="text" value={form.controlo} onChange={e => upd('controlo', e.target.value)}
+          placeholder={esIngreso ? '' : 'Valle'} />
+        <div>
+          <label className="block text-sm font-medium text-[#374151] mb-1.5">Observaciones</label>
           <textarea value={form.observaciones} onChange={e => upd('observaciones', e.target.value)}
-            rows={2} style={{ ...fieldStyle, resize: 'none' }} />
-        </Field>
+            rows={2} className={textareaClass} />
+        </div>
       </div>
     </Modal>
   )
@@ -253,9 +215,9 @@ export default function Deposito() {
     <style>
       *{box-sizing:border-box;margin:0;padding:0}
       body{font-family:Arial,sans-serif;font-size:10px;padding:20px}
-      h1{font-size:16px;font-weight:900;margin-bottom:2px}
-      .naranja{color:${colors.brand}}
-      .sub{font-size:10px;color:#666;margin-bottom:16px}
+      .header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px}
+      .logo-img{height:32px;display:block}
+      .sub{font-size:10px;color:#666}
       table{width:100%;border-collapse:collapse}
       th{background:#f3f4f6;font-size:8px;font-weight:700;text-transform:uppercase;padding:5px 6px;text-align:left;border-bottom:2px solid ${colors.brand}}
       td{padding:4px 6px;border-bottom:1px solid #f3f4f6;font-size:9px}
@@ -263,8 +225,10 @@ export default function Deposito() {
       .firma{flex:1;border-top:1px solid #374151;padding-top:6px;font-size:9px;color:#6b7280}
       @media print{body{padding:0}}
     </style></head><body>
-    <h1>Del <span class="naranja">Parque</span></h1>
-    <div class="sub">Planilla de Trazabilidad — Egreso de Materiales · ${new Date().toLocaleDateString('es-AR')}</div>
+    <div class="header">
+      <img src="${logoUrl}" class="logo-img" alt="Del Parque" />
+      <div class="sub">Planilla de Trazabilidad — Egreso de Materiales · ${new Date().toLocaleDateString('es-AR')}</div>
+    </div>
     <table>
       <thead><tr>
         <th>Fecha</th><th>Producto</th><th>Marca</th><th>Presentación</th><th>Cant.</th>
@@ -293,38 +257,30 @@ export default function Deposito() {
         <div className="flex gap-2">
           {tab === 'Movimientos' && (
             <>
-              <button onClick={() => setModal('ingreso')}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white transition-all"
-                style={{ borderRadius: radius.md, backgroundColor: colors.success }}>
+              <Button variant="success" onClick={() => setModal('ingreso')}>
                 <ArrowUp size={14} /> Ingreso
-              </button>
-              <button onClick={() => setModal('egreso')}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white transition-all"
-                style={{ borderRadius: radius.md, backgroundColor: colors.danger }}>
+              </Button>
+              <Button variant="danger" onClick={() => setModal('egreso')}>
                 <ArrowDown size={14} /> Egreso
-              </button>
+              </Button>
             </>
           )}
           {tab === 'Trazabilidad' && (
-            <button onClick={imprimirTrazabilidad}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors"
-              style={{ borderRadius: radius.md, border: `1px solid ${colors.border}`, color: colors.textSecondary, backgroundColor: colors.surface }}
-              onMouseEnter={e => { e.currentTarget.style.backgroundColor = colors.bg }}
-              onMouseLeave={e => { e.currentTarget.style.backgroundColor = colors.surface }}>
+            <Button variant="secondary" onClick={imprimirTrazabilidad}>
               <Printer size={15} /> Imprimir A4
-            </button>
+            </Button>
           )}
         </div>
       </div>
 
-      <div className="flex gap-1 p-1 rounded-xl" style={{ backgroundColor: colors.bg }}>
+      <div className="flex gap-1.5 flex-wrap">
         {TABS.map(t => (
           <button key={t} onClick={() => setTab(t)}
-            className="flex-1 py-2 text-xs font-semibold rounded-lg transition-all"
+            className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border"
             style={{
-              backgroundColor: tab === t ? colors.surface : 'transparent',
-              color: tab === t ? colors.textPrimary : colors.textMuted,
-              boxShadow: tab === t ? shadow.sm : 'none',
+              backgroundColor: tab === t ? colors.brand : 'transparent',
+              borderColor: tab === t ? colors.brand : colors.border,
+              color: tab === t ? 'white' : colors.textSecondary,
             }}>
             {t}
           </button>
@@ -354,35 +310,32 @@ export default function Deposito() {
                 <EmptyState icon={Warehouse} title="Sin movimientos" subtitle="Registrá ingresos o egresos para comenzar" />
               ) : (
                 <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[560px]">
-                      <thead>
-                        <tr style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                          {['Tipo / Fecha', 'Producto', 'Marca · Lote', 'Cantidad', 'Destino / Proveedor'].map(h => (
-                            <th key={h} className="py-2.5 px-4 text-left font-semibold uppercase" style={{ fontSize: 10, color: colors.textMuted, letterSpacing: '0.06em' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {movsFiltrados.map(m => (
-                          <tr key={m.id} style={{ borderBottom: `1px solid ${colors.border}` }}
-                            onMouseEnter={e => { e.currentTarget.style.backgroundColor = colors.bg }}
-                            onMouseLeave={e => { e.currentTarget.style.backgroundColor = '' }}>
-                            <td className="py-3 px-4">
-                              <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
-                                style={{ backgroundColor: m.tipo === 'ingreso' ? colors.successBg : colors.dangerBg, color: m.tipo === 'ingreso' ? colors.success : colors.danger }}>
-                                {m.tipo === 'ingreso' ? '↑' : '↓'} {m.fecha}
-                              </span>
-                            </td>
-                            <td className="py-3 px-4 text-sm font-medium" style={{ color: colors.textPrimary }}>{m.producto_nombre}</td>
-                            <td className="py-3 px-4 text-xs" style={{ color: colors.textMuted }}>{[m.marca, m.lote].filter(Boolean).join(' · ') || '—'}</td>
-                            <td className="py-3 px-4 text-sm font-bold whitespace-nowrap" style={{ color: colors.textPrimary }}>{m.cantidad} {m.unidad}</td>
-                            <td className="py-3 px-4 text-xs" style={{ color: colors.textSecondary }}>{m.destino || m.proveedor || '—'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <Table className="min-w-[560px]">
+                    <Thead>
+                      <Tr>
+                        <Th>Tipo / Fecha</Th>
+                        <Th>Producto</Th>
+                        <Th>Marca · Lote</Th>
+                        <Th>Cantidad</Th>
+                        <Th>Destino / Proveedor</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {movsFiltrados.map(m => (
+                        <Tr key={m.id}>
+                          <Td>
+                            <Badge variant={m.tipo === 'ingreso' ? 'success' : 'danger'}>
+                              {m.tipo === 'ingreso' ? '↑' : '↓'} {m.fecha}
+                            </Badge>
+                          </Td>
+                          <Td className="font-medium">{m.producto_nombre}</Td>
+                          <Td className="text-xs" style={{ color: colors.textMuted }}>{[m.marca, m.lote].filter(Boolean).join(' · ') || '—'}</Td>
+                          <Td className="font-bold whitespace-nowrap">{m.cantidad} {m.unidad}</Td>
+                          <Td className="text-xs" style={{ color: colors.textSecondary }}>{m.destino || m.proveedor || '—'}</Td>
+                        </Tr>
+                      ))}
+                    </Tbody>
+                  </Table>
                 </div>
               )}
             </div>
@@ -390,16 +343,8 @@ export default function Deposito() {
 
           {tab === 'Stock' && (
             <div className="space-y-4">
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: colors.textMuted }} />
-                <input type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
-                  placeholder="Buscar insumo…"
-                  className="w-full text-sm pl-8 pr-3 py-2 transition"
-                  style={{ border: `1px solid ${colors.border}`, borderRadius: radius.md, outline: 'none', color: colors.textPrimary, backgroundColor: colors.surface }}
-                  onFocus={e => { e.target.style.borderColor = colors.brand }}
-                  onBlur={e => { e.target.style.borderColor = colors.border }}
-                />
-              </div>
+              <Input type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
+                placeholder="Buscar insumo…" icon={Search} />
               {insumos.length === 0 ? (
                 <EmptyState icon={Warehouse} title="Sin insumos cargados" subtitle="Agrega insumos en la tabla 'insumos' de Supabase" />
               ) : porCategoria.map(([cat, items]) => (
@@ -450,48 +395,49 @@ export default function Deposito() {
                     </button>
                   ))}
                 </div>
-                <select value={filtroDestino} onChange={e => setFiltroDestino(e.target.value)}
-                  className="ml-auto text-xs py-1.5 px-3 transition"
-                  style={{ border: `1px solid ${colors.border}`, borderRadius: radius.md, outline: 'none', color: colors.textSecondary, backgroundColor: colors.surface }}>
-                  <option value="Todos">Todos los destinos</option>
-                  {DESTINOS.map(d => <option key={d}>{d}</option>)}
-                </select>
+                <div className="ml-auto w-44">
+                  <Select value={filtroDestino} onChange={e => setFiltroDestino(e.target.value)}>
+                    <option value="Todos">Todos los destinos</option>
+                    {DESTINOS.map(d => <option key={d}>{d}</option>)}
+                  </Select>
+                </div>
               </div>
               {egresos.length === 0 ? (
                 <EmptyState icon={Warehouse} title="Sin egresos en este período" />
               ) : (
                 <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[820px]">
-                      <thead>
-                        <tr style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                          {['Fecha', 'Producto', 'Marca', 'Present.', 'Cant.', 'Lote', 'Venc.', 'Controló', 'Observ.', 'Destino'].map(h => (
-                            <th key={h} className="py-2.5 px-3 text-left font-semibold uppercase whitespace-nowrap" style={{ fontSize: 10, color: colors.textMuted, letterSpacing: '0.06em' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {egresos.map(e => (
-                          <tr key={e.id} style={{ borderBottom: `1px solid ${colors.border}` }}
-                            onMouseEnter={ev => { ev.currentTarget.style.backgroundColor = colors.bg }}
-                            onMouseLeave={ev => { ev.currentTarget.style.backgroundColor = '' }}>
-                            <td className="py-2 px-3 text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{e.fecha}</td>
-                            <td className="py-2 px-3 text-xs font-medium" style={{ color: colors.textPrimary }}>{e.producto_nombre}</td>
-                            <td className="py-2 px-3 text-xs" style={{ color: colors.textSecondary }}>{e.marca || '—'}</td>
-                            <td className="py-2 px-3 text-xs" style={{ color: colors.textSecondary }}>{e.presentacion || '—'}</td>
-                            <td className="py-2 px-3 text-xs font-bold text-right" style={{ color: colors.textPrimary }}>{e.cantidad}</td>
-                            <td className="py-2 px-3 text-xs" style={{ color: colors.textSecondary }}>{e.lote || '—'}</td>
-                            <td className="py-2 px-3 text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{e.fecha_vencimiento || '—'}</td>
-                            <td className="py-2 px-3 text-xs" style={{ color: colors.textSecondary }}>{e.controlo || '—'}</td>
-                            <td className="py-2 px-3 text-xs max-w-[100px] truncate" style={{ color: colors.textMuted }}>{e.observaciones || '—'}</td>
-                            <td className="py-2 px-3">
-                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md" style={{ backgroundColor: `${colors.brand}18`, color: colors.brand }}>{e.destino}</span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <Table className="min-w-[820px]">
+                    <Thead>
+                      <Tr>
+                        <Th>Fecha</Th>
+                        <Th>Producto</Th>
+                        <Th>Marca</Th>
+                        <Th>Present.</Th>
+                        <Th>Cant.</Th>
+                        <Th>Lote</Th>
+                        <Th>Venc.</Th>
+                        <Th>Controló</Th>
+                        <Th>Observ.</Th>
+                        <Th>Destino</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {egresos.map(e => (
+                        <Tr key={e.id}>
+                          <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{e.fecha}</Td>
+                          <Td className="text-xs font-medium">{e.producto_nombre}</Td>
+                          <Td className="text-xs" style={{ color: colors.textSecondary }}>{e.marca || '—'}</Td>
+                          <Td className="text-xs" style={{ color: colors.textSecondary }}>{e.presentacion || '—'}</Td>
+                          <Td className="text-xs font-bold text-right">{e.cantidad}</Td>
+                          <Td className="text-xs" style={{ color: colors.textSecondary }}>{e.lote || '—'}</Td>
+                          <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{e.fecha_vencimiento || '—'}</Td>
+                          <Td className="text-xs" style={{ color: colors.textSecondary }}>{e.controlo || '—'}</Td>
+                          <Td className="text-xs max-w-[100px] truncate" style={{ color: colors.textMuted }}>{e.observaciones || '—'}</Td>
+                          <Td><Badge variant="info">{e.destino}</Badge></Td>
+                        </Tr>
+                      ))}
+                    </Tbody>
+                  </Table>
                 </div>
               )}
             </div>

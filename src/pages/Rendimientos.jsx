@@ -3,6 +3,9 @@ import { supabase } from '../lib/supabase'
 import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
+import Badge from '../components/ui/Badge'
+import Select from '../components/ui/Select'
+import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { TrendingUp, Users, Scale, Package } from 'lucide-react'
 
@@ -20,10 +23,10 @@ function desdeHace(dias) {
 }
 
 function nivel(pct) {
-  if (pct >= 75) return { label: 'EXCELENTE', color: colors.success, bg: colors.successBg }
-  if (pct >= 50) return { label: 'BUENO',     color: colors.info,    bg: colors.infoBg    }
-  if (pct >= 25) return { label: 'REGULAR',   color: colors.warning, bg: colors.warningBg }
-  return               { label: 'BAJO',       color: colors.danger,  bg: colors.dangerBg  }
+  if (pct >= 75) return { label: 'EXCELENTE', variant: 'success', color: colors.success }
+  if (pct >= 50) return { label: 'BUENO',     variant: 'info',    color: colors.info }
+  if (pct >= 25) return { label: 'REGULAR',   variant: 'warning', color: colors.warning }
+  return               { label: 'BAJO',       variant: 'danger',  color: colors.danger }
 }
 
 export default function Rendimientos() {
@@ -68,6 +71,8 @@ export default function Rendimientos() {
 
   const maxKg   = porOperario[0]?.kg || 1
   const totalKg = porOperario.reduce((a, o) => a + o.kg, 0)
+  const podio   = porOperario.slice(0, 3)
+  const resto   = porOperario.slice(3)
 
   return (
     <div className="space-y-5">
@@ -96,11 +101,11 @@ export default function Rendimientos() {
             </button>
           ))}
         </div>
-        <select value={filtroOp} onChange={e => setFiltroOp(e.target.value)}
-          className="ml-auto text-xs py-1.5 px-3 transition"
-          style={{ border: `1px solid ${colors.border}`, borderRadius: radius.md, outline: 'none', color: colors.textSecondary, backgroundColor: colors.surface }}>
-          {opcionesOps.map(o => <option key={o}>{o}</option>)}
-        </select>
+        <div className="ml-auto w-48">
+          <Select value={filtroOp} onChange={e => setFiltroOp(e.target.value)}>
+            {opcionesOps.map(o => <option key={o}>{o}</option>)}
+          </Select>
+        </div>
       </div>
 
       {loading ? (
@@ -109,69 +114,86 @@ export default function Rendimientos() {
         <EmptyState icon={TrendingUp} title="Sin datos en este período" subtitle="Registrá producciones para ver rendimientos" />
       ) : (
         <>
-          {porOperario.length >= 2 && (
-            <div className="p-5" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-              <p className="text-[10px] font-bold uppercase tracking-widest mb-4" style={{ color: colors.textMuted }}>Top del período</p>
-              <div className="flex gap-4 justify-center flex-wrap">
-                {porOperario.slice(0, 3).map((op, i) => (
-                  <div key={op.nombre} className="flex flex-col items-center gap-1.5 min-w-[90px]">
-                    <span className="text-3xl">{MEDALLAS[i]}</span>
-                    <div className="w-11 h-11 rounded-full flex items-center justify-center font-extrabold text-lg" style={{ backgroundColor: `${colors.brand}18`, color: colors.brand }}>
-                      {op.nombre.charAt(0)}
-                    </div>
-                    <p className="text-xs font-semibold text-center leading-tight" style={{ color: colors.textPrimary }}>{op.nombre.split(' ')[0]}</p>
-                    <p className="text-sm font-extrabold" style={{ color: colors.brand }}>{op.kg.toFixed(1)} kg</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-3">
-            {porOperario.map((op, i) => {
+          {/* Podio top 3 */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {podio.map((op, i) => {
               const pctVsMejor = (op.kg / maxKg) * 100
-              const pctTotal   = totalKg > 0 ? (op.kg / totalKg) * 100 : 0
               const n = nivel(pctVsMejor)
-              const topProds = Object.entries(op.prods).sort((a, b) => b[1] - a[1]).slice(0, 3)
+              const topProds = Object.entries(op.prods).sort((a, b) => b[1] - a[1]).slice(0, 2)
               return (
-                <div key={op.nombre} className="p-4 space-y-3" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold flex-shrink-0 text-base" style={{ backgroundColor: `${colors.brand}18`, color: colors.brand }}>
-                      {i < 3 ? MEDALLAS[i] : op.nombre.charAt(0)}
+                <div key={op.nombre} className="p-5 text-center flex flex-col items-center"
+                  style={{
+                    backgroundColor: colors.surface,
+                    borderRadius: radius.lg,
+                    border: i === 0 ? `2px solid ${colors.brand}` : `1px solid ${colors.border}`,
+                    boxShadow: i === 0 ? `0 0 0 3px ${colors.brand}1a, ${shadow.sm}` : shadow.sm,
+                  }}>
+                  <span className="text-4xl mb-2">{MEDALLAS[i]}</span>
+                  <div className="w-14 h-14 rounded-full flex items-center justify-center font-extrabold text-xl mb-2"
+                    style={{ backgroundColor: `${colors.brand}18`, color: colors.brand }}>
+                    {op.nombre.charAt(0)}
+                  </div>
+                  <p className="font-bold text-sm" style={{ color: colors.textPrimary }}>{op.nombre}</p>
+                  <p className="text-2xl font-extrabold mt-1" style={{ color: colors.brand }}>{op.kg.toFixed(1)} kg</p>
+                  <p className="text-xs mb-2" style={{ color: colors.textMuted }}>{op.unidades} unidades</p>
+                  <Badge variant={n.variant}>{n.label}</Badge>
+                  <div className="h-1.5 w-full rounded-full overflow-hidden mt-3" style={{ backgroundColor: colors.bg }}>
+                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pctVsMejor}%`, backgroundColor: n.color }} />
+                  </div>
+                  {topProds.length > 0 && (
+                    <div className="flex gap-1.5 flex-wrap justify-center mt-3">
+                      {topProds.map(([nombre, cnt]) => (
+                        <span key={nombre} className="text-[10px] px-2 py-0.5 rounded-full" style={{ backgroundColor: colors.bg, color: colors.textSecondary }}>
+                          {nombre} ×{cnt}
+                        </span>
+                      ))}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm truncate" style={{ color: colors.textPrimary }}>{op.nombre}</p>
-                      <p className="text-xs" style={{ color: colors.textMuted }}>{op.unidades} unidades · {op.kg.toFixed(2)} kg</p>
-                    </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: n.bg, color: n.color }}>{n.label}</span>
-                  </div>
-                  <div className="space-y-2">
-                    {[
-                      { label: 'vs. mejor', pct: pctVsMejor, color: colors.brand },
-                      { label: 'del total', pct: pctTotal,   color: colors.info  },
-                    ].map(bar => (
-                      <div key={bar.label}>
-                        <div className="flex justify-between text-[10px] mb-1" style={{ color: colors.textMuted }}>
-                          <span>{bar.label}</span><span>{bar.pct.toFixed(0)}%</span>
-                        </div>
-                        <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: colors.bg }}>
-                          <div className="h-full rounded-full transition-all duration-500"
-                            style={{ width: `${bar.pct}%`, backgroundColor: bar.color }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex gap-1.5 flex-wrap">
-                    {topProds.map(([nombre, cnt]) => (
-                      <span key={nombre} className="text-[10px] px-2 py-0.5 rounded-full" style={{ backgroundColor: colors.bg, color: colors.textSecondary }}>
-                        {nombre} ×{cnt}
-                      </span>
-                    ))}
-                  </div>
+                  )}
                 </div>
               )
             })}
           </div>
+
+          {/* Resto en tabla */}
+          {resto.length > 0 && (
+            <div style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm, overflow: 'hidden' }}>
+              <Table>
+                <Thead>
+                  <Tr>
+                    <Th>#</Th>
+                    <Th>Operario</Th>
+                    <Th>Unidades</Th>
+                    <Th>KG</Th>
+                    <Th>vs. mejor</Th>
+                    <Th>Nivel</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {resto.map((op, idx) => {
+                    const pctVsMejor = (op.kg / maxKg) * 100
+                    const n = nivel(pctVsMejor)
+                    return (
+                      <Tr key={op.nombre}>
+                        <Td className="font-semibold" style={{ color: colors.textMuted }}>{idx + 4}</Td>
+                        <Td className="font-medium">{op.nombre}</Td>
+                        <Td>{op.unidades}</Td>
+                        <Td>{op.kg.toFixed(2)} kg</Td>
+                        <Td>
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 w-24 rounded-full overflow-hidden" style={{ backgroundColor: colors.bg }}>
+                              <div className="h-full rounded-full" style={{ width: `${pctVsMejor}%`, backgroundColor: n.color }} />
+                            </div>
+                            <span className="text-xs" style={{ color: colors.textMuted }}>{pctVsMejor.toFixed(0)}%</span>
+                          </div>
+                        </Td>
+                        <Td><Badge variant={n.variant}>{n.label}</Badge></Td>
+                      </Tr>
+                    )
+                  })}
+                </Tbody>
+              </Table>
+            </div>
+          )}
         </>
       )}
     </div>

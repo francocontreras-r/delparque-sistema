@@ -1,5 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { useUser } from '../context/UserContext'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
@@ -11,7 +14,7 @@ import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { Warehouse, ArrowUp, ArrowDown, Search, Printer, DollarSign } from 'lucide-react'
+import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign } from 'lucide-react'
 import logoUrl from '../assets/logo.png'
 
 const TABS         = ['Movimientos', 'Stock', 'Trazabilidad', 'Informes']
@@ -20,7 +23,6 @@ const PRESENTACIONES = ['Balde', 'Bolsa', 'Lata', 'Caja', 'Botella', 'Bidón', '
 const UNIDADES     = ['u', 'kg', 'L']
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const SEM = { verde: colors.success, amarillo: colors.warning, rojo: colors.danger, gris: colors.textMuted }
-const ROLES = ['operario', 'admin']
 
 const textareaClass = 'w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
 
@@ -33,6 +35,17 @@ function semaforo(actual, minimo) {
 }
 
 function pesos(n) { return Math.round(n || 0).toLocaleString('es-AR') }
+
+function toDataURL(url) {
+  return fetch(url)
+    .then(res => res.blob())
+    .then(blob => new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(reader.result)
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    }))
+}
 
 function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios }) {
   const esIngreso = tipo === 'ingreso'
@@ -111,6 +124,43 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios }
   )
 }
 
+function ModalEditarInsumo({ insumo, onClose, onSubmit, saving }) {
+  const [form, setForm] = useState({
+    stock_actual: insumo.stock_actual ?? '',
+    stock_minimo: insumo.stock_minimo ?? '',
+    costo_unitario: insumo.costo_unitario ?? '',
+  })
+  const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={insumo.nombre}
+      maxWidth="max-w-sm"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">
+            Cancelar
+          </Button>
+          <Button variant="primary" onClick={() => onSubmit(form)} loading={saving} className="flex-1">
+            {saving ? 'Guardando…' : 'Guardar'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Input label={`Stock actual (${insumo.unidad || 'u'})`} type="number" min="0" step="0.01"
+          value={form.stock_actual} onChange={e => upd('stock_actual', e.target.value)} />
+        <Input label={`Stock mínimo (${insumo.unidad || 'u'})`} type="number" min="0" step="0.01"
+          value={form.stock_minimo} onChange={e => upd('stock_minimo', e.target.value)} />
+        <Input label="Costo unitario ($)" type="number" min="0" step="0.01"
+          value={form.costo_unitario} onChange={e => upd('costo_unitario', e.target.value)} />
+      </div>
+    </Modal>
+  )
+}
+
 export default function Deposito() {
   const [tab, setTab]             = useState('Movimientos')
   const [movimientos, setMovimientos] = useState([])
@@ -128,9 +178,11 @@ export default function Deposito() {
   const [informeVista, setInformeVista] = useState('proveedores')
   const [informeMes, setInformeMes]     = useState(0)
   const [informeAnio, setInformeAnio]   = useState(0)
-  const [userRole, setUserRole]         = useState('operario')
+  const [editInsumo, setEditInsumo]     = useState(null)
+  const [savingInsumo, setSavingInsumo] = useState(false)
 
-  const showVal = userRole === 'admin'
+  const { isAdmin } = useUser()
+  const showVal = isAdmin
 
   useEffect(() => { cargar() }, [])
 
@@ -207,6 +259,22 @@ export default function Deposito() {
     toast2(modal === 'ingreso' ? 'Ingreso registrado' : 'Egreso registrado')
     setModal(null)
     cargar()
+  }
+
+  async function guardarInsumo(form) {
+    if (!editInsumo) return
+    const payload = {
+      stock_actual: parseFloat(form.stock_actual) || 0,
+      stock_minimo: parseFloat(form.stock_minimo) || 0,
+      costo_unitario: parseFloat(form.costo_unitario) || 0,
+    }
+    setSavingInsumo(true)
+    const { error } = await supabase.from('insumos').update(payload).eq('id', editInsumo.id)
+    setSavingInsumo(false)
+    if (error) { toast2(error.message, 'error'); return }
+    setInsumos(prev => prev.map(i => i.id === editInsumo.id ? { ...i, ...payload } : i))
+    toast2('Insumo actualizado')
+    setEditInsumo(null)
   }
 
   const movsFiltrados = useMemo(() => (
@@ -337,6 +405,55 @@ export default function Deposito() {
     w.onload = () => w.print()
   }
 
+  async function exportarPDF() {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    const pageWidth = doc.internal.pageSize.getWidth()
+
+    try {
+      const logoData = await toDataURL(logoUrl)
+      doc.addImage(logoData, 'PNG', 14, 10, 36, 13)
+    } catch {
+      // si no se puede cargar el logo, se continúa sin él
+    }
+
+    doc.setFontSize(11)
+    doc.setTextColor(40, 40, 40)
+    doc.text('Planilla de Trazabilidad — Egreso de Materiales', pageWidth - 14, 14, { align: 'right' })
+    doc.setFontSize(8)
+    doc.setTextColor(120, 120, 120)
+    doc.text(`Emitido: ${new Date().toLocaleDateString('es-AR')}`, pageWidth - 14, 19, { align: 'right' })
+
+    autoTable(doc, {
+      startY: 28,
+      head: [['Fecha', 'Producto', 'Marca', 'Presentación', 'Cant.', 'Lote', 'Venc.', 'Controló', 'Observ.', 'Destino']],
+      body: egresos.map(e => [
+        e.fecha || '', e.producto_nombre || '', e.marca || '', e.presentacion || '',
+        `${e.cantidad ?? ''} ${e.unidad || ''}`.trim(), e.lote || '', e.fecha_vencimiento || '',
+        e.controlo || '', e.observaciones || '', e.destino || '',
+      ]),
+      styles: { fontSize: 7, cellPadding: 1.5 },
+      headStyles: { fillColor: [212, 82, 26], textColor: 255 },
+      alternateRowStyles: { fillColor: [249, 250, 251] },
+    })
+
+    let finalY = (doc.lastAutoTable?.finalY || 28) + 24
+    if (finalY > doc.internal.pageSize.getHeight() - 10) finalY = doc.internal.pageSize.getHeight() - 10
+
+    const firmas = [
+      { label: 'Responsable de Depósito', x: 20 },
+      { label: 'Jefe de Producción', x: pageWidth / 2 - 28 },
+      { label: 'Gerencia / Calidad', x: pageWidth - 80 },
+    ]
+    doc.setFontSize(8)
+    doc.setTextColor(80, 80, 80)
+    firmas.forEach(f => {
+      doc.line(f.x, finalY - 4, f.x + 60, finalY - 4)
+      doc.text(f.label, f.x, finalY)
+    })
+
+    doc.save(`trazabilidad_delparque_${new Date().toISOString().split('T')[0]}.pdf`)
+  }
+
   return (
     <div className="space-y-5">
       <Toast toast={toast} />
@@ -357,22 +474,15 @@ export default function Deposito() {
             </>
           )}
           {tab === 'Trazabilidad' && (
-            <Button variant="secondary" onClick={imprimirTrazabilidad}>
-              <Printer size={15} /> Imprimir A4
-            </Button>
+            <>
+              <Button variant="secondary" onClick={imprimirTrazabilidad}>
+                <Printer size={15} /> Imprimir A4
+              </Button>
+              <Button variant="secondary" onClick={exportarPDF}>
+                <FileDown size={15} /> Exportar PDF
+              </Button>
+            </>
           )}
-          <div className="flex items-center rounded-lg overflow-hidden" style={{ border: `1px dashed ${colors.border}` }} title="Vista dev">
-            {ROLES.map(r => (
-              <button key={r} onClick={() => setUserRole(r)}
-                className="px-3 py-1.5 text-xs font-medium transition capitalize"
-                style={{
-                  backgroundColor: userRole === r ? colors.brand : 'transparent',
-                  color: userRole === r ? 'white' : colors.textMuted,
-                }}>
-                {r}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -430,6 +540,11 @@ export default function Deposito() {
                             <Badge variant={m.tipo === 'ingreso' ? 'success' : 'danger'}>
                               {m.tipo === 'ingreso' ? '↑' : '↓'} {m.fecha}
                             </Badge>
+                            {m.created_at && (
+                              <p className="text-[10px] mt-1" style={{ color: colors.textMuted }}>
+                                {new Date(m.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            )}
                           </Td>
                           <Td className="font-medium">{m.producto_nombre}</Td>
                           <Td className="text-xs" style={{ color: colors.textMuted }}>{[m.marca, m.lote].filter(Boolean).join(' · ') || '—'}</Td>
@@ -466,7 +581,14 @@ export default function Deposito() {
                       const pct = ins.stock_minimo ? Math.min(100, ((ins.stock_actual || 0) / (ins.stock_minimo * 1.5)) * 100) : 50
                       return (
                         <div key={ins.id} className="px-4 py-3 flex items-center gap-3"
-                          style={{ borderBottom: idx === items.length - 1 ? 'none' : `1px solid ${colors.border}` }}>
+                          onClick={isAdmin ? () => setEditInsumo(ins) : undefined}
+                          style={{
+                            borderBottom: idx === items.length - 1 ? 'none' : `1px solid ${colors.border}`,
+                            cursor: isAdmin ? 'pointer' : 'default',
+                          }}
+                          onMouseEnter={isAdmin ? e => e.currentTarget.style.backgroundColor = colors.bg : undefined}
+                          onMouseLeave={isAdmin ? e => e.currentTarget.style.backgroundColor = 'transparent' : undefined}
+                        >
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{ins.nombre}</p>
                             <p className="text-xs" style={{ color: colors.textMuted }}>{ins.stock_actual ?? '—'} {ins.unidad}</p>
@@ -708,6 +830,15 @@ export default function Deposito() {
           saving={saving}
           insumos={insumos}
           operarios={operariosUnicos}
+        />
+      )}
+
+      {editInsumo && (
+        <ModalEditarInsumo
+          insumo={editInsumo}
+          onClose={() => setEditInsumo(null)}
+          onSubmit={guardarInsumo}
+          saving={savingInsumo}
         />
       )}
     </div>

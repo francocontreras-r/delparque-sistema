@@ -1,21 +1,24 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useUser } from '../context/UserContext'
 import LogoDelParque from './LogoDelParque'
 import { colors } from '../styles/design-system'
 import {
   Factory, Thermometer, Warehouse, TrendingUp, TrendingDown,
-  ClipboardList, BookOpen, LogOut, Menu, X,
+  ClipboardList, BookOpen, LogOut, Menu, X, DollarSign, Users, Download,
 } from 'lucide-react'
 
 const NAV = [
-  { to: '/produccion',   label: 'Producción',   Icon: Factory       },
-  { to: '/camaras',      label: 'Cámaras',      Icon: Thermometer   },
-  { to: '/deposito',     label: 'Depósito',     Icon: Warehouse     },
-  { to: '/rendimientos', label: 'Rendimientos', Icon: TrendingUp    },
-  { to: '/mermas',       label: 'Mermas',       Icon: TrendingDown  },
-  { to: '/ordenes',      label: 'Órdenes',      Icon: ClipboardList },
-  { to: '/recetas',      label: 'Recetas',      Icon: BookOpen      },
+  { to: '/produccion',   label: 'Producción',   Icon: Factory,       modulo: 'produccion'   },
+  { to: '/camaras',      label: 'Cámaras',      Icon: Thermometer,   modulo: 'camaras'      },
+  { to: '/deposito',     label: 'Depósito',     Icon: Warehouse,     modulo: 'deposito'     },
+  { to: '/rendimientos', label: 'Rendimientos', Icon: TrendingUp,    modulo: 'rendimientos' },
+  { to: '/mermas',       label: 'Mermas',       Icon: TrendingDown,  modulo: 'mermas'       },
+  { to: '/ordenes',      label: 'Órdenes',      Icon: ClipboardList, modulo: 'ordenes'      },
+  { to: '/recetas',      label: 'Recetas',      Icon: BookOpen,      modulo: 'recetas'      },
+  { to: '/finanzas',     label: 'Finanzas',     Icon: DollarSign,    modulo: 'finanzas'     },
+  { to: '/usuarios',     label: 'Usuarios',     Icon: Users,         modulo: 'usuarios'     },
 ]
 
 // ── Reloj HH:MM, actualizado cada minuto ──────────────────────────────────────
@@ -80,7 +83,7 @@ function NavItem({ to, label, Icon, onClick }) {
 }
 
 // ── Sidebar content (definido fuera de Layout para evitar remounts) ───────────
-function SidebarContent({ onClose, user, onLogout }) {
+function SidebarContent({ onClose, user, onLogout, navItems }) {
   const initial = user?.email?.charAt(0).toUpperCase() || 'U'
   const username = user?.email?.split('@')[0] || 'Usuario'
 
@@ -108,7 +111,7 @@ function SidebarContent({ onClose, user, onLogout }) {
 
       {/* Nav */}
       <nav className="flex-1 py-4 space-y-1 overflow-y-auto">
-        {NAV.map(n => (
+        {navItems.map(n => (
           <NavItem key={n.to} to={n.to} label={n.label} Icon={n.Icon} onClick={onClose} />
         ))}
       </nav>
@@ -141,20 +144,82 @@ function SidebarContent({ onClose, user, onLogout }) {
   )
 }
 
+// ── Banner de instalación PWA ─────────────────────────────────────────────────
+function InstallBanner() {
+  const [deferredPrompt, setDeferredPrompt] = useState(null)
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    function onBeforeInstall(e) {
+      e.preventDefault()
+      setDeferredPrompt(e)
+      setVisible(true)
+    }
+    function onInstalled() {
+      setVisible(false)
+      setDeferredPrompt(null)
+    }
+    window.addEventListener('beforeinstallprompt', onBeforeInstall)
+    window.addEventListener('appinstalled', onInstalled)
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstall)
+      window.removeEventListener('appinstalled', onInstalled)
+    }
+  }, [])
+
+  if (!visible) return null
+
+  async function instalar() {
+    if (!deferredPrompt) return
+    deferredPrompt.prompt()
+    await deferredPrompt.userChoice
+    setDeferredPrompt(null)
+    setVisible(false)
+  }
+
+  return (
+    <div
+      className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg"
+      style={{ backgroundColor: '#ffffff', border: `1px solid ${colors.border}` }}
+    >
+      <div
+        className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 text-white font-extrabold text-sm"
+        style={{ backgroundColor: colors.brand }}
+      >
+        DP
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>Instalar Del Parque</p>
+        <p className="text-xs" style={{ color: colors.textMuted }}>Accedé más rápido desde tu pantalla de inicio</p>
+      </div>
+      <button
+        onClick={instalar}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white flex-shrink-0"
+        style={{ backgroundColor: colors.brand }}
+      >
+        <Download size={14} />
+        Instalar
+      </button>
+      <button
+        onClick={() => setVisible(false)}
+        className="w-7 h-7 flex items-center justify-center rounded-lg flex-shrink-0 hover:bg-slate-100"
+        style={{ color: colors.textMuted }}
+      >
+        <X size={14} />
+      </button>
+    </div>
+  )
+}
+
 // ── Layout principal ──────────────────────────────────────────────────────────
 export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [user, setUser] = useState(null)
+  const { user, tienePermiso } = useUser()
   const location = useLocation()
 
+  const navItems = NAV.filter(n => tienePermiso(n.modulo))
   const pageTitle = NAV.find(n => location.pathname.startsWith(n.to))?.label || 'Del Parque'
   const initial   = user?.email?.charAt(0).toUpperCase() || 'U'
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-    })
-  }, [])
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -165,7 +230,7 @@ export default function Layout() {
 
       {/* Desktop sidebar */}
       <aside className="hidden md:flex flex-col w-60 flex-shrink-0 shadow-lg">
-        <SidebarContent user={user} onLogout={handleLogout} />
+        <SidebarContent user={user} onLogout={handleLogout} navItems={navItems} />
       </aside>
 
       {/* Mobile backdrop */}
@@ -182,7 +247,7 @@ export default function Layout() {
         className="fixed inset-y-0 left-0 z-50 w-60 flex flex-col md:hidden shadow-xl"
         style={{ transform: mobileOpen ? 'translateX(0)' : 'translateX(-100%)', transition: 'transform 220ms ease' }}
       >
-        <SidebarContent onClose={() => setMobileOpen(false)} user={user} onLogout={handleLogout} />
+        <SidebarContent onClose={() => setMobileOpen(false)} user={user} onLogout={handleLogout} navItems={navItems} />
       </aside>
 
       {/* Main */}
@@ -223,6 +288,8 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+
+      <InstallBanner />
     </div>
   )
 }

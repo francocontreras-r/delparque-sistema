@@ -50,3 +50,39 @@ ALTER TABLE producciones ADD COLUMN IF NOT EXISTS producto_codigo integer;
 ALTER TABLE producciones ADD COLUMN IF NOT EXISTS producto_nombre text;
 ALTER TABLE producciones ADD COLUMN IF NOT EXISTS operario_nombre text;
 ALTER TABLE producciones ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+
+-- ── 7) Producción → carga manual ───────────────────────────────────────────
+ALTER TABLE producciones ADD COLUMN IF NOT EXISTS categoria text;
+ALTER TABLE producciones ADD COLUMN IF NOT EXISTS origen text DEFAULT 'escaneo';
+
+-- ── 8) Órdenes → múltiples productos por orden (helados / impulsivos) ──────
+ALTER TABLE ordenes_produccion ADD COLUMN IF NOT EXISTS tipo_producto text DEFAULT 'helado';
+ALTER TABLE ordenes_produccion ADD COLUMN IF NOT EXISTS cantidad_unidades integer;
+
+-- ── 9) Depósito → hora de cada movimiento ──────────────────────────────────
+ALTER TABLE movimientos_deposito ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+
+-- ── 10) Finanzas → costo de mano de obra y precio de venta ─────────────────
+ALTER TABLE sabores ADD COLUMN IF NOT EXISTS costo_materiales numeric DEFAULT 0;
+ALTER TABLE sabores ADD COLUMN IF NOT EXISTS mano_de_obra numeric DEFAULT 0;
+ALTER TABLE sabores ADD COLUMN IF NOT EXISTS costo_total numeric DEFAULT 0;
+ALTER TABLE sabores ADD COLUMN IF NOT EXISTS precio_venta numeric DEFAULT 0;
+ALTER TABLE impulsivos ADD COLUMN IF NOT EXISTS precio_venta numeric DEFAULT 0;
+
+-- ── 11) Usuarios y permisos (RBAC) ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_profiles (
+  id uuid references auth.users(id) primary key,
+  nombre text,
+  email text,
+  rol text default 'operario',
+  permisos jsonb default '{}',
+  activo boolean default true,
+  created_at timestamptz default now()
+);
+
+-- Crea el perfil admin para los usuarios que ya existían antes de este módulo
+-- (por ejemplo, la cuenta del dueño). Los usuarios nuevos se crean ya con
+-- perfil desde la pantalla Usuarios.
+INSERT INTO user_profiles (id, nombre, email, rol)
+SELECT id, email, email, 'admin' FROM auth.users
+ON CONFLICT (id) DO NOTHING;

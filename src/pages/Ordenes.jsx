@@ -11,7 +11,7 @@ import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import { colors, radius, shadow } from '../styles/design-system'
-import { ClipboardList, Plus, Printer, AlertTriangle, CheckCircle2, Warehouse } from 'lucide-react'
+import { ClipboardList, Plus, Printer, AlertTriangle, CheckCircle2, Warehouse, X } from 'lucide-react'
 import logoUrl from '../assets/logo.png'
 
 const LITROS_BATCH = 120
@@ -33,36 +33,47 @@ function fmtNum(n) {
   return Number((n || 0).toFixed(2)).toString()
 }
 
+function pad3(n) {
+  return String(n).padStart(3, '0')
+}
+
 export default function Ordenes() {
   const navigate = useNavigate()
-  const [ordenes, setOrdenes]     = useState([])
-  const [sabores, setSabores]     = useState([])
-  const [operarios, setOperarios] = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [toast, setToast]         = useState(null)
-  const [modal, setModal]         = useState(false)
-  const [saving, setSaving]       = useState(false)
+  const [ordenes, setOrdenes]         = useState([])
+  const [saboresCamara, setSaboresCamara] = useState([])
+  const [impulsivos, setImpulsivos]   = useState([])
+  const [operarios, setOperarios]     = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [toast, setToast]             = useState(null)
+  const [modal, setModal]             = useState(false)
+  const [saving, setSaving]           = useState(false)
   const [filtroEstado, setFiltroEstado] = useState('Todos')
-  const [stockAlert, setStockAlert] = useState(null)
-  const [checkingId, setCheckingId] = useState(null)
+  const [stockAlert, setStockAlert]   = useState(null)
+  const [checkingId, setCheckingId]   = useState(null)
+
+  const [tipoActivo, setTipoActivo]   = useState('helado')
+  const [lineaSel, setLineaSel]       = useState('')
+  const [lineaCantidad, setLineaCantidad] = useState('1')
+  const [lineas, setLineas]           = useState([])
   const [form, setForm] = useState({
     fecha_produccion: new Date().toISOString().split('T')[0],
-    sabor_id: '', sabor_nombre: '', operario_id: '', operario_nombre: '',
-    batches: '1', observaciones: '',
+    operario_id: '', operario_nombre: '', observaciones: '',
   })
 
   useEffect(() => { cargar() }, [])
 
   async function cargar() {
-    const [{ data: ord }, { data: sab }, { data: ops }] = await Promise.all([
-      supabase.from('ordenes_produccion').select('*').order('id', { ascending: false }).limit(200),
-      supabase.from('stock_camaras').select('id,nombre,tipo').order('nombre'),
+    const [{ data: ord }, { data: sab }, { data: imp }, { data: ops }] = await Promise.all([
+      supabase.from('ordenes_produccion').select('*').order('id', { ascending: false }).limit(300),
+      supabase.from('stock_camaras').select('id,nombre,tipo,baldes').order('nombre'),
+      supabase.from('impulsivos').select('id,nombre').order('nombre'),
       supabase.from('operarios').select('*').order('nombre'),
     ])
     setOrdenes(ord || [])
-    setSabores(sab || [])
+    setSaboresCamara(sab || [])
+    setImpulsivos(imp || [])
     setOperarios(ops || [])
-    if (sab && sab.length > 0) setForm(f => ({ ...f, sabor_id: String(sab[0].id), sabor_nombre: sab[0].nombre }))
+    if (sab && sab.length > 0) setLineaSel(String(sab[0].id))
     if (ops && ops.length > 0) setForm(f => ({ ...f, operario_id: String(ops[0].id), operario_nombre: ops[0].nombre }))
     setLoading(false)
   }
@@ -74,35 +85,76 @@ export default function Ordenes() {
 
   function upd(k, v) { setForm(f => ({ ...f, [k]: v })) }
 
-  const litrosTotal = parseInt(form.batches || '1', 10) * LITROS_BATCH
+  function cambiarTipoActivo(tipo) {
+    setTipoActivo(tipo)
+    setLineaCantidad('1')
+    if (tipo === 'helado') {
+      setLineaSel(saboresCamara[0] ? String(saboresCamara[0].id) : '')
+    } else {
+      setLineaSel(impulsivos[0] ? String(impulsivos[0].id) : '')
+    }
+  }
 
-  const saborSelec  = sabores.find(s => String(s.id) === form.sabor_id)
-  const stockActual = saborSelec?.baldes || 0
-  const faltaStock  = stockActual < 2
+  const opcionesActivas = tipoActivo === 'helado' ? saboresCamara : impulsivos
+  const productoSel = opcionesActivas.find(p => String(p.id) === lineaSel)
+  const stockActualSel = tipoActivo === 'helado' ? (productoSel?.baldes || 0) : null
+  const faltaStockSel  = tipoActivo === 'helado' && stockActualSel < 2
+
+  function agregarLinea() {
+    if (!productoSel) { toast2('Seleccioná un producto', 'error'); return }
+    const cantidad = parseInt(lineaCantidad || '1', 10)
+    if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
+    if (tipoActivo === 'helado') {
+      setLineas(ls => [...ls, {
+        tipo: 'helado', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
+        cantidad, litros: cantidad * LITROS_BATCH,
+      }])
+    } else {
+      setLineas(ls => [...ls, {
+        tipo: 'impulsivo', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
+        cantidad,
+      }])
+    }
+    setLineaCantidad('1')
+  }
+
+  function quitarLinea(idx) {
+    setLineas(ls => ls.filter((_, i) => i !== idx))
+  }
 
   async function crearOrden() {
-    if (!form.sabor_nombre || !form.batches) {
-      toast2('Completa los campos obligatorios', 'error'); return
-    }
+    if (lineas.length === 0) { toast2('Agregá al menos un producto', 'error'); return }
+    if (!form.fecha_produccion) { toast2('Completá la fecha de producción', 'error'); return }
     setSaving(true)
-    const numero = `OP-${Date.now().toString().slice(-6)}`
-    const { error } = await supabase.from('ordenes_produccion').insert({
+
+    const ymd = form.fecha_produccion.replaceAll('-', '')
+    const { data: existentes } = await supabase.from('ordenes_produccion')
+      .select('numero').like('numero', `OP-${ymd}-%`)
+    const numerosUnicos = new Set((existentes || []).map(o => o.numero).filter(Boolean))
+    const numero = `OP-${ymd}-${pad3(numerosUnicos.size + 1)}`
+
+    const filas = lineas.map(l => ({
       numero,
-      sabor_id: form.sabor_id ? parseInt(form.sabor_id, 10) : null,
-      sabor_nombre: form.sabor_nombre,
+      tipo_producto: l.tipo,
+      sabor_id: l.producto_id,
+      sabor_nombre: l.producto_nombre,
+      batches: l.tipo === 'helado' ? l.cantidad : null,
+      litros_total: l.tipo === 'helado' ? l.litros : null,
+      cantidad_unidades: l.tipo === 'impulsivo' ? l.cantidad : null,
       operario_id: form.operario_id ? parseInt(form.operario_id, 10) : null,
       operario_nombre: form.operario_nombre || null,
-      batches: parseInt(form.batches, 10),
-      litros_total: litrosTotal,
       estado: 'pendiente',
       fecha_produccion: form.fecha_produccion,
       observaciones: form.observaciones || null,
-    })
+    }))
+
+    const { error } = await supabase.from('ordenes_produccion').insert(filas)
     setSaving(false)
     if (error) { toast2(error.message, 'error'); return }
-    toast2('Orden creada')
+    toast2(`Orden ${numero} creada con ${filas.length} producto${filas.length !== 1 ? 's' : ''}`)
     setModal(false)
-    setForm(f => ({ ...f, batches: '1', observaciones: '' }))
+    setLineas([])
+    setForm(f => ({ ...f, observaciones: '' }))
     cargar()
   }
 
@@ -113,31 +165,39 @@ export default function Ordenes() {
     toast2('Estado actualizado')
   }
 
-  async function intentarCambiarEstado(orden, estado) {
+  async function intentarCambiarEstado(item, estado) {
     if (estado !== 'en_proceso') {
-      cambiarEstado(orden.id, estado)
+      cambiarEstado(item.id, estado)
       return
     }
-    setCheckingId(orden.id)
-    const { data: recetas } = await supabase.from('sabores').select('id,nombre')
-    const receta = (recetas || []).find(r => r.nombre.trim().toLowerCase() === (orden.sabor_nombre || '').trim().toLowerCase())
+    setCheckingId(item.id)
 
-    if (!receta) {
+    let ings = []
+    if (item.tipo_producto === 'impulsivo') {
+      const { data } = await supabase.from('impulsivo_ingredientes').select('*').eq('impulsivo_id', item.sabor_id)
+      ings = (data || []).map(i => ({ ...i, factor: item.cantidad_unidades || 1 }))
+    } else {
+      const { data: recetas } = await supabase.from('sabores').select('id,nombre')
+      const receta = (recetas || []).find(r => r.nombre.trim().toLowerCase() === (item.sabor_nombre || '').trim().toLowerCase())
+      if (receta) {
+        const { data } = await supabase.from('sabor_ingredientes').select('*').eq('sabor_id', receta.id)
+        ings = (data || []).map(i => ({ ...i, factor: item.batches || 1 }))
+      }
+    }
+
+    if (ings.length === 0) {
       setCheckingId(null)
-      setStockAlert({ orden, items: [], ok: true })
+      setStockAlert({ orden: item, items: [], ok: true })
       return
     }
 
-    const [{ data: ings }, { data: insumos }] = await Promise.all([
-      supabase.from('sabor_ingredientes').select('*').eq('sabor_id', receta.id),
-      supabase.from('insumos').select('nombre,stock_actual,unidad'),
-    ])
+    const { data: insumos } = await supabase.from('insumos').select('nombre,stock_actual,unidad')
     const insumoPorNombre = {}
     ;(insumos || []).forEach(i => { insumoPorNombre[i.nombre.trim().toLowerCase()] = i })
 
     const faltantes = []
-    for (const ing of ings || []) {
-      const requerido = (ing.cantidad || 0) * (orden.batches || 1)
+    for (const ing of ings) {
+      const requerido = (ing.cantidad || 0) * ing.factor
       const insumo = insumoPorNombre[(ing.insumo_nombre || '').trim().toLowerCase()]
       const disponible = insumo?.stock_actual ?? 0
       if (disponible < requerido) {
@@ -151,7 +211,7 @@ export default function Ordenes() {
       }
     }
     setCheckingId(null)
-    setStockAlert({ orden, items: faltantes, ok: faltantes.length === 0 })
+    setStockAlert({ orden: item, items: faltantes, ok: faltantes.length === 0 })
   }
 
   function confirmarInicio() {
@@ -160,18 +220,36 @@ export default function Ordenes() {
     setStockAlert(null)
   }
 
-  const ordenesFiltradas = useMemo(() => (
-    filtroEstado === 'Todos' ? ordenes : ordenes.filter(o => o.estado === filtroEstado)
-  ), [ordenes, filtroEstado])
+  const grupos = useMemo(() => {
+    const m = {}
+    ordenes.forEach(o => {
+      const key = o.numero || `#${o.id}`
+      if (!m[key]) m[key] = { numero: o.numero, fecha: o.fecha_produccion, operario: o.operario_nombre, items: [] }
+      m[key].items.push(o)
+    })
+    return Object.values(m).sort((a, b) => (b.numero || '').localeCompare(a.numero || ''))
+  }, [ordenes])
+
+  const gruposFiltrados = useMemo(() => (
+    filtroEstado === 'Todos' ? grupos : grupos.filter(g => g.items.some(i => i.estado === filtroEstado))
+  ), [grupos, filtroEstado])
 
   const kpiPendientes  = ordenes.filter(o => o.estado === 'pendiente').length
   const kpiEnProceso   = ordenes.filter(o => o.estado === 'en_proceso').length
   const kpiCompletadas = ordenes.filter(o => o.estado === 'completada').length
 
-  function imprimirOrden(orden) {
+  function imprimirOrden(grupo) {
     const w = window.open('', '_blank')
+    const obs = grupo.items.find(i => i.observaciones)?.observaciones
+    const filas = grupo.items.map(it => `
+      <tr>
+        <td>${it.sabor_nombre}</td>
+        <td>${it.tipo_producto === 'impulsivo' ? 'Impulsivo/Postre' : 'Helado'}</td>
+        <td style="text-align:right">${it.tipo_producto === 'impulsivo' ? `${it.cantidad_unidades} u` : `${it.batches} batch${it.batches !== 1 ? 'es' : ''} (${it.litros_total} L)`}</td>
+        <td>${estadoInfo(it.estado).label}</td>
+      </tr>`).join('')
     w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-    <title>Orden ${orden.numero}</title>
+    <title>Orden ${grupo.numero}</title>
     <style>
       *{box-sizing:border-box;margin:0;padding:0}
       body{font-family:Arial,sans-serif;font-size:11px;padding:24px}
@@ -182,23 +260,26 @@ export default function Ordenes() {
       .campo{background:#f9fafb;border-radius:8px;padding:10px}
       .campo-label{font-size:8px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin-bottom:2px}
       .campo-val{font-size:14px;font-weight:700;color:#111827}
+      table{width:100%;border-collapse:collapse;margin-bottom:20px}
+      th{background:#f3f4f6;font-size:9px;font-weight:700;text-transform:uppercase;padding:6px 8px;text-align:left;border-bottom:2px solid ${colors.brand}}
+      td{padding:6px 8px;border-bottom:1px solid #f3f4f6;font-size:11px}
       .firma-area{display:flex;gap:48px;margin-top:48px}
       .firma{flex:1;border-top:1px solid #374151;padding-top:8px;font-size:9px;color:#6b7280}
       @media print{body{padding:0}}
     </style></head><body>
     <div class="header">
       <img src="${logoUrl}" class="logo-img" alt="Del Parque" />
-      <div class="sub">Orden de Producción ${orden.numero} · Emitida: ${new Date().toLocaleDateString('es-AR')}</div>
+      <div class="sub">Orden de Producción ${grupo.numero} · Emitida: ${new Date().toLocaleDateString('es-AR')}</div>
     </div>
     <div class="grid">
-      <div class="campo"><div class="campo-label">Sabor</div><div class="campo-val">${orden.sabor_nombre}</div></div>
-      <div class="campo"><div class="campo-label">Fecha programada</div><div class="campo-val">${orden.fecha_produccion || '—'}</div></div>
-      <div class="campo"><div class="campo-label">Operario asignado</div><div class="campo-val">${orden.operario_nombre || '—'}</div></div>
-      <div class="campo"><div class="campo-label">Estado</div><div class="campo-val">${orden.estado}</div></div>
-      <div class="campo"><div class="campo-label">Batches</div><div class="campo-val">${orden.batches}</div></div>
-      <div class="campo"><div class="campo-label">Litros totales</div><div class="campo-val" style="color:${colors.brand}">${orden.litros_total} L</div></div>
+      <div class="campo"><div class="campo-label">Fecha programada</div><div class="campo-val">${grupo.fecha || '—'}</div></div>
+      <div class="campo"><div class="campo-label">Operario asignado</div><div class="campo-val">${grupo.operario || '—'}</div></div>
     </div>
-    ${orden.observaciones ? `<div class="campo" style="margin-bottom:20px"><div class="campo-label">Observaciones</div><div style="font-size:11px">${orden.observaciones}</div></div>` : ''}
+    <table>
+      <thead><tr><th>Producto</th><th>Tipo</th><th>Cantidad</th><th>Estado</th></tr></thead>
+      <tbody>${filas}</tbody>
+    </table>
+    ${obs ? `<div class="campo" style="margin-bottom:20px"><div class="campo-label">Observaciones</div><div style="font-size:11px">${obs}</div></div>` : ''}
     <div class="firma-area">
       <div class="firma">Supervisor</div>
       <div class="firma">Operario / Fecha</div>
@@ -244,62 +325,79 @@ export default function Ordenes() {
 
       {loading ? (
         <div className="flex justify-center py-14"><Spinner size={28} /></div>
-      ) : ordenesFiltradas.length === 0 ? (
+      ) : gruposFiltrados.length === 0 ? (
         <EmptyState icon={ClipboardList} title="Sin órdenes" subtitle="Creá una orden de producción para comenzar" />
       ) : (
         <div className="space-y-3">
-          {ordenesFiltradas.map(orden => {
-            const e = estadoInfo(orden.estado)
-            return (
-              <div key={orden.id} className="p-4 space-y-3"
-                style={{
-                  backgroundColor: colors.surface,
-                  borderRadius: radius.lg,
-                  border: `1px solid ${colors.border}`,
-                  borderLeft: `4px solid ${e.color}`,
-                  boxShadow: shadow.sm,
-                }}>
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-bold" style={{ color: colors.textPrimary }}>{orden.sabor_nombre}</p>
-                      <Badge variant={e.variant}>{e.label}</Badge>
-                    </div>
-                    <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>
-                      {orden.numero} · {orden.fecha_produccion} · {orden.operario_nombre || 'Sin asignar'}
-                    </p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-xl font-extrabold" style={{ color: colors.brand }}>{orden.litros_total} L</p>
-                    <p className="text-xs" style={{ color: colors.textMuted }}>{orden.batches} batch{orden.batches !== 1 ? 'es' : ''}</p>
-                  </div>
+          {gruposFiltrados.map(grupo => (
+            <div key={grupo.numero} className="p-4 space-y-3"
+              style={{
+                backgroundColor: colors.surface,
+                borderRadius: radius.lg,
+                border: `1px solid ${colors.border}`,
+                boxShadow: shadow.sm,
+              }}>
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <p className="font-bold" style={{ color: colors.textPrimary }}>{grupo.numero}</p>
+                  <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>
+                    {grupo.fecha} · {grupo.operario || 'Sin asignar'} · {grupo.items.length} producto{grupo.items.length !== 1 ? 's' : ''}
+                  </p>
                 </div>
-
-                {orden.observaciones && (
-                  <p className="text-xs px-3 py-2" style={{ color: colors.textSecondary, backgroundColor: colors.bg, borderRadius: radius.md }}>{orden.observaciones}</p>
-                )}
-
-                <div className="flex gap-2 flex-wrap items-center">
-                  {ESTADOS.filter(es => es.key !== orden.estado && es.key !== 'cancelada').map(es => (
-                    <Button key={es.key} variant="ghost" size="sm" onClick={() => intentarCambiarEstado(orden, es.key)}
-                      loading={checkingId === orden.id} disabled={checkingId !== null && checkingId !== orden.id}
-                      className="!border" style={{ borderColor: es.color, color: es.color }}>
-                      → {es.label}
-                    </Button>
-                  ))}
-                  {orden.estado !== 'cancelada' && (
-                    <Button variant="ghost" size="sm" onClick={() => cambiarEstado(orden.id, 'cancelada')}
-                      className="!border" style={{ borderColor: colors.border, color: colors.textMuted }}>
-                      Cancelar
-                    </Button>
-                  )}
-                  <Button variant="ghost" size="sm" onClick={() => imprimirOrden(orden)} className="ml-auto">
-                    <Printer size={12} /> Imprimir
-                  </Button>
-                </div>
+                <Button variant="ghost" size="sm" onClick={() => imprimirOrden(grupo)}>
+                  <Printer size={12} /> Imprimir
+                </Button>
               </div>
-            )
-          })}
+
+              <div className="space-y-2">
+                {grupo.items.map(item => {
+                  const e = estadoInfo(item.estado)
+                  return (
+                    <div key={item.id} className="p-3"
+                      style={{ backgroundColor: colors.bg, borderRadius: radius.md, borderLeft: `4px solid ${e.color}` }}>
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-semibold text-sm" style={{ color: colors.textPrimary }}>{item.sabor_nombre}</p>
+                            <Badge variant="neutral">{item.tipo_producto === 'impulsivo' ? 'Impulsivo/Postre' : 'Helado'}</Badge>
+                            <Badge variant={e.variant}>{e.label}</Badge>
+                          </div>
+                          {item.observaciones && (
+                            <p className="text-xs mt-1" style={{ color: colors.textSecondary }}>{item.observaciones}</p>
+                          )}
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          {item.tipo_producto === 'impulsivo' ? (
+                            <p className="text-lg font-extrabold" style={{ color: colors.brand }}>{item.cantidad_unidades} u</p>
+                          ) : (
+                            <>
+                              <p className="text-lg font-extrabold" style={{ color: colors.brand }}>{item.litros_total} L</p>
+                              <p className="text-xs" style={{ color: colors.textMuted }}>{item.batches} batch{item.batches !== 1 ? 'es' : ''}</p>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex gap-2 flex-wrap items-center mt-2">
+                        {ESTADOS.filter(es => es.key !== item.estado && es.key !== 'cancelada').map(es => (
+                          <Button key={es.key} variant="ghost" size="sm" onClick={() => intentarCambiarEstado(item, es.key)}
+                            loading={checkingId === item.id} disabled={checkingId !== null && checkingId !== item.id}
+                            className="!border" style={{ borderColor: es.color, color: es.color }}>
+                            → {es.label}
+                          </Button>
+                        ))}
+                        {item.estado !== 'cancelada' && (
+                          <Button variant="ghost" size="sm" onClick={() => cambiarEstado(item.id, 'cancelada')}
+                            className="!border" style={{ borderColor: colors.border, color: colors.textMuted }}>
+                            Cancelar
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -307,57 +405,101 @@ export default function Ordenes() {
         open={modal}
         onClose={() => setModal(false)}
         title="Nueva Orden de Producción"
-        maxWidth="max-w-md"
+        maxWidth="max-w-lg"
         footer={
           <>
             <Button variant="secondary" onClick={() => setModal(false)} disabled={saving} className="flex-1">
               Cancelar
             </Button>
             <Button variant="primary" onClick={crearOrden} loading={saving} className="flex-1">
-              {saving ? 'Creando…' : 'Crear orden'}
+              {saving ? 'Creando…' : `Crear orden (${lineas.length})`}
             </Button>
           </>
         }
       >
-        <div className="space-y-3">
-          <Input label="Fecha de producción *" type="date" value={form.fecha_produccion} onChange={e => upd('fecha_produccion', e.target.value)} />
-          <Select label="Sabor *" value={form.sabor_id} onChange={e => {
-            const s = sabores.find(s => String(s.id) === e.target.value)
-            upd('sabor_id', e.target.value)
-            upd('sabor_nombre', s?.nombre || '')
-          }}>
-            {sabores.map(s => <option key={s.id} value={String(s.id)}>{s.nombre} ({s.tipo})</option>)}
-          </Select>
-
-          {faltaStock && (
-            <div className="flex items-start gap-2 px-3 py-2.5 text-xs" style={{ backgroundColor: colors.warningBg, border: `1px solid ${colors.warning}40`, borderRadius: radius.md, color: colors.warning }}>
-              <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
-              <span>Stock bajo para este sabor ({stockActual} baldes). La orden se creará igualmente — verificá disponibilidad.</span>
-            </div>
-          )}
-
-          <Select label="Operario asignado" value={form.operario_id} onChange={e => {
-            const o = operarios.find(o => String(o.id) === e.target.value)
-            upd('operario_id', e.target.value)
-            upd('operario_nombre', o?.nombre || '')
-          }}>
-            <option value="">— Sin asignar —</option>
-            {operarios.map(o => <option key={o.id} value={String(o.id)}>{o.nombre}</option>)}
-          </Select>
-          <Input label="Batches *" type="number" min="1" max="20" value={form.batches}
-            onChange={e => upd('batches', e.target.value)} />
-          <div className="px-4 py-3 text-center" style={{ backgroundColor: `${colors.brand}0d`, border: `1px solid ${colors.brand}30`, borderRadius: radius.lg }}>
-            <p className="text-xs" style={{ color: colors.textMuted }}>Total a producir</p>
-            <p className="text-2xl font-extrabold" style={{ color: colors.brand }}>
-              {litrosTotal} litros
-            </p>
-            <p className="text-xs" style={{ color: colors.textMuted }}>{form.batches} batch{parseInt(form.batches) !== 1 ? 'es' : ''} × {LITROS_BATCH} L</p>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Fecha de producción *" type="date" value={form.fecha_produccion} onChange={e => upd('fecha_produccion', e.target.value)} />
+            <Select label="Operario" value={form.operario_id} onChange={e => {
+              const o = operarios.find(o => String(o.id) === e.target.value)
+              upd('operario_id', e.target.value)
+              upd('operario_nombre', o?.nombre || '')
+            }}>
+              <option value="">— Sin asignar —</option>
+              {operarios.map(o => <option key={o.id} value={String(o.id)}>{o.nombre}</option>)}
+            </Select>
           </div>
+
           <div>
             <label className="block text-sm font-medium text-[#374151] mb-1.5">Observaciones</label>
             <textarea value={form.observaciones} onChange={e => upd('observaciones', e.target.value)}
               rows={2} className={textareaClass} />
           </div>
+
+          <div className="pt-2" style={{ borderTop: `1px solid ${colors.border}` }}>
+            <div className="flex gap-1.5 mb-3 mt-3">
+              {[{ key: 'helado', label: 'Helados' }, { key: 'impulsivo', label: 'Impulsivos y Postres' }].map(t => (
+                <button key={t.key} onClick={() => cambiarTipoActivo(t.key)}
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border"
+                  style={{
+                    backgroundColor: tipoActivo === t.key ? colors.brand : 'transparent',
+                    borderColor: tipoActivo === t.key ? colors.brand : colors.border,
+                    color: tipoActivo === t.key ? 'white' : colors.textSecondary,
+                  }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {opcionesActivas.length === 0 ? (
+              <p className="text-sm" style={{ color: colors.textMuted }}>
+                {tipoActivo === 'helado' ? 'No hay sabores cargados en cámaras.' : 'No hay impulsivos cargados.'}
+              </p>
+            ) : (
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <Select label={tipoActivo === 'helado' ? 'Sabor' : 'Impulsivo / Postre'} value={lineaSel} onChange={e => setLineaSel(e.target.value)}>
+                    {opcionesActivas.map(p => <option key={p.id} value={String(p.id)}>{p.nombre}</option>)}
+                  </Select>
+                </div>
+                <div className="w-28">
+                  <Input label={tipoActivo === 'helado' ? 'Batches' : 'Unidades'} type="number" min="1" value={lineaCantidad}
+                    onChange={e => setLineaCantidad(e.target.value)} />
+                </div>
+                <Button variant="secondary" onClick={agregarLinea}>
+                  <Plus size={14} /> Agregar
+                </Button>
+              </div>
+            )}
+
+            {faltaStockSel && (
+              <div className="flex items-start gap-2 px-3 py-2.5 mt-2 text-xs" style={{ backgroundColor: colors.warningBg, border: `1px solid ${colors.warning}40`, borderRadius: radius.md, color: colors.warning }}>
+                <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
+                <span>Stock bajo para este sabor ({stockActualSel} baldes). Se puede agregar igual — verificá disponibilidad.</span>
+              </div>
+            )}
+          </div>
+
+          {lineas.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-[#374151]">Productos en esta orden</label>
+              {lineas.map((l, idx) => (
+                <div key={idx} className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: colors.bg, borderRadius: radius.md }}>
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{l.producto_nombre}</p>
+                    <p className="text-xs" style={{ color: colors.textMuted }}>
+                      {l.tipo === 'helado'
+                        ? `${l.cantidad} batch${l.cantidad !== 1 ? 'es' : ''} · ${l.litros} L`
+                        : `${l.cantidad} unidad${l.cantidad !== 1 ? 'es' : ''}`}
+                    </p>
+                  </div>
+                  <button onClick={() => quitarLinea(idx)} className="w-7 h-7 flex items-center justify-center rounded-full transition-colors hover:bg-slate-200" style={{ color: colors.textMuted }}>
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </Modal>
 
@@ -387,7 +529,7 @@ export default function Ordenes() {
             <div className="flex items-start gap-2.5 px-3 py-3" style={{ backgroundColor: colors.successBg, border: `1px solid ${colors.success}40`, borderRadius: radius.md }}>
               <CheckCircle2 size={18} style={{ color: colors.success }} className="flex-shrink-0 mt-0.5" />
               <p className="text-sm" style={{ color: colors.textPrimary }}>
-                Hay stock suficiente de todos los ingredientes para <strong>{stockAlert.orden.sabor_nombre}</strong> ({stockAlert.orden.batches} batch{stockAlert.orden.batches !== 1 ? 'es' : ''}). ¿Confirmás el inicio de la producción?
+                Hay stock suficiente de todos los ingredientes para <strong>{stockAlert.orden.sabor_nombre}</strong>. ¿Confirmás el inicio de la producción?
               </p>
             </div>
           ) : (

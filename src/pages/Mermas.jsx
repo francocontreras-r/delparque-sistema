@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { useUser } from '../context/UserContext'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
@@ -11,7 +12,7 @@ import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { TrendingDown, Plus } from 'lucide-react'
+import { TrendingDown, Plus, DollarSign } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 const TABS   = ['Por Sabor', 'Por Operario', 'Por Causa', 'Historial']
@@ -19,6 +20,13 @@ const CAUSAS = [
   'Derrame accidental', 'Falla de equipo', 'Producto fuera de norma',
   'Vencimiento', 'Error de pesaje', 'Limpieza de línea', 'Otra',
 ]
+
+const TIPO_PRECIOS = {
+  Lisa:           { costo_kg: 1200, precio_kg: 2800 },
+  'Con Agregado': { costo_kg: 1500, precio_kg: 3200 },
+  Agua:           { costo_kg:  900, precio_kg: 2200 },
+  Especial:       { costo_kg: 2000, precio_kg: 4500 },
+}
 
 const textareaClass = 'w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
 
@@ -33,6 +41,8 @@ function pctVariant(pct) {
   if (pct < 8)  return 'warning'
   return 'danger'
 }
+
+function pesos(n) { return Math.round(n || 0).toLocaleString('es-AR') }
 
 function AgrupacionList({ filas }) {
   if (filas.length === 0) return <EmptyState icon={TrendingDown} title="Sin datos" subtitle="Registrá mermas para ver el análisis" />
@@ -54,6 +64,7 @@ function AgrupacionList({ filas }) {
 }
 
 export default function Mermas() {
+  const { isAdmin } = useUser()
   const [tab, setTab]             = useState('Por Sabor')
   const [mermas, setMermas]       = useState([])
   const [sabores, setSabores]     = useState([])
@@ -74,7 +85,7 @@ export default function Mermas() {
   async function cargar() {
     const [{ data: m }, { data: s }, { data: o }] = await Promise.all([
       supabase.from('mermas').select('*').order('created_at', { ascending: false }).limit(200),
-      supabase.from('stock_camaras').select('id,nombre').order('nombre'),
+      supabase.from('stock_camaras').select('id,nombre,tipo,costo_kg').order('nombre'),
       supabase.from('operarios').select('*').order('nombre'),
     ])
     setMermas(m || [])
@@ -129,22 +140,40 @@ export default function Mermas() {
     return Object.values(m).map(s => ({ ...s, pct: s.teo > 0 ? (s.dif / s.teo) * 100 : 0 })).sort((a, b) => b.pct - a.pct)
   }
 
+  const costoKgPorSabor = useMemo(() => {
+    const m = {}
+    sabores.forEach(s => {
+      const costo = s.costo_kg ?? TIPO_PRECIOS[s.tipo]?.costo_kg ?? 0
+      m[(s.nombre || '').trim().toLowerCase()] = costo
+    })
+    return m
+  }, [sabores])
+
+  function costoMerma(m) {
+    const costoKg = costoKgPorSabor[(m.sabor_nombre || '').trim().toLowerCase()] || 0
+    return (m.diferencia || 0) * costoKg
+  }
+
   const porSabor    = useMemo(() => agrupar(r => r.sabor_nombre),    [mermas])
   const porOperario = useMemo(() => agrupar(r => r.operario_nombre), [mermas])
   const porCausa    = useMemo(() => {
     const m = {}
     mermas.forEach(r => {
       const k = r.causa || 'Sin especificar'
-      if (!m[k]) m[k] = { causa: k, dif: 0, cnt: 0 }
+      if (!m[k]) m[k] = { causa: k, dif: 0, costo: 0, cnt: 0 }
       m[k].dif += r.diferencia || 0
+      m[k].costo += costoMerma(r)
       m[k].cnt++
     })
     return Object.values(m).sort((a, b) => b.dif - a.dif)
-  }, [mermas])
+  }, [mermas, costoKgPorSabor])
 
   const totalDif  = mermas.reduce((a, m) => a + (m.diferencia || 0), 0)
   const totalTeo  = mermas.reduce((a, m) => a + (m.kg_teoricos || 0), 0)
   const pctGlobal = totalTeo > 0 ? (totalDif / totalTeo) * 100 : 0
+  const totalCostoMermas = useMemo(() => (
+    mermas.reduce((a, m) => a + costoMerma(m), 0)
+  ), [mermas, costoKgPorSabor])
 
   return (
     <div className="space-y-5">
@@ -159,10 +188,13 @@ export default function Mermas() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className={`grid grid-cols-2 ${isAdmin ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-3`}>
         <KpiCard label="KG perdidos" value={loading ? '—' : totalDif.toFixed(1)} color={totalDif > 0 ? colors.danger : undefined} icon={TrendingDown} />
         <KpiCard label="% global"    value={loading ? '—' : pctGlobal.toFixed(1) + '%'} color={pctColor(pctGlobal)} />
         <KpiCard label="Registros"   value={loading ? '—' : mermas.length} />
+        {isAdmin && (
+          <KpiCard label="Costo total mermas" value={loading ? '—' : `$${pesos(totalCostoMermas)}`} color={colors.danger} icon={DollarSign} />
+        )}
       </div>
 
       <div className="flex gap-1.5 flex-wrap">
@@ -215,6 +247,7 @@ export default function Mermas() {
                           <Th>Registros</Th>
                           <Th>KG perdidos</Th>
                           <Th>% del total</Th>
+                          <Th>Costo total</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
@@ -224,6 +257,7 @@ export default function Mermas() {
                             <Td>{c.cnt}</Td>
                             <Td className="font-bold" style={{ color: colors.danger }}>{c.dif.toFixed(2)} kg</Td>
                             <Td>{totalDif > 0 ? ((c.dif / totalDif) * 100).toFixed(1) : '0.0'}%</Td>
+                            <Td className="font-semibold" style={{ color: colors.danger }}>${pesos(c.costo)}</Td>
                           </Tr>
                         ))}
                       </Tbody>
@@ -238,7 +272,7 @@ export default function Mermas() {
               ? <EmptyState icon={TrendingDown} title="Sin historial" subtitle="Los registros aparecen aquí" />
               : (
                 <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-                  <Table className="min-w-[620px]">
+                  <Table className="min-w-[680px]">
                     <Thead>
                       <Tr>
                         <Th>Fecha</Th>
@@ -248,6 +282,7 @@ export default function Mermas() {
                         <Th>KG real</Th>
                         <Th>Diferencia</Th>
                         <Th>%</Th>
+                        <Th>Costo merma $</Th>
                         <Th>Causa</Th>
                       </Tr>
                     </Thead>
@@ -261,6 +296,7 @@ export default function Mermas() {
                           <Td className="text-xs text-right" style={{ color: colors.textSecondary }}>{m.kg_reales}</Td>
                           <Td className="font-semibold text-right" style={{ color: colors.danger }}>{(m.diferencia || 0).toFixed(2)}</Td>
                           <Td><Badge variant={pctVariant(m.porcentaje || 0)}>{(m.porcentaje || 0).toFixed(1)}%</Badge></Td>
+                          <Td className="font-semibold text-right" style={{ color: colors.danger }}>${pesos(costoMerma(m))}</Td>
                           <Td className="text-xs" style={{ color: colors.textMuted }}>{m.causa}</Td>
                         </Tr>
                       ))}

@@ -26,15 +26,36 @@ const SEM = { verde: colors.success, amarillo: colors.warning, rojo: colors.dang
 
 const textareaClass = 'w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
 
-function semaforo(actual, minimo) {
-  if (!minimo || minimo <= 0) return 'gris'
-  const r = actual / minimo
-  if (r >= 1.5) return 'verde'
-  if (r >= 0.75) return 'amarillo'
-  return 'rojo'
+function semaforo(actual, minimo, maximo) {
+  const a = Number(actual) || 0
+  const min = Number(minimo) || 0
+  const max = Number(maximo) || 0
+  if (a < min) return 'rojo'
+  if (max > 0) return a >= max ? 'verde' : 'amarillo'
+  return min > 0 ? 'amarillo' : 'gris'
+}
+
+function pctNivel(actual, minimo, maximo) {
+  const a = Number(actual) || 0
+  const min = Number(minimo) || 0
+  const max = Number(maximo) || 0
+  if (max > 0) return Math.min(100, (a / max) * 100)
+  if (min > 0) return Math.min(100, (a / (min * 1.5)) * 100)
+  return 50
 }
 
 function pesos(n) { return Math.round(n || 0).toLocaleString('es-AR') }
+
+function fmtFecha(fecha) {
+  if (!fecha) return '—'
+  const [y, m, d] = fecha.split('-')
+  return `${d}/${m}/${y}`
+}
+
+function fmtHora(created_at) {
+  if (!created_at) return null
+  return new Date(created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) + ' hs'
+}
 
 function toDataURL(url) {
   return fetch(url)
@@ -124,10 +145,11 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios }
   )
 }
 
-function ModalEditarInsumo({ insumo, onClose, onSubmit, saving }) {
+function ModalEditarInsumo({ insumo, onClose, onSubmit, saving, isAdmin }) {
   const [form, setForm] = useState({
     stock_actual: insumo.stock_actual ?? '',
     stock_minimo: insumo.stock_minimo ?? '',
+    stock_maximo: insumo.stock_maximo ?? '',
     costo_unitario: insumo.costo_unitario ?? '',
   })
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -150,12 +172,17 @@ function ModalEditarInsumo({ insumo, onClose, onSubmit, saving }) {
       }
     >
       <div className="space-y-3">
+        <Input label="Nombre" value={insumo.nombre} disabled />
         <Input label={`Stock actual (${insumo.unidad || 'u'})`} type="number" min="0" step="0.01"
           value={form.stock_actual} onChange={e => upd('stock_actual', e.target.value)} />
         <Input label={`Stock mínimo (${insumo.unidad || 'u'})`} type="number" min="0" step="0.01"
           value={form.stock_minimo} onChange={e => upd('stock_minimo', e.target.value)} />
-        <Input label="Costo unitario ($)" type="number" min="0" step="0.01"
-          value={form.costo_unitario} onChange={e => upd('costo_unitario', e.target.value)} />
+        <Input label={`Stock máximo (${insumo.unidad || 'u'})`} type="number" min="0" step="0.01"
+          value={form.stock_maximo} onChange={e => upd('stock_maximo', e.target.value)} />
+        {isAdmin && (
+          <Input label="Costo unitario ($)" type="number" min="0" step="0.01"
+            value={form.costo_unitario} onChange={e => upd('costo_unitario', e.target.value)} />
+        )}
       </div>
     </Modal>
   )
@@ -266,8 +293,9 @@ export default function Deposito() {
     const payload = {
       stock_actual: parseFloat(form.stock_actual) || 0,
       stock_minimo: parseFloat(form.stock_minimo) || 0,
-      costo_unitario: parseFloat(form.costo_unitario) || 0,
+      stock_maximo: parseFloat(form.stock_maximo) || 0,
     }
+    if (isAdmin) payload.costo_unitario = parseFloat(form.costo_unitario) || 0
     setSavingInsumo(true)
     const { error } = await supabase.from('insumos').update(payload).eq('id', editInsumo.id)
     setSavingInsumo(false)
@@ -363,7 +391,7 @@ export default function Deposito() {
     const w = window.open('', '_blank')
     const filas = egresos.map(e => `
       <tr>
-        <td>${e.fecha || ''}</td><td>${e.producto_nombre || ''}</td><td>${e.marca || ''}</td>
+        <td>${fmtFecha(e.fecha)}${e.created_at ? ' ' + fmtHora(e.created_at) : ''}</td><td>${e.producto_nombre || ''}</td><td>${e.marca || ''}</td>
         <td>${e.presentacion || ''}</td><td style="text-align:right">${e.cantidad || ''}</td>
         <td>${e.lote || ''}</td><td>${e.fecha_vencimiento || ''}</td>
         <td>${e.controlo || ''}</td><td>${e.observaciones || ''}</td>
@@ -427,7 +455,7 @@ export default function Deposito() {
       startY: 28,
       head: [['Fecha', 'Producto', 'Marca', 'Presentación', 'Cant.', 'Lote', 'Venc.', 'Controló', 'Observ.', 'Destino']],
       body: egresos.map(e => [
-        e.fecha || '', e.producto_nombre || '', e.marca || '', e.presentacion || '',
+        fmtFecha(e.fecha) + (e.created_at ? ' ' + fmtHora(e.created_at) : ''), e.producto_nombre || '', e.marca || '', e.presentacion || '',
         `${e.cantidad ?? ''} ${e.unidad || ''}`.trim(), e.lote || '', e.fecha_vencimiento || '',
         e.controlo || '', e.observaciones || '', e.destino || '',
       ]),
@@ -538,11 +566,11 @@ export default function Deposito() {
                         <Tr key={m.id}>
                           <Td>
                             <Badge variant={m.tipo === 'ingreso' ? 'success' : 'danger'}>
-                              {m.tipo === 'ingreso' ? '↑' : '↓'} {m.fecha}
+                              {m.tipo === 'ingreso' ? '↑' : '↓'} {fmtFecha(m.fecha)}
                             </Badge>
                             {m.created_at && (
                               <p className="text-[10px] mt-1" style={{ color: colors.textMuted }}>
-                                {new Date(m.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                                {fmtHora(m.created_at)}
                               </p>
                             )}
                           </Td>
@@ -577,8 +605,8 @@ export default function Deposito() {
                   </div>
                   <div>
                     {items.map((ins, idx) => {
-                      const niv = semaforo(ins.stock_actual || 0, ins.stock_minimo || 0)
-                      const pct = ins.stock_minimo ? Math.min(100, ((ins.stock_actual || 0) / (ins.stock_minimo * 1.5)) * 100) : 50
+                      const niv = semaforo(ins.stock_actual || 0, ins.stock_minimo || 0, ins.stock_maximo || 0)
+                      const pct = pctNivel(ins.stock_actual || 0, ins.stock_minimo || 0, ins.stock_maximo || 0)
                       return (
                         <div key={ins.id} className="px-4 py-3 flex items-center gap-3"
                           onClick={isAdmin ? () => setEditInsumo(ins) : undefined}
@@ -597,7 +625,7 @@ export default function Deposito() {
                             <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: colors.bg }}>
                               <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: SEM[niv] }} />
                             </div>
-                            <p className="text-[10px] text-right" style={{ color: colors.textMuted }}>mín {ins.stock_minimo ?? '—'}</p>
+                            <p className="text-[10px] text-right" style={{ color: colors.textMuted }}>mín {ins.stock_minimo ?? '—'} · máx {ins.stock_maximo ?? '—'}</p>
                           </div>
                           {showVal && (
                             <div className="text-right flex-shrink-0 w-24">
@@ -661,7 +689,12 @@ export default function Deposito() {
                     <Tbody>
                       {egresos.map(e => (
                         <Tr key={e.id}>
-                          <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{e.fecha}</Td>
+                          <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>
+                            {fmtFecha(e.fecha)}
+                            {e.created_at && (
+                              <p className="text-[10px]" style={{ color: colors.textMuted }}>{fmtHora(e.created_at)}</p>
+                            )}
+                          </Td>
                           <Td className="text-xs font-medium">{e.producto_nombre}</Td>
                           <Td className="text-xs" style={{ color: colors.textSecondary }}>{e.marca || '—'}</Td>
                           <Td className="text-xs" style={{ color: colors.textSecondary }}>{e.presentacion || '—'}</Td>
@@ -839,6 +872,7 @@ export default function Deposito() {
           onClose={() => setEditInsumo(null)}
           onSubmit={guardarInsumo}
           saving={savingInsumo}
+          isAdmin={isAdmin}
         />
       )}
     </div>

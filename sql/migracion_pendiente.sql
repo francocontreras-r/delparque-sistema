@@ -86,3 +86,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 INSERT INTO user_profiles (id, nombre, email, rol)
 SELECT id, email, email, 'admin' FROM auth.users
 ON CONFLICT (id) DO NOTHING;
+
+-- ── 12) Depósito → stock máximo por insumo (barra de nivel de 3 zonas) ─────
+ALTER TABLE insumos ADD COLUMN IF NOT EXISTS stock_maximo numeric DEFAULT 0;
+NOTIFY pgrst, 'reload schema';

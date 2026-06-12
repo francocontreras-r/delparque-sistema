@@ -80,6 +80,10 @@ export default function Produccion() {
   const lote = `${String(hoyDate.getDate()).padStart(2,'0')}${String(hoyDate.getMonth()+1).padStart(2,'0')}${hoyDate.getFullYear()}`
 
   useEffect(() => {
+    if (modo === 'escaneo') inputRef.current?.focus()
+  }, [modo])
+
+  useEffect(() => {
     inicializar()
     const ch = supabase.channel('producciones_rt')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'producciones' },
@@ -143,6 +147,7 @@ export default function Produccion() {
     if (!decoded) {
       toast2('Código inválido — debe ser EAN-13 Del Parque (200…)', 'error')
       setCodigo('')
+      inputRef.current?.focus()
       return
     }
     const producto = productos.find(p => p.codigo === decoded.prod)
@@ -160,6 +165,7 @@ export default function Produccion() {
       observaciones: '',
     })
     setCodigo('')
+    inputRef.current?.focus()
   }
 
   function agregarManualALista() {
@@ -208,12 +214,38 @@ export default function Produccion() {
       return
     }
     const cantidad = preCarga.length
+
+    // Afectar stock de cámaras: sumar los kg producidos a cada producto que exista allí
+    const sumasPorProducto = {}
+    preCarga.forEach(item => {
+      const nombre = (item.producto_nombre || '').trim()
+      if (!nombre) return
+      const key = nombre.toLowerCase()
+      if (!sumasPorProducto[key]) sumasPorProducto[key] = { nombre, kg: 0 }
+      sumasPorProducto[key].kg += item.peso_kg || 0
+    })
+    let camarasActualizadas = 0
+    for (const { nombre, kg: kgProducidos } of Object.values(sumasPorProducto)) {
+      const { data: camaras } = await supabase.from('stock_camaras')
+        .select('id,kg').ilike('nombre', nombre).limit(1)
+      const camara = camaras?.[0]
+      if (!camara) continue
+      const nuevoKg = (camara.kg || 0) + kgProducidos
+      const { error: errCam } = await supabase.from('stock_camaras')
+        .update({ kg: nuevoKg, baldes: Math.floor(nuevoKg / 7), updated_at: new Date().toISOString() })
+        .eq('id', camara.id)
+      if (!errCam) camarasActualizadas++
+    }
+
     setPreCarga([])
     const { data: regs } = await supabase.from('producciones').select('*').eq('fecha', fechaHoy)
       .order('created_at', { ascending: false }).limit(50)
     setRegistros(regs || [])
     setConfirmando(false)
-    toast2(`${cantidad} registro${cantidad === 1 ? '' : 's'} guardado${cantidad === 1 ? '' : 's'} correctamente`)
+    const sufijoCamaras = camarasActualizadas > 0
+      ? ` · ${camarasActualizadas} producto${camarasActualizadas === 1 ? '' : 's'} actualizado${camarasActualizadas === 1 ? '' : 's'} en cámaras`
+      : ''
+    toast2(`${cantidad} registro${cantidad === 1 ? '' : 's'} guardado${cantidad === 1 ? '' : 's'} correctamente${sufijoCamaras}`)
     setTimeout(() => inputRef.current?.focus(), 100)
   }
 
@@ -363,6 +395,8 @@ export default function Produccion() {
           <input
             ref={inputRef}
             type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
             value={codigo}
             onChange={e => setCodigo(e.target.value)}
             onKeyDown={handleKey}

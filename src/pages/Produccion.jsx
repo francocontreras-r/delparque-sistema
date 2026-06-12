@@ -8,10 +8,9 @@ import Modal from '../components/ui/Modal'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
-import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { Package, Users, Scale, Hash, ScanLine, PenLine, FileText, Printer } from 'lucide-react'
+import { Package, Users, Scale, Hash, ScanLine, PenLine, FileText, Printer, X, Plus, ClipboardCheck } from 'lucide-react'
 import logoUrl from '../assets/logo.png'
 
 function decodearEAN(code) {
@@ -38,6 +37,7 @@ const PRODUCTOS_SEED = [
 ]
 
 const textareaClass = 'w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
+const obsInputClass  = 'w-full min-w-[160px] rounded-md border border-[#d1d5db] text-xs text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-2 py-1.5 focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
 
 function fmtNum(n) {
   return Number((n || 0).toFixed(2)).toString()
@@ -49,6 +49,8 @@ function unidadDe(r) {
   return (c.includes('impulsiv') || c.includes('postre')) ? 'u' : 'kg'
 }
 
+let preCargaSeq = 0
+
 export default function Produccion() {
   const [operarios, setOperarios]     = useState([])
   const [productos, setProductos]     = useState([])
@@ -58,10 +60,9 @@ export default function Produccion() {
   const [loading, setLoading]         = useState(true)
   const [toast, setToast]             = useState(null)
   const [codigo, setCodigo]           = useState('')
-  const [preview, setPreview]         = useState(null)
+  const [preCarga, setPreCarga]       = useState([])
+  const [confirmando, setConfirmando] = useState(false)
   const [operarioSel, setOperarioSel] = useState('')
-  const [observaciones, setObservaciones] = useState('')
-  const [guardando, setGuardando]     = useState(false)
   const inputRef = useRef(null)
 
   const [modo, setModo] = useState('escaneo')
@@ -69,7 +70,6 @@ export default function Produccion() {
   const [manualCantidad, setManualCantidad] = useState('')
   const [manualLote, setManualLote] = useState('')
   const [manualObservaciones, setManualObservaciones] = useState('')
-  const [guardandoManual, setGuardandoManual] = useState(false)
 
   const [modalInforme, setModalInforme] = useState(false)
   const [cargandoInforme, setCargandoInforme] = useState(false)
@@ -84,7 +84,8 @@ export default function Produccion() {
     const ch = supabase.channel('producciones_rt')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'producciones' },
         ({ new: row }) => {
-          if (row.fecha === fechaHoy) setRegistros(prev => [row, ...prev].slice(0, 50))
+          if (row.fecha !== fechaHoy) return
+          setRegistros(prev => prev.some(r => r.id === row.id) ? prev : [row, ...prev].slice(0, 50))
         })
       .subscribe()
     return () => supabase.removeChannel(ch)
@@ -118,10 +119,26 @@ export default function Produccion() {
     setLoading(false)
   }
 
+  function agregarAPreCarga(item) {
+    setPreCarga(prev => [...prev, { ...item, _id: `pc-${Date.now()}-${preCargaSeq++}` }])
+  }
+
+  function quitarDePreCarga(id) {
+    setPreCarga(prev => prev.filter(it => it._id !== id))
+  }
+
+  function actualizarObsPreCarga(id, value) {
+    setPreCarga(prev => prev.map(it => it._id === id ? { ...it, observaciones: value } : it))
+  }
+
   function handleKey(e) {
     if (e.key !== 'Enter') return
     const val = e.target.value.trim()
     if (!val) return
+    if (!operarioSel) {
+      toast2('Seleccioná un operario antes de escanear', 'error')
+      return
+    }
     const decoded = decodearEAN(val)
     if (!decoded) {
       toast2('Código inválido — debe ser EAN-13 Del Parque (200…)', 'error')
@@ -129,40 +146,23 @@ export default function Produccion() {
       return
     }
     const producto = productos.find(p => p.codigo === decoded.prod)
-    setPreview({
-      prod: decoded.prod,
-      peso: decoded.peso,
-      nombre: producto?.nombre || `Producto #${decoded.prod}`,
-      categoria: producto?.categoria || '—',
-    })
-  }
-
-  async function registrar() {
-    if (!preview || !operarioSel) return
-    setGuardando(true)
     const operario = operarios.find(o => String(o.id) === operarioSel)
-    const { error } = await supabase.from('producciones').insert({
+    agregarAPreCarga({
       fecha: fechaHoy,
-      producto_codigo: preview.prod,
-      producto_nombre: preview.nombre,
-      categoria: preview.categoria !== '—' ? preview.categoria : null,
+      producto_codigo: decoded.prod,
+      producto_nombre: producto?.nombre || `Producto #${decoded.prod}`,
+      categoria: producto?.categoria || null,
       origen: 'escaneo',
-      peso_kg: preview.peso,
+      peso_kg: decoded.peso,
       lote,
       operario_id: operario?.id || null,
       operario_nombre: operario?.nombre || '—',
-      observaciones: observaciones.trim() || null,
+      observaciones: '',
     })
-    setGuardando(false)
-    if (error) { toast2('Error: ' + error.message, 'error'); return }
-    setPreview(null)
     setCodigo('')
-    setObservaciones('')
-    toast2('Registrado correctamente')
-    setTimeout(() => inputRef.current?.focus(), 100)
   }
 
-  async function registrarManual() {
+  function agregarManualALista() {
     if (!operarioSel || !manualProducto || !manualCantidad) {
       toast2('Completá operario, producto y cantidad', 'error'); return
     }
@@ -178,8 +178,7 @@ export default function Produccion() {
       categoria = 'Impulsivo/Postre'
     }
     const operario = operarios.find(o => String(o.id) === operarioSel)
-    setGuardandoManual(true)
-    const { error } = await supabase.from('producciones').insert({
+    agregarAPreCarga({
       fecha: fechaHoy,
       producto_codigo: null,
       producto_nombre: nombre,
@@ -189,13 +188,33 @@ export default function Produccion() {
       lote: manualLote || lote,
       operario_id: operario?.id || null,
       operario_nombre: operario?.nombre || '—',
-      observaciones: manualObservaciones.trim() || null,
+      observaciones: manualObservaciones.trim(),
     })
-    setGuardandoManual(false)
-    if (error) { toast2('Error: ' + error.message, 'error'); return }
     setManualCantidad('')
     setManualObservaciones('')
-    toast2('Registrado correctamente')
+  }
+
+  async function confirmarYRegistrarTodo() {
+    if (preCarga.length === 0) return
+    setConfirmando(true)
+    const payload = preCarga.map(({ _id, ...item }) => ({
+      ...item,
+      observaciones: item.observaciones?.trim() || null,
+    }))
+    const { error } = await supabase.from('producciones').insert(payload)
+    if (error) {
+      setConfirmando(false)
+      toast2('Error: ' + error.message, 'error')
+      return
+    }
+    const cantidad = preCarga.length
+    setPreCarga([])
+    const { data: regs } = await supabase.from('producciones').select('*').eq('fecha', fechaHoy)
+      .order('created_at', { ascending: false }).limit(50)
+    setRegistros(regs || [])
+    setConfirmando(false)
+    toast2(`${cantidad} registro${cantidad === 1 ? '' : 's'} guardado${cantidad === 1 ? '' : 's'} correctamente`)
+    setTimeout(() => inputRef.current?.focus(), 100)
   }
 
   async function abrirInforme() {
@@ -341,51 +360,19 @@ export default function Produccion() {
         </div>
 
         {modo === 'escaneo' ? (
-          <>
-            <input
-              ref={inputRef}
-              type="text"
-              value={codigo}
-              onChange={e => setCodigo(e.target.value)}
-              onKeyDown={handleKey}
-              placeholder="Escanear código de barra..."
-              autoFocus
-              className="w-full font-mono tracking-wide text-center outline-none transition-colors"
-              style={{ padding: '20px 24px', fontSize: 18, borderRadius: radius.lg, border: `2px solid ${colors.border}`, color: colors.textPrimary }}
-              onFocus={e => { e.target.style.borderColor = colors.brand }}
-              onBlur={e => { e.target.style.borderColor = colors.border }}
-            />
-
-            {preview && (
-              <div className="mt-4 p-5 space-y-3" style={{ backgroundColor: `${colors.brand}0d`, border: `1px solid ${colors.brand}30`, borderRadius: radius.lg, animation: 'slide-down 220ms ease-out' }}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-bold" style={{ color: colors.textPrimary }}>{preview.nombre}</p>
-                      <Badge variant="info">{preview.categoria}</Badge>
-                    </div>
-                    <p className="text-xs mt-1" style={{ color: colors.textMuted }}>Código #{preview.prod} · Lote {lote}</p>
-                  </div>
-                  <span className="text-2xl font-extrabold flex-shrink-0" style={{ color: colors.brand }}>
-                    {preview.peso} kg
-                  </span>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-[#374151] mb-1.5">Observaciones</label>
-                  <textarea value={observaciones} onChange={e => setObservaciones(e.target.value)}
-                    placeholder="Observaciones (opcional)" rows={2} className={textareaClass} />
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <Button variant="secondary" onClick={() => { setPreview(null); setCodigo(''); setObservaciones('') }}>
-                    Cancelar
-                  </Button>
-                  <Button variant="primary" onClick={registrar} loading={guardando} disabled={!operarioSel}>
-                    {guardando ? 'Guardando…' : 'Registrar'}
-                  </Button>
-                </div>
-              </div>
-            )}
-          </>
+          <input
+            ref={inputRef}
+            type="text"
+            value={codigo}
+            onChange={e => setCodigo(e.target.value)}
+            onKeyDown={handleKey}
+            placeholder="Escanear código de barra..."
+            autoFocus
+            className="w-full font-mono tracking-wide text-center outline-none transition-colors"
+            style={{ padding: '20px 24px', fontSize: 18, borderRadius: radius.lg, border: `2px solid ${colors.border}`, color: colors.textPrimary }}
+            onFocus={e => { e.target.style.borderColor = colors.brand }}
+            onBlur={e => { e.target.style.borderColor = colors.border }}
+          />
         ) : (
           <div className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -410,15 +397,63 @@ export default function Produccion() {
                 placeholder="Observaciones (opcional)" rows={2} className={textareaClass} />
             </div>
             <div className="flex gap-2 justify-end">
-              <Button variant="primary" onClick={registrarManual} loading={guardandoManual} disabled={!operarioSel}>
-                {guardandoManual ? 'Guardando…' : 'Registrar'}
+              <Button variant="secondary" onClick={agregarManualALista} disabled={!operarioSel}>
+                <Plus size={14} /> Agregar a lista
               </Button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Timeline de registros */}
+      {/* Pre-carga */}
+      {preCarga.length > 0 && (
+        <div style={{ backgroundColor: colors.surface, borderRadius: radius.xl, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+          <div className="px-5 py-4 flex items-center justify-between flex-wrap gap-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+            <h2 className="text-sm font-semibold" style={{ color: colors.textPrimary }}>Pre-carga ({preCarga.length})</h2>
+            <Button variant="primary" onClick={confirmarYRegistrarTodo} loading={confirmando}>
+              <ClipboardCheck size={14} /> {confirmando ? 'Guardando…' : `Confirmar y registrar todo (${preCarga.length})`}
+            </Button>
+          </div>
+          <Table className="min-w-[680px]">
+            <Thead>
+              <Tr>
+                <Th>Lote</Th><Th>Operario</Th><Th>Producto</Th><Th>Kg</Th><Th>Observaciones</Th><Th></Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {preCarga.map(item => (
+                <Tr key={item._id}>
+                  <Td className="font-bold whitespace-nowrap" style={{ color: colors.brand }}>{item.lote}</Td>
+                  <Td className="whitespace-nowrap">{item.operario_nombre}</Td>
+                  <Td className="font-medium">{item.producto_nombre}</Td>
+                  <Td className="text-right whitespace-nowrap">{fmtNum(item.peso_kg)} {unidadDe(item)}</Td>
+                  <Td>
+                    <input
+                      type="text"
+                      value={item.observaciones}
+                      onChange={e => actualizarObsPreCarga(item._id, e.target.value)}
+                      placeholder="Agregar observación..."
+                      className={obsInputClass}
+                    />
+                  </Td>
+                  <Td>
+                    <button
+                      onClick={() => quitarDePreCarga(item._id)}
+                      title="Quitar de la lista"
+                      className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-red-50 transition-colors"
+                      style={{ color: colors.danger }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </Td>
+                </Tr>
+              ))}
+            </Tbody>
+          </Table>
+        </div>
+      )}
+
+      {/* Feed de registros del día */}
       <div style={{ backgroundColor: colors.surface, borderRadius: radius.xl, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
         <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: `1px solid ${colors.border}` }}>
           <h2 className="text-sm font-semibold" style={{ color: colors.textPrimary }}>Registros de hoy</h2>
@@ -429,29 +464,24 @@ export default function Produccion() {
         ) : registros.length === 0 ? (
           <EmptyState icon={Package} title="Sin registros hoy" subtitle="Escaneá un código o cargá manualmente para comenzar" />
         ) : (
-          <div className="px-5 py-4">
-            {registros.map((r, i) => (
-              <div key={r.id} className="relative pl-7" style={{ paddingBottom: i === registros.length - 1 ? 0 : 18 }}>
-                {i !== registros.length - 1 && (
-                  <div className="absolute w-px" style={{ left: 6, top: 16, bottom: -2, backgroundColor: colors.border }} />
-                )}
-                <div className="absolute rounded-full" style={{ left: 0, top: 3, width: 13, height: 13, backgroundColor: colors.surface, border: `2.5px solid ${colors.brand}` }} />
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold truncate" style={{ color: colors.textPrimary }}>{r.producto_nombre}</p>
-                    <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                      {r.categoria && <Badge variant="neutral">{r.categoria}</Badge>}
-                      {r.origen === 'manual' && <Badge variant="info">Manual</Badge>}
-                      <span className="text-xs" style={{ color: colors.textMuted }}>
-                        {r.operario_nombre} · {new Date(r.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                  </div>
-                  <span className="text-base font-bold flex-shrink-0" style={{ color: colors.brand }}>{fmtNum(r.peso_kg)} {unidadDe(r)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
+          <Table className="min-w-[640px]">
+            <Thead>
+              <Tr>
+                <Th>Lote</Th><Th>Operario</Th><Th>Producto</Th><Th>Kg</Th><Th>Observaciones</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {registros.map(r => (
+                <Tr key={r.id}>
+                  <Td className="font-bold whitespace-nowrap" style={{ color: colors.brand }}>{r.lote || '—'}</Td>
+                  <Td className="whitespace-nowrap">{r.operario_nombre || '—'}</Td>
+                  <Td className="font-medium">{r.producto_nombre}</Td>
+                  <Td className="text-right whitespace-nowrap">{fmtNum(r.peso_kg)} {unidadDe(r)}</Td>
+                  <Td>{r.observaciones || '—'}</Td>
+                </Tr>
+              ))}
+            </Tbody>
+          </Table>
         )}
       </div>
 

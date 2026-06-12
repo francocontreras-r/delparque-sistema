@@ -50,6 +50,45 @@ function fmtNum(n) {
   return Number((n || 0).toFixed(2)).toString()
 }
 
+// Busca la receta de un sabor o, si no existe, de una base, por nombre.
+function resolverRecetaCtx(nombre, ctx) {
+  const n = (nombre || '').trim().toLowerCase()
+  const sabor = ctx.sabores.find(s => (s.nombre || '').trim().toLowerCase() === n)
+  if (sabor) {
+    return {
+      tipo: 'sabor',
+      id: sabor.id,
+      litrosBase: sabor.litros_base || LITROS_BATCH,
+      ingredientes: ctx.saborIngredientes.filter(i => i.sabor_id === sabor.id),
+    }
+  }
+  const base = ctx.bases.find(b => (b.nombre || '').trim().toLowerCase() === n)
+  if (base) {
+    return {
+      tipo: 'base',
+      id: base.id,
+      litrosBase: base.litros_batch || LITROS_BATCH,
+      ingredientes: ctx.baseIngredientes.filter(i => i.base_id === base.id),
+    }
+  }
+  return null
+}
+
+function computeMateriasPrimas(item, ctx) {
+  if (item.tipo_producto !== 'helado') return []
+  const receta = resolverRecetaCtx(item.sabor_nombre, ctx)
+  if (!receta) return []
+  const insumoPorNombre = {}
+  ctx.insumosStock.forEach(i => { insumoPorNombre[(i.nombre || '').trim().toLowerCase()] = i })
+  return receta.ingredientes.map(ing => {
+    const necesario = (ing.cantidad || 0) * (item.batches || 0)
+    const insumo = insumoPorNombre[(ing.insumo_nombre || '').trim().toLowerCase()]
+    if (!insumo) return { nombre: ing.insumo_nombre, necesario, unidad: ing.unidad, disponible: null, estado: 'sinlimite' }
+    const disponible = insumo.stock_actual || 0
+    return { nombre: ing.insumo_nombre, necesario, unidad: ing.unidad, disponible, estado: disponible >= necesario ? 'ok' : 'insuficiente' }
+  })
+}
+
 export default function Ordenes() {
   const navigate = useNavigate()
   const [ordenes, setOrdenes]         = useState([])
@@ -72,6 +111,8 @@ export default function Ordenes() {
   const [saborIngredientes, setSaborIngredientes] = useState([])
   const [insumosStock, setInsumosStock]   = useState([])
   const [stockAlertCrear, setStockAlertCrear] = useState(null)
+  const [bases, setBases]             = useState([])
+  const [baseIngredientes, setBaseIngredientes] = useState([])
 
   const [busqueda, setBusqueda]       = useState('')
   const [filtroFecha, setFiltroFecha] = useState('')
@@ -91,7 +132,7 @@ export default function Ordenes() {
   useEffect(() => { cargar() }, [])
 
   async function cargar() {
-    const [{ data: ord }, { data: sab }, { data: imp }, { data: ops }, { data: recetas }, { data: ingredientes }, { data: insumosData }] = await Promise.all([
+    const [{ data: ord }, { data: sab }, { data: imp }, { data: ops }, { data: recetas }, { data: ingredientes }, { data: insumosData }, { data: basesData }, { data: baseIngs }] = await Promise.all([
       supabase.from('ordenes_produccion').select('*').order('id', { ascending: false }).limit(300),
       supabase.from('stock_camaras').select('id,nombre,tipo,baldes').order('nombre'),
       supabase.from('impulsivos').select('id,nombre').order('nombre'),
@@ -99,6 +140,8 @@ export default function Ordenes() {
       supabase.from('sabores').select('id,nombre,litros_base').order('nombre'),
       supabase.from('sabor_ingredientes').select('*'),
       supabase.from('insumos').select('nombre,stock_actual,unidad'),
+      supabase.from('bases').select('id,nombre,litros_batch').order('nombre'),
+      supabase.from('base_ingredientes').select('*'),
     ])
     setOrdenes(ord || [])
     setSaboresCamara(sab || [])
@@ -107,7 +150,9 @@ export default function Ordenes() {
     setSabores(recetas || [])
     setSaborIngredientes(ingredientes || [])
     setInsumosStock(insumosData || [])
-    if (sab && sab.length > 0) setLineaSel(String(sab[0].id))
+    setBases(basesData || [])
+    setBaseIngredientes(baseIngs || [])
+    if (sab && sab.length > 0) setLineaSel(`sabor-${sab[0].id}`)
     if (ops && ops.length > 0) setForm(f => ({ ...f, operario_id: String(ops[0].id), operario_nombre: ops[0].nombre }))
     setLoading(false)
   }
@@ -123,36 +168,44 @@ export default function Ordenes() {
     setTipoActivo(tipo)
     setLineaCantidad('1')
     if (tipo === 'helado') {
-      setLineaSel(saboresCamara[0] ? String(saboresCamara[0].id) : '')
+      setLineaSel(saboresCamara[0] ? `sabor-${saboresCamara[0].id}` : (bases[0] ? `base-${bases[0].id}` : ''))
     } else {
-      setLineaSel(impulsivos[0] ? String(impulsivos[0].id) : '')
+      setLineaSel(impulsivos[0] ? `imp-${impulsivos[0].id}` : '')
     }
   }
 
-  const opcionesActivas = tipoActivo === 'helado' ? saboresCamara : impulsivos
-  const productoSel = opcionesActivas.find(p => String(p.id) === lineaSel)
-  const stockActualSel = tipoActivo === 'helado' ? (productoSel?.baldes || 0) : null
-  const faltaStockSel  = tipoActivo === 'helado' && stockActualSel < 2
+  const opcionesActivas = tipoActivo === 'helado'
+    ? [
+        ...saboresCamara.map(s => ({ ...s, _key: `sabor-${s.id}`, _tipo: 'sabor' })),
+        ...bases.map(b => ({ ...b, _key: `base-${b.id}`, _tipo: 'base' })),
+      ]
+    : impulsivos.map(p => ({ ...p, _key: `imp-${p.id}`, _tipo: 'impulsivo' }))
+  const productoSel = opcionesActivas.find(p => p._key === lineaSel)
+  const stockActualSel = productoSel?._tipo === 'sabor' ? (productoSel.baldes || 0) : null
+  const faltaStockSel  = productoSel?._tipo === 'sabor' && stockActualSel < 2
 
-  async function calcularKgObjetivo(nombreProducto, batches) {
-    const receta = sabores.find(s => (s.nombre || '').trim().toLowerCase() === nombreProducto.trim().toLowerCase())
-    const litrosBase = receta?.litros_base || LITROS_BATCH
-    let extraKg = 0
-    if (receta) {
-      const { data: ings } = await supabase.from('sabor_ingredientes')
-        .select('cantidad,unidad').eq('sabor_id', receta.id).eq('unidad', 'kg')
-      extraKg = (ings || []).reduce((a, i) => a + (i.cantidad || 0), 0)
-    }
-    const kgObjetivo = batches * (litrosBase * 1.05 + extraKg)
-    return { kgObjetivo, litrosBase, extraKg }
+  function resolverReceta(nombre) {
+    return resolverRecetaCtx(nombre, { sabores, bases, saborIngredientes, baseIngredientes })
   }
 
-  async function agregarLinea() {
+  function calcularKgObjetivo(nombreProducto, batches) {
+    const receta = resolverReceta(nombreProducto)
+    if (!receta) return { kgObjetivo: batches * LITROS_BATCH * 1.05, litrosBase: LITROS_BATCH, extraKg: 0 }
+    if (receta.tipo === 'base') {
+      const kgObjetivo = batches * receta.litrosBase * 1.05
+      return { kgObjetivo, litrosBase: receta.litrosBase, extraKg: 0 }
+    }
+    const extraKg = receta.ingredientes.filter(i => i.unidad === 'kg').reduce((a, i) => a + (i.cantidad || 0), 0)
+    const kgObjetivo = batches * (receta.litrosBase * 1.05 + extraKg)
+    return { kgObjetivo, litrosBase: receta.litrosBase, extraKg }
+  }
+
+  function agregarLinea() {
     if (!productoSel) { toast2('Seleccioná un producto', 'error'); return }
     if (tipoActivo === 'helado') {
       const cantidad = parseFloat(lineaCantidad || '1')
       if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
-      const { kgObjetivo, litrosBase, extraKg } = await calcularKgObjetivo(productoSel.nombre, cantidad)
+      const { kgObjetivo, litrosBase, extraKg } = calcularKgObjetivo(productoSel.nombre, cantidad)
       setLineas(ls => [...ls, {
         tipo: 'helado', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
         cantidad, litros: cantidad * LITROS_BATCH,
@@ -176,9 +229,9 @@ export default function Ordenes() {
   function requerimientosDeLineas(lineasHelado) {
     const map = {}
     lineasHelado.forEach(l => {
-      const receta = sabores.find(s => (s.nombre || '').trim().toLowerCase() === l.producto_nombre.trim().toLowerCase())
+      const receta = resolverReceta(l.producto_nombre)
       if (!receta) return
-      saborIngredientes.filter(i => i.sabor_id === receta.id).forEach(ing => {
+      receta.ingredientes.forEach(ing => {
         const key = (ing.insumo_nombre || '').trim().toLowerCase()
         if (!key) return
         if (!map[key]) map[key] = { nombre: ing.insumo_nombre, cantidad: 0, unidad: ing.unidad }
@@ -202,18 +255,7 @@ export default function Ordenes() {
   }
 
   function materiasPrimasDe(item) {
-    if (item.tipo_producto !== 'helado') return []
-    const receta = sabores.find(s => (s.nombre || '').trim().toLowerCase() === (item.sabor_nombre || '').trim().toLowerCase())
-    if (!receta) return []
-    const insumoPorNombre = {}
-    insumosStock.forEach(i => { insumoPorNombre[(i.nombre || '').trim().toLowerCase()] = i })
-    return saborIngredientes.filter(i => i.sabor_id === receta.id).map(ing => {
-      const necesario = (ing.cantidad || 0) * (item.batches || 0)
-      const insumo = insumoPorNombre[(ing.insumo_nombre || '').trim().toLowerCase()]
-      if (!insumo) return { nombre: ing.insumo_nombre, necesario, unidad: ing.unidad, disponible: null, estado: 'sinlimite' }
-      const disponible = insumo.stock_actual || 0
-      return { nombre: ing.insumo_nombre, necesario, unidad: ing.unidad, disponible, estado: disponible >= necesario ? 'ok' : 'insuficiente' }
-    })
+    return computeMateriasPrimas(item, { sabores, bases, saborIngredientes, baseIngredientes, insumosStock })
   }
 
   async function crearOrden() {
@@ -299,11 +341,9 @@ export default function Ordenes() {
       const { data } = await supabase.from('impulsivo_ingredientes').select('*').eq('impulsivo_id', item.sabor_id)
       ings = (data || []).map(i => ({ ...i, factor: item.cantidad_unidades || 1 }))
     } else {
-      const { data: recetas } = await supabase.from('sabores').select('id,nombre')
-      const receta = (recetas || []).find(r => r.nombre.trim().toLowerCase() === (item.sabor_nombre || '').trim().toLowerCase())
+      const receta = resolverReceta(item.sabor_nombre)
       if (receta) {
-        const { data } = await supabase.from('sabor_ingredientes').select('*').eq('sabor_id', receta.id)
-        ings = (data || []).map(i => ({ ...i, factor: item.batches || 1 }))
+        ings = receta.ingredientes.map(i => ({ ...i, factor: item.batches || 1 }))
       }
     }
 
@@ -482,14 +522,38 @@ export default function Ordenes() {
     w.onload = () => w.print()
   }
 
-  function imprimirListaMP(grupo, item) {
-    const mp = materiasPrimasDe(item)
+  async function imprimirListaMP(grupo, item) {
     const w = window.open('', '_blank')
+
+    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock }
+    let mp = computeMateriasPrimas(item, ctx)
+
+    if (mp.length === 0) {
+      const [{ data: ingredientes }, { data: insumosData }, { data: baseIngs }] = await Promise.all([
+        supabase.from('sabor_ingredientes').select('*'),
+        supabase.from('insumos').select('nombre,stock_actual,unidad'),
+        supabase.from('base_ingredientes').select('*'),
+      ])
+      setSaborIngredientes(ingredientes || [])
+      setInsumosStock(insumosData || [])
+      setBaseIngredientes(baseIngs || [])
+      ctx = { ...ctx, saborIngredientes: ingredientes || [], insumosStock: insumosData || [], baseIngredientes: baseIngs || [] }
+      mp = computeMateriasPrimas(item, ctx)
+    }
+
+    if (mp.length === 0) {
+      w.close()
+      toast2('No se encontraron materias primas para este producto', 'error')
+      return
+    }
+
     const filas = mp.map(m => `
       <tr>
         <td>${m.nombre}</td>
         <td style="text-align:right">${fmtNum(m.necesario)}</td>
         <td>${m.unidad}</td>
+        <td style="text-align:right">${m.estado === 'sinlimite' ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`}</td>
+        <td>${m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</td>
         <td style="text-align:center"><div class="checkbox"></div></td>
       </tr>`).join('')
     w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
@@ -526,7 +590,7 @@ export default function Ordenes() {
       <div class="campo"><div class="campo-label">Batches</div><div class="campo-val">${item.batches}</div></div>
     </div>
     <table>
-      <thead><tr><th>Ingrediente</th><th>Cantidad necesaria</th><th>Unidad</th><th>Entregado ✓</th></tr></thead>
+      <thead><tr><th>Ingrediente</th><th>Cantidad necesaria</th><th>Unidad</th><th>Stock actual</th><th>Estado</th><th>Entregado ✓</th></tr></thead>
       <tbody>${filas}</tbody>
     </table>
     <div class="firma-area">
@@ -869,13 +933,24 @@ export default function Ordenes() {
 
             {opcionesActivas.length === 0 ? (
               <p className="text-sm" style={{ color: colors.textMuted }}>
-                {tipoActivo === 'helado' ? 'No hay sabores cargados en cámaras.' : 'No hay impulsivos cargados.'}
+                {tipoActivo === 'helado' ? 'No hay sabores ni bases cargados.' : 'No hay impulsivos cargados.'}
               </p>
             ) : (
               <div className="flex gap-2 items-end">
                 <div className="flex-1">
-                  <Select label={tipoActivo === 'helado' ? 'Sabor' : 'Impulsivo / Postre'} value={lineaSel} onChange={e => setLineaSel(e.target.value)}>
-                    {opcionesActivas.map(p => <option key={p.id} value={String(p.id)}>{p.nombre}</option>)}
+                  <Select label={tipoActivo === 'helado' ? 'Sabor / Base' : 'Impulsivo / Postre'} value={lineaSel} onChange={e => setLineaSel(e.target.value)}>
+                    {tipoActivo === 'helado' ? (
+                      <>
+                        <optgroup label="-- SABORES --">
+                          {saboresCamara.map(s => <option key={`sabor-${s.id}`} value={`sabor-${s.id}`}>{s.nombre}</option>)}
+                        </optgroup>
+                        <optgroup label="-- BASES --">
+                          {bases.map(b => <option key={`base-${b.id}`} value={`base-${b.id}`}>{b.nombre}</option>)}
+                        </optgroup>
+                      </>
+                    ) : (
+                      impulsivos.map(p => <option key={`imp-${p.id}`} value={`imp-${p.id}`}>{p.nombre}</option>)
+                    )}
                   </Select>
                 </div>
                 <div className="w-28">

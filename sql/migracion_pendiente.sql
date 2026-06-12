@@ -90,3 +90,20 @@ ON CONFLICT (id) DO NOTHING;
 -- ── 12) Depósito → stock máximo por insumo (barra de nivel de 3 zonas) ─────
 ALTER TABLE insumos ADD COLUMN IF NOT EXISTS stock_maximo numeric DEFAULT 0;
 NOTIFY pgrst, 'reload schema';
+
+-- ── 13) Producción → sabores faltantes para el nuevo formato de código EAN ─
+-- Requiere un constraint único en "codigo" para que el ON CONFLICT funcione.
+ALTER TABLE productos_produccion ADD CONSTRAINT IF NOT EXISTS productos_produccion_codigo_key UNIQUE (codigo);
+
+INSERT INTO productos_produccion (codigo, nombre, categoria) VALUES
+(50, 'FRUTILLA AL AGUA', 'helado'),
+(51, 'MANZANA', 'helado'),
+(52, 'CANELA', 'helado'),
+(53, 'FRUTOS PATAGONICOS', 'helado'),
+(54, 'LIMON AGUA', 'helado'),
+(55, 'DURAZNO', 'helado'),
+(56, 'ANANA', 'helado'),
+(57, 'NARANJA', 'helado')
+ON CONFLICT (codigo) DO UPDATE SET nombre = EXCLUDED.nombre;
+
+NOTIFY pgrst, 'reload schema';

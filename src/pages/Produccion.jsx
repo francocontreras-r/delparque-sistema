@@ -15,6 +15,13 @@ import logoUrl from '../assets/logo.png'
 
 function decodearEAN(code) {
   if (!code || code.length !== 13 || !code.startsWith('200')) return null
+  // Formato nuevo: prefijo fijo "20000" + código de producto (2 dígitos) + peso (6 dígitos)
+  if (code.startsWith('20000')) {
+    const prod = parseInt(code.substring(5, 7), 10)
+    const peso = parseInt(code.substring(7, 13), 10) / 1000
+    return { prod, peso }
+  }
+  // Formato viejo: prefijo "200" + código de producto (4 dígitos) + peso (4 dígitos)
   const prod = parseInt(code.substring(3, 7), 10)
   const peso = prod === 100
     ? parseInt(code.substring(9, 13), 10) / 1000
@@ -56,6 +63,7 @@ export default function Produccion() {
   const [productos, setProductos]     = useState([])
   const [registros, setRegistros]     = useState([])
   const [saboresCamara, setSaboresCamara] = useState([])
+  const [saboresProduccion, setSaboresProduccion] = useState([])
   const [impulsivosList, setImpulsivosList] = useState([])
   const [loading, setLoading]         = useState(true)
   const [toast, setToast]             = useState(null)
@@ -96,13 +104,14 @@ export default function Produccion() {
   }, [fechaHoy])
 
   async function inicializar() {
-    let [{ data: ops }, { data: prods }, { data: regs }, { data: sab }, { data: imp }] = await Promise.all([
+    let [{ data: ops }, { data: prods }, { data: regs }, { data: sab }, { data: imp }, { data: saboresProd }] = await Promise.all([
       supabase.from('operarios').select('*').order('nombre'),
       supabase.from('productos_produccion').select('*').order('nombre'),
       supabase.from('producciones').select('*').eq('fecha', fechaHoy)
         .order('created_at', { ascending: false }).limit(50),
       supabase.from('stock_camaras').select('id,nombre').order('nombre'),
       supabase.from('impulsivos').select('id,nombre').order('nombre'),
+      supabase.from('sabores').select('id,nombre,codigo'),
     ])
     if (!ops || ops.length === 0) {
       const { data: s } = await supabase.from('operarios')
@@ -117,6 +126,7 @@ export default function Produccion() {
     setProductos(prods || [])
     setRegistros(regs || [])
     setSaboresCamara(sab || [])
+    setSaboresProduccion(saboresProd || [])
     setImpulsivosList(imp || [])
     if (ops && ops.length > 0) setOperarioSel(String(ops[0].id))
     setManualLote(lote)
@@ -144,19 +154,24 @@ export default function Produccion() {
       return
     }
     const decoded = decodearEAN(val)
+    console.log('Código escaneado:', val)
     if (!decoded) {
       toast2('Código inválido — debe ser EAN-13 Del Parque (200…)', 'error')
       setCodigo('')
       inputRef.current?.focus()
       return
     }
-    const producto = productos.find(p => p.codigo === decoded.prod)
+    console.log('prod:', decoded.prod, 'peso:', decoded.peso)
+    const productoPP = productos.find(p => p.codigo === decoded.prod)
+    const sabor = !productoPP ? saboresProduccion.find(s => s.codigo === decoded.prod) : null
+    const producto = productoPP || sabor
+    console.log('Producto encontrado:', producto || null)
     const operario = operarios.find(o => String(o.id) === operarioSel)
     agregarAPreCarga({
       fecha: fechaHoy,
       producto_codigo: decoded.prod,
       producto_nombre: producto?.nombre || `Producto #${decoded.prod}`,
-      categoria: producto?.categoria || null,
+      categoria: productoPP?.categoria || (sabor ? 'Helado' : null),
       origen: 'escaneo',
       peso_kg: decoded.peso,
       lote,

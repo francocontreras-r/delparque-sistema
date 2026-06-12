@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
@@ -11,8 +13,19 @@ import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import { colors, radius, shadow } from '../styles/design-system'
-import { ClipboardList, Plus, Printer, AlertTriangle, CheckCircle2, Warehouse, X } from 'lucide-react'
+import { ClipboardList, Plus, Printer, FileDown, AlertTriangle, CheckCircle2, Warehouse, X } from 'lucide-react'
 import logoUrl from '../assets/logo.png'
+
+function toDataURL(url) {
+  return fetch(url)
+    .then(res => res.blob())
+    .then(blob => new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(reader.result)
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    }))
+}
 
 const LITROS_BATCH = 120
 
@@ -290,6 +303,77 @@ export default function Ordenes() {
     w.onload = () => w.print()
   }
 
+  async function exportarPDF(grupo) {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    const pageWidth = doc.internal.pageSize.getWidth()
+
+    try {
+      const logoData = await toDataURL(logoUrl)
+      doc.addImage(logoData, 'PNG', 14, 10, 36, 13)
+    } catch {
+      // si no se puede cargar el logo, se continúa sin él
+    }
+
+    doc.setFontSize(11)
+    doc.setTextColor(40, 40, 40)
+    doc.text(`Orden de Producción ${grupo.numero}`, pageWidth - 14, 14, { align: 'right' })
+
+    doc.setFontSize(8)
+    doc.setTextColor(120, 120, 120)
+    doc.text(`Emitida: ${new Date().toLocaleDateString('es-AR')}`, pageWidth - 14, 19, { align: 'right' })
+
+    doc.setFontSize(9)
+    doc.setTextColor(80, 80, 80)
+    doc.text(`Fecha programada: ${grupo.fecha || '—'}`, 14, 28)
+    doc.text(`Operario asignado: ${grupo.operario || '—'}`, 14, 33)
+
+    autoTable(doc, {
+      startY: 40,
+      head: [['Producto', 'Tipo', 'Cantidad', 'Estado']],
+      body: grupo.items.map(it => [
+        it.sabor_nombre,
+        it.tipo_producto === 'impulsivo' ? 'Impulsivo/Postre' : 'Helado',
+        it.tipo_producto === 'impulsivo'
+          ? `${it.cantidad_unidades} u`
+          : `${it.batches} batch${it.batches !== 1 ? 'es' : ''} (${it.litros_total} L)`,
+        estadoInfo(it.estado).label,
+      ]),
+      styles: { fontSize: 9, cellPadding: 2 },
+      headStyles: { fillColor: [212, 82, 26], textColor: 255 },
+      alternateRowStyles: { fillColor: [249, 250, 251] },
+    })
+
+    let finalY = (doc.lastAutoTable?.finalY || 40) + 10
+
+    const obs = grupo.items.find(i => i.observaciones)?.observaciones
+    if (obs) {
+      doc.setFontSize(8)
+      doc.setTextColor(120, 120, 120)
+      doc.text('Observaciones:', 14, finalY)
+      doc.setFontSize(9)
+      doc.setTextColor(40, 40, 40)
+      doc.text(obs, 14, finalY + 5, { maxWidth: pageWidth - 28 })
+      finalY += 15
+    }
+
+    finalY += 40
+    if (finalY > doc.internal.pageSize.getHeight() - 10) finalY = doc.internal.pageSize.getHeight() - 10
+
+    const firmas = [
+      { label: 'Supervisor', x: 14 },
+      { label: 'Operario / Fecha', x: pageWidth / 2 - 28 },
+      { label: 'Control de Calidad', x: pageWidth - 70 },
+    ]
+    doc.setFontSize(8)
+    doc.setTextColor(80, 80, 80)
+    firmas.forEach(f => {
+      doc.line(f.x, finalY - 4, f.x + 56, finalY - 4)
+      doc.text(f.label, f.x, finalY)
+    })
+
+    doc.save(`orden_${grupo.numero}.pdf`)
+  }
+
   return (
     <div className="space-y-5">
       <Toast toast={toast} />
@@ -344,9 +428,14 @@ export default function Ordenes() {
                     {grupo.fecha} · {grupo.operario || 'Sin asignar'} · {grupo.items.length} producto{grupo.items.length !== 1 ? 's' : ''}
                   </p>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => imprimirOrden(grupo)}>
-                  <Printer size={12} /> Imprimir
-                </Button>
+                <div className="flex gap-1.5">
+                  <Button variant="ghost" size="sm" onClick={() => imprimirOrden(grupo)}>
+                    <Printer size={12} /> Imprimir
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => exportarPDF(grupo)}>
+                    <FileDown size={12} /> PDF
+                  </Button>
+                </div>
               </div>
 
               <div className="space-y-2">

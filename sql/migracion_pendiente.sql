@@ -114,3 +114,8 @@ ALTER TABLE ordenes_produccion ADD COLUMN IF NOT EXISTS kg_producido numeric DEF
 ALTER TABLE ordenes_produccion ADD COLUMN IF NOT EXISTS porcentaje_completitud numeric DEFAULT 0;
 
 NOTIFY pgrst, 'reload schema';
+
+-- ── 15) Órdenes → media preparación (batches fraccionarios, ej. 0.5) ───────
+ALTER TABLE ordenes_produccion ALTER COLUMN batches TYPE numeric;
+
+NOTIFY pgrst, 'reload schema';

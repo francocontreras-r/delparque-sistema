@@ -20,7 +20,7 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal) {
   const kgObjetivo = orden.kg_objetivo || 0
   const merma = kgObjetivo - kgProducidoFinal
   if (merma <= 0) return
-  await supabase.from('mermas').insert({
+  const payload = {
     fecha: orden.fecha_produccion,
     sabor_nombre: orden.sabor_nombre,
     operario_nombre: orden.operario_nombre || null,
@@ -30,7 +30,14 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal) {
     porcentaje: (merma / kgObjetivo) * 100,
     causa: 'Producción finalizada',
     observaciones: 'Registrado automáticamente al finalizar orden',
-  })
+  }
+  console.log('registrarMermaAutomatica → insertando en mermas:', payload)
+  const { error } = await supabase.from('mermas').insert(payload)
+  if (error) {
+    console.error('registrarMermaAutomatica → error al insertar:', error)
+  } else {
+    console.log('registrarMermaAutomatica → merma registrada correctamente')
+  }
 }
 
 export async function aplicarProduccionAOrden(orden, kgIncremento) {

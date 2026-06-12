@@ -30,6 +30,8 @@ function toDataURL(url) {
 }
 
 const LITROS_BATCH = 120
+const BATCH_OPTIONS = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5]
+const POR_PAGINA = 20
 
 const ESTADOS = [
   { key: 'pendiente',  label: 'Pendiente',  color: colors.warning,   variant: 'warning' },
@@ -46,10 +48,6 @@ function estadoInfo(estado) {
 
 function fmtNum(n) {
   return Number((n || 0).toFixed(2)).toString()
-}
-
-function pad3(n) {
-  return String(n).padStart(3, '0')
 }
 
 export default function Ordenes() {
@@ -71,6 +69,16 @@ export default function Ordenes() {
   const [cargandoDetalle, setCargandoDetalle]   = useState(false)
   const [finalizando, setFinalizando] = useState(false)
 
+  const [saborIngredientes, setSaborIngredientes] = useState([])
+  const [insumosStock, setInsumosStock]   = useState([])
+  const [stockAlertCrear, setStockAlertCrear] = useState(null)
+
+  const [busqueda, setBusqueda]       = useState('')
+  const [filtroFecha, setFiltroFecha] = useState('')
+  const [filtroMes, setFiltroMes]     = useState('')
+  const [ordenarPor, setOrdenarPor]   = useState('fecha')
+  const [pagina, setPagina]           = useState(1)
+
   const [tipoActivo, setTipoActivo]   = useState('helado')
   const [lineaSel, setLineaSel]       = useState('')
   const [lineaCantidad, setLineaCantidad] = useState('1')
@@ -83,18 +91,22 @@ export default function Ordenes() {
   useEffect(() => { cargar() }, [])
 
   async function cargar() {
-    const [{ data: ord }, { data: sab }, { data: imp }, { data: ops }, { data: recetas }] = await Promise.all([
+    const [{ data: ord }, { data: sab }, { data: imp }, { data: ops }, { data: recetas }, { data: ingredientes }, { data: insumosData }] = await Promise.all([
       supabase.from('ordenes_produccion').select('*').order('id', { ascending: false }).limit(300),
       supabase.from('stock_camaras').select('id,nombre,tipo,baldes').order('nombre'),
       supabase.from('impulsivos').select('id,nombre').order('nombre'),
       supabase.from('operarios').select('*').order('nombre'),
       supabase.from('sabores').select('id,nombre,litros_base').order('nombre'),
+      supabase.from('sabor_ingredientes').select('*'),
+      supabase.from('insumos').select('nombre,stock_actual,unidad'),
     ])
     setOrdenes(ord || [])
     setSaboresCamara(sab || [])
     setImpulsivos(imp || [])
     setOperarios(ops || [])
     setSabores(recetas || [])
+    setSaborIngredientes(ingredientes || [])
+    setInsumosStock(insumosData || [])
     if (sab && sab.length > 0) setLineaSel(String(sab[0].id))
     if (ops && ops.length > 0) setForm(f => ({ ...f, operario_id: String(ops[0].id), operario_nombre: ops[0].nombre }))
     setLoading(false)
@@ -137,9 +149,9 @@ export default function Ordenes() {
 
   async function agregarLinea() {
     if (!productoSel) { toast2('Seleccioná un producto', 'error'); return }
-    const cantidad = parseInt(lineaCantidad || '1', 10)
-    if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
     if (tipoActivo === 'helado') {
+      const cantidad = parseFloat(lineaCantidad || '1')
+      if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
       const { kgObjetivo, litrosBase, extraKg } = await calcularKgObjetivo(productoSel.nombre, cantidad)
       setLineas(ls => [...ls, {
         tipo: 'helado', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
@@ -147,6 +159,8 @@ export default function Ordenes() {
         kg_objetivo: kgObjetivo, litros_base: litrosBase, extra_kg: extraKg,
       }])
     } else {
+      const cantidad = parseInt(lineaCantidad || '1', 10)
+      if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
       setLineas(ls => [...ls, {
         tipo: 'impulsivo', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
         cantidad, kg_objetivo: 0,
@@ -159,16 +173,83 @@ export default function Ordenes() {
     setLineas(ls => ls.filter((_, i) => i !== idx))
   }
 
+  function requerimientosDeLineas(lineasHelado) {
+    const map = {}
+    lineasHelado.forEach(l => {
+      const receta = sabores.find(s => (s.nombre || '').trim().toLowerCase() === l.producto_nombre.trim().toLowerCase())
+      if (!receta) return
+      saborIngredientes.filter(i => i.sabor_id === receta.id).forEach(ing => {
+        const key = (ing.insumo_nombre || '').trim().toLowerCase()
+        if (!key) return
+        if (!map[key]) map[key] = { nombre: ing.insumo_nombre, cantidad: 0, unidad: ing.unidad }
+        map[key].cantidad += (ing.cantidad || 0) * l.cantidad
+      })
+    })
+    return Object.values(map)
+  }
+
+  function compararConStock(requeridos) {
+    const insumoPorNombre = {}
+    insumosStock.forEach(i => { insumoPorNombre[(i.nombre || '').trim().toLowerCase()] = i })
+    return requeridos.map(r => {
+      const insumo = insumoPorNombre[r.nombre.trim().toLowerCase()]
+      const disponible = insumo ? (insumo.stock_actual || 0) : 0
+      const diferencia = disponible - r.cantidad
+      const severo = r.cantidad > 0 && (r.cantidad - disponible) / r.cantidad >= 0.5
+      const estado = diferencia >= 0 ? 'ok' : (severo ? 'critico' : 'bajo')
+      return { nombre: r.nombre, necesario: r.cantidad, unidad: r.unidad, disponible, diferencia, estado }
+    })
+  }
+
+  function materiasPrimasDe(item) {
+    if (item.tipo_producto !== 'helado') return []
+    const receta = sabores.find(s => (s.nombre || '').trim().toLowerCase() === (item.sabor_nombre || '').trim().toLowerCase())
+    if (!receta) return []
+    const insumoPorNombre = {}
+    insumosStock.forEach(i => { insumoPorNombre[(i.nombre || '').trim().toLowerCase()] = i })
+    return saborIngredientes.filter(i => i.sabor_id === receta.id).map(ing => {
+      const necesario = (ing.cantidad || 0) * (item.batches || 0)
+      const insumo = insumoPorNombre[(ing.insumo_nombre || '').trim().toLowerCase()]
+      if (!insumo) return { nombre: ing.insumo_nombre, necesario, unidad: ing.unidad, disponible: null, estado: 'sinlimite' }
+      const disponible = insumo.stock_actual || 0
+      return { nombre: ing.insumo_nombre, necesario, unidad: ing.unidad, disponible, estado: disponible >= necesario ? 'ok' : 'insuficiente' }
+    })
+  }
+
   async function crearOrden() {
     if (lineas.length === 0) { toast2('Agregá al menos un producto', 'error'); return }
     if (!form.fecha_produccion) { toast2('Completá la fecha de producción', 'error'); return }
+
+    const lineasHelado = lineas.filter(l => l.tipo === 'helado')
+    if (lineasHelado.length > 0) {
+      const items = compararConStock(requerimientosDeLineas(lineasHelado))
+      if (items.some(it => it.estado !== 'ok')) {
+        setStockAlertCrear({ items })
+        return
+      }
+    }
+    await crearOrdenInterna()
+  }
+
+  function crearIgualConFaltantes() {
+    setStockAlertCrear(null)
+    crearOrdenInterna()
+  }
+
+  async function crearOrdenInterna() {
     setSaving(true)
 
-    const ymd = form.fecha_produccion.replaceAll('-', '')
     const { data: existentes } = await supabase.from('ordenes_produccion')
-      .select('numero').like('numero', `OP-${ymd}-%`)
-    const numerosUnicos = new Set((existentes || []).map(o => o.numero).filter(Boolean))
-    const numero = `OP-${ymd}-${pad3(numerosUnicos.size + 1)}`
+      .select('numero').like('numero', '0000-%')
+    let maxNum = 0
+    ;(existentes || []).forEach(o => {
+      const m = /^0000-(\d{7})$/.exec(o.numero || '')
+      if (m) {
+        const n = parseInt(m[1], 10)
+        if (n > maxNum) maxNum = n
+      }
+    })
+    const numero = `0000-${String(maxNum + 1).padStart(7, '0')}`
 
     const filas = lineas.map(l => ({
       numero,
@@ -195,6 +276,7 @@ export default function Ordenes() {
     setModal(false)
     setLineas([])
     setForm(f => ({ ...f, observaciones: '' }))
+    setStockAlertCrear(null)
     cargar()
   }
 
@@ -266,7 +348,7 @@ export default function Ordenes() {
     const { data } = await supabase.from('producciones').select('*')
       .ilike('producto_nombre', item.sabor_nombre)
       .eq('fecha', item.fecha_produccion)
-      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
       .limit(20)
     setDetalleRegistros(data || [])
     setCargandoDetalle(false)
@@ -290,12 +372,59 @@ export default function Ordenes() {
       if (!m[key]) m[key] = { numero: o.numero, fecha: o.fecha_produccion, operario: o.operario_nombre, items: [] }
       m[key].items.push(o)
     })
-    return Object.values(m).sort((a, b) => (b.numero || '').localeCompare(a.numero || ''))
+    return Object.values(m)
   }, [ordenes])
 
-  const gruposFiltrados = useMemo(() => (
-    filtroEstado === 'Todos' ? grupos : grupos.filter(g => g.items.some(i => i.estado === filtroEstado))
-  ), [grupos, filtroEstado])
+  const gruposFiltrados = useMemo(() => {
+    let arr = grupos
+    if (filtroEstado !== 'Todos') arr = arr.filter(g => g.items.some(i => i.estado === filtroEstado))
+    if (filtroFecha) arr = arr.filter(g => g.fecha === filtroFecha)
+    if (filtroMes) arr = arr.filter(g => (g.fecha || '').startsWith(filtroMes))
+    if (busqueda.trim()) {
+      const q = busqueda.trim().toLowerCase()
+      arr = arr.filter(g =>
+        (g.numero || '').toLowerCase().includes(q) ||
+        (g.operario || '').toLowerCase().includes(q) ||
+        g.items.some(i => (i.sabor_nombre || '').toLowerCase().includes(q))
+      )
+    }
+    return arr
+  }, [grupos, filtroEstado, filtroFecha, filtroMes, busqueda])
+
+  const gruposOrdenados = useMemo(() => {
+    const arr = [...gruposFiltrados]
+    switch (ordenarPor) {
+      case 'numero':
+        arr.sort((a, b) => (b.numero || '').localeCompare(a.numero || ''))
+        break
+      case 'estado':
+        arr.sort((a, b) => {
+          const ea = ESTADOS.findIndex(e => e.key === a.items[0]?.estado)
+          const eb = ESTADOS.findIndex(e => e.key === b.items[0]?.estado)
+          return ea - eb
+        })
+        break
+      case 'producto':
+        arr.sort((a, b) => (a.items[0]?.sabor_nombre || '').localeCompare(b.items[0]?.sabor_nombre || ''))
+        break
+      default:
+        arr.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '') || (b.numero || '').localeCompare(a.numero || ''))
+    }
+    return arr
+  }, [gruposFiltrados, ordenarPor])
+
+  useEffect(() => { setPagina(1) }, [busqueda, filtroEstado, filtroFecha, filtroMes, ordenarPor])
+
+  const totalPaginas = Math.max(1, Math.ceil(gruposOrdenados.length / POR_PAGINA))
+  const paginaSegura = Math.min(pagina, totalPaginas)
+  const gruposPagina = gruposOrdenados.slice((paginaSegura - 1) * POR_PAGINA, paginaSegura * POR_PAGINA)
+
+  function limpiarFiltros() {
+    setBusqueda('')
+    setFiltroFecha('')
+    setFiltroMes('')
+    setFiltroEstado('Todos')
+  }
 
   const kpiPendientes  = ordenes.filter(o => o.estado === 'pendiente').length
   const kpiEnProceso   = ordenes.filter(o => o.estado === 'en_proceso').length
@@ -347,6 +476,62 @@ export default function Ordenes() {
       <div class="firma">Supervisor</div>
       <div class="firma">Operario / Fecha</div>
       <div class="firma">Control de Calidad</div>
+    </div>
+    </body></html>`)
+    w.document.close()
+    w.onload = () => w.print()
+  }
+
+  function imprimirListaMP(grupo, item) {
+    const mp = materiasPrimasDe(item)
+    const w = window.open('', '_blank')
+    const filas = mp.map(m => `
+      <tr>
+        <td>${m.nombre}</td>
+        <td style="text-align:right">${fmtNum(m.necesario)}</td>
+        <td>${m.unidad}</td>
+        <td style="text-align:center"><div class="checkbox"></div></td>
+      </tr>`).join('')
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>Lista MP — ${grupo.numero}</title>
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:Arial,sans-serif;font-size:11px;padding:24px}
+      .header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+      .logo-img{height:32px;display:block}
+      .sub{font-size:10px;color:#666}
+      h2{font-size:15px;margin-bottom:14px;color:#111827}
+      .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+      .campo{background:#f9fafb;border-radius:8px;padding:10px}
+      .campo-label{font-size:8px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin-bottom:2px}
+      .campo-val{font-size:13px;font-weight:700;color:#111827}
+      table{width:100%;border-collapse:collapse;margin-bottom:20px}
+      th{background:#f3f4f6;font-size:9px;font-weight:700;text-transform:uppercase;padding:6px 8px;text-align:left;border-bottom:2px solid ${colors.brand}}
+      td{padding:6px 8px;border-bottom:1px solid #f3f4f6;font-size:11px}
+      .checkbox{width:14px;height:14px;border:1.5px solid #374151;border-radius:3px;margin:0 auto}
+      .firma-area{display:flex;gap:48px;margin-top:48px}
+      .firma{flex:1;border-top:1px solid #374151;padding-top:8px;font-size:9px;color:#6b7280}
+      @media print{body{padding:0}}
+    </style></head><body>
+    <div class="header">
+      <img src="${logoUrl}" class="logo-img" alt="Del Parque" />
+      <div class="sub">Emitida: ${new Date().toLocaleDateString('es-AR')}</div>
+    </div>
+    <h2>Del Parque — Lista de Materias Primas</h2>
+    <div class="grid">
+      <div class="campo"><div class="campo-label">Orden N°</div><div class="campo-val">${grupo.numero}</div></div>
+      <div class="campo"><div class="campo-label">Producto</div><div class="campo-val">${item.sabor_nombre}</div></div>
+      <div class="campo"><div class="campo-label">Operario</div><div class="campo-val">${grupo.operario || '—'}</div></div>
+      <div class="campo"><div class="campo-label">Fecha</div><div class="campo-val">${grupo.fecha || '—'}</div></div>
+      <div class="campo"><div class="campo-label">Batches</div><div class="campo-val">${item.batches}</div></div>
+    </div>
+    <table>
+      <thead><tr><th>Ingrediente</th><th>Cantidad necesaria</th><th>Unidad</th><th>Entregado ✓</th></tr></thead>
+      <tbody>${filas}</tbody>
+    </table>
+    <div class="firma-area">
+      <div class="firma">Encargado de Depósito · Firma y fecha</div>
+      <div class="firma">Operario que recibe · Firma y fecha</div>
     </div>
     </body></html>`)
     w.document.close()
@@ -443,6 +628,30 @@ export default function Ordenes() {
         <KpiCard label="Completadas" value={loading ? '—' : kpiCompletadas} color={colors.success} />
       </div>
 
+      <div className="flex flex-wrap gap-2 items-end">
+        <div className="flex-1 min-w-[220px]">
+          <Input placeholder="Buscar por N° orden, producto u operario..." value={busqueda}
+            onChange={e => setBusqueda(e.target.value)} />
+        </div>
+        <div className="w-40">
+          <Input type="date" value={filtroFecha} onChange={e => setFiltroFecha(e.target.value)} />
+        </div>
+        <div className="w-40">
+          <Input type="month" value={filtroMes} onChange={e => setFiltroMes(e.target.value)} />
+        </div>
+        <div className="w-48">
+          <Select value={ordenarPor} onChange={e => setOrdenarPor(e.target.value)}>
+            <option value="fecha">Más recientes primero</option>
+            <option value="numero">Ordenar por número</option>
+            <option value="estado">Ordenar por estado</option>
+            <option value="producto">Ordenar por producto</option>
+          </Select>
+        </div>
+        {(busqueda || filtroFecha || filtroMes || filtroEstado !== 'Todos') && (
+          <Button variant="ghost" size="sm" onClick={limpiarFiltros}>Limpiar filtros</Button>
+        )}
+      </div>
+
       <div className="flex gap-1.5 flex-wrap">
         {['Todos', ...ESTADOS.map(e => e.key)].map(f => (
           <button key={f} onClick={() => setFiltroEstado(f)}
@@ -459,11 +668,13 @@ export default function Ordenes() {
 
       {loading ? (
         <div className="flex justify-center py-14"><Spinner size={28} /></div>
-      ) : gruposFiltrados.length === 0 ? (
-        <EmptyState icon={ClipboardList} title="Sin órdenes" subtitle="Creá una orden de producción para comenzar" />
+      ) : gruposOrdenados.length === 0 ? (
+        <EmptyState icon={ClipboardList}
+          title={ordenes.length === 0 ? 'Sin órdenes' : 'No se encontraron órdenes'}
+          subtitle={ordenes.length === 0 ? 'Creá una orden de producción para comenzar' : 'Probá ajustar los filtros o la búsqueda'} />
       ) : (
         <div className="space-y-3">
-          {gruposFiltrados.map(grupo => (
+          {gruposPagina.map(grupo => (
             <div key={grupo.numero} className="p-4 space-y-3"
               style={{
                 backgroundColor: colors.surface,
@@ -495,6 +706,7 @@ export default function Ordenes() {
                   const pct = item.porcentaje_completitud || 0
                   const completada95 = tieneObjetivo && pct >= 95
                   const clickable = tieneObjetivo && item.estado === ESTADO_EN_PROCESO
+                  const materiasPrimas = materiasPrimasDe(item)
                   return (
                     <div key={item.id} className="p-3"
                       style={{ backgroundColor: colors.bg, borderRadius: radius.md, borderLeft: `4px solid ${e.color}` }}>
@@ -541,6 +753,32 @@ export default function Ordenes() {
                           </div>
                         </div>
                       )}
+                      {materiasPrimas.length > 0 && (
+                        <div className="mt-2">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <p className="text-xs font-semibold" style={{ color: colors.textPrimary }}>Materias Primas Necesarias</p>
+                            <Button variant="ghost" size="sm" onClick={() => imprimirListaMP(grupo, item)}>
+                              <Printer size={12} /> Imprimir lista MP
+                            </Button>
+                          </div>
+                          <div className="overflow-hidden" style={{ border: `1px solid ${colors.border}`, borderRadius: radius.md }}>
+                            <Table>
+                              <Thead><Tr><Th>Ingrediente</Th><Th>Necesario</Th><Th>Unidad</Th><Th>Stock</Th><Th>Estado</Th></Tr></Thead>
+                              <Tbody>
+                                {materiasPrimas.map((m, i) => (
+                                  <Tr key={i}>
+                                    <Td className="font-medium">{m.nombre}</Td>
+                                    <Td className="text-right">{fmtNum(m.necesario)}</Td>
+                                    <Td>{m.unidad}</Td>
+                                    <Td className="text-right">{m.estado === 'sinlimite' ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`}</Td>
+                                    <Td>{m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</Td>
+                                  </Tr>
+                                ))}
+                              </Tbody>
+                            </Table>
+                          </div>
+                        </div>
+                      )}
                       <div className="flex gap-2 flex-wrap items-center mt-2">
                         {ESTADOS.filter(es => es.key !== item.estado && es.key !== 'cancelada').map(es => (
                           <Button key={es.key} variant="ghost" size="sm" onClick={() => intentarCambiarEstado(item, es.key)}
@@ -562,6 +800,20 @@ export default function Ordenes() {
               </div>
             </div>
           ))}
+
+          <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
+            <p className="text-xs" style={{ color: colors.textMuted }}>
+              Mostrando {(paginaSegura - 1) * POR_PAGINA + 1}-{Math.min(paginaSegura * POR_PAGINA, gruposOrdenados.length)} de {gruposOrdenados.length} órdenes
+            </p>
+            <div className="flex gap-1.5">
+              <Button variant="ghost" size="sm" disabled={paginaSegura <= 1} onClick={() => setPagina(p => Math.max(1, p - 1))}>
+                Anterior
+              </Button>
+              <Button variant="ghost" size="sm" disabled={paginaSegura >= totalPaginas} onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))}>
+                Siguiente
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -627,8 +879,14 @@ export default function Ordenes() {
                   </Select>
                 </div>
                 <div className="w-28">
-                  <Input label={tipoActivo === 'helado' ? 'Batches' : 'Unidades'} type="number" min="1" value={lineaCantidad}
-                    onChange={e => setLineaCantidad(e.target.value)} />
+                  {tipoActivo === 'helado' ? (
+                    <Select label="Batches" value={lineaCantidad} onChange={e => setLineaCantidad(e.target.value)}>
+                      {BATCH_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
+                    </Select>
+                  ) : (
+                    <Input label="Unidades" type="number" min="1" value={lineaCantidad}
+                      onChange={e => setLineaCantidad(e.target.value)} />
+                  )}
                 </div>
                 <Button variant="secondary" onClick={agregarLinea}>
                   <Plus size={14} /> Agregar
@@ -670,6 +928,46 @@ export default function Ordenes() {
             </div>
           )}
         </div>
+      </Modal>
+
+      <Modal
+        open={!!stockAlertCrear}
+        onClose={() => setStockAlertCrear(null)}
+        title="Stock insuficiente para esta orden"
+        maxWidth="max-w-lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setStockAlertCrear(null)} className="flex-1">Cancelar</Button>
+            <Button variant="primary" onClick={crearIgualConFaltantes} loading={saving} className="flex-1">
+              Crear igual (con faltantes)
+            </Button>
+          </>
+        }
+      >
+        {stockAlertCrear && (
+          <div className="space-y-2">
+            <p className="text-sm" style={{ color: colors.textSecondary }}>
+              Algunos insumos no alcanzan para cubrir esta orden completa:
+            </p>
+            <Table>
+              <Thead><Tr><Th>Ingrediente</Th><Th>Necesario</Th><Th>En stock</Th><Th>Diferencia</Th></Tr></Thead>
+              <Tbody>
+                {stockAlertCrear.items.map((it, i) => (
+                  <Tr key={i}>
+                    <Td className="font-medium">
+                      {it.estado === 'ok' ? '✅' : it.estado === 'critico' ? '❌' : '⚠️'} {it.nombre}
+                    </Td>
+                    <Td className="text-right">{fmtNum(it.necesario)} {it.unidad}</Td>
+                    <Td className="text-right">{fmtNum(it.disponible)} {it.unidad}</Td>
+                    <Td className="text-right font-semibold" style={{ color: it.estado === 'ok' ? colors.success : colors.danger }}>
+                      {it.estado === 'ok' ? 'OK' : `${fmtNum(it.diferencia)} ${it.unidad}`}
+                    </Td>
+                  </Tr>
+                ))}
+              </Tbody>
+            </Table>
+          </div>
+        )}
       </Modal>
 
       <Modal
@@ -754,6 +1052,36 @@ export default function Ordenes() {
                 }} />
               </div>
             </div>
+
+            {materiasPrimasDe(ordenDetalle).length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>Materias Primas Necesarias</p>
+                  <Button variant="ghost" size="sm" onClick={() => {
+                    const grupo = grupos.find(g => g.numero === ordenDetalle.numero) || { numero: ordenDetalle.numero, fecha: ordenDetalle.fecha_produccion, operario: ordenDetalle.operario_nombre }
+                    imprimirListaMP(grupo, ordenDetalle)
+                  }}>
+                    <Printer size={12} /> Imprimir lista MP
+                  </Button>
+                </div>
+                <div className="overflow-hidden" style={{ border: `1px solid ${colors.border}`, borderRadius: radius.md }}>
+                  <Table>
+                    <Thead><Tr><Th>Ingrediente</Th><Th>Necesario</Th><Th>Unidad</Th><Th>Stock</Th><Th>Estado</Th></Tr></Thead>
+                    <Tbody>
+                      {materiasPrimasDe(ordenDetalle).map((m, i) => (
+                        <Tr key={i}>
+                          <Td className="font-medium">{m.nombre}</Td>
+                          <Td className="text-right">{fmtNum(m.necesario)}</Td>
+                          <Td>{m.unidad}</Td>
+                          <Td className="text-right">{m.estado === 'sinlimite' ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`}</Td>
+                          <Td>{m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</Td>
+                        </Tr>
+                      ))}
+                    </Tbody>
+                  </Table>
+                </div>
+              </div>
+            )}
 
             <div>
               <p className="text-sm font-semibold mb-2" style={{ color: colors.textPrimary }}>Últimos registros de producción</p>

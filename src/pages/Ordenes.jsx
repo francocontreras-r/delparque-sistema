@@ -12,7 +12,9 @@ import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
+import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
+import { finalizarOrdenManual, progresoColor, ESTADO_EN_PROCESO } from '../lib/ordenes'
 import { ClipboardList, Plus, Printer, FileDown, AlertTriangle, CheckCircle2, Warehouse, X } from 'lucide-react'
 import logoUrl from '../assets/logo.png'
 
@@ -54,6 +56,7 @@ export default function Ordenes() {
   const navigate = useNavigate()
   const [ordenes, setOrdenes]         = useState([])
   const [saboresCamara, setSaboresCamara] = useState([])
+  const [sabores, setSabores]         = useState([])
   const [impulsivos, setImpulsivos]   = useState([])
   const [operarios, setOperarios]     = useState([])
   const [loading, setLoading]         = useState(true)
@@ -63,6 +66,10 @@ export default function Ordenes() {
   const [filtroEstado, setFiltroEstado] = useState('Todos')
   const [stockAlert, setStockAlert]   = useState(null)
   const [checkingId, setCheckingId]   = useState(null)
+  const [ordenDetalle, setOrdenDetalle]   = useState(null)
+  const [detalleRegistros, setDetalleRegistros] = useState([])
+  const [cargandoDetalle, setCargandoDetalle]   = useState(false)
+  const [finalizando, setFinalizando] = useState(false)
 
   const [tipoActivo, setTipoActivo]   = useState('helado')
   const [lineaSel, setLineaSel]       = useState('')
@@ -76,16 +83,18 @@ export default function Ordenes() {
   useEffect(() => { cargar() }, [])
 
   async function cargar() {
-    const [{ data: ord }, { data: sab }, { data: imp }, { data: ops }] = await Promise.all([
+    const [{ data: ord }, { data: sab }, { data: imp }, { data: ops }, { data: recetas }] = await Promise.all([
       supabase.from('ordenes_produccion').select('*').order('id', { ascending: false }).limit(300),
       supabase.from('stock_camaras').select('id,nombre,tipo,baldes').order('nombre'),
       supabase.from('impulsivos').select('id,nombre').order('nombre'),
       supabase.from('operarios').select('*').order('nombre'),
+      supabase.from('sabores').select('id,nombre,litros_base').order('nombre'),
     ])
     setOrdenes(ord || [])
     setSaboresCamara(sab || [])
     setImpulsivos(imp || [])
     setOperarios(ops || [])
+    setSabores(recetas || [])
     if (sab && sab.length > 0) setLineaSel(String(sab[0].id))
     if (ops && ops.length > 0) setForm(f => ({ ...f, operario_id: String(ops[0].id), operario_nombre: ops[0].nombre }))
     setLoading(false)
@@ -113,19 +122,34 @@ export default function Ordenes() {
   const stockActualSel = tipoActivo === 'helado' ? (productoSel?.baldes || 0) : null
   const faltaStockSel  = tipoActivo === 'helado' && stockActualSel < 2
 
-  function agregarLinea() {
+  async function calcularKgObjetivo(nombreProducto, batches) {
+    const receta = sabores.find(s => (s.nombre || '').trim().toLowerCase() === nombreProducto.trim().toLowerCase())
+    const litrosBase = receta?.litros_base || LITROS_BATCH
+    let extraKg = 0
+    if (receta) {
+      const { data: ings } = await supabase.from('sabor_ingredientes')
+        .select('cantidad,unidad').eq('sabor_id', receta.id).eq('unidad', 'kg')
+      extraKg = (ings || []).reduce((a, i) => a + (i.cantidad || 0), 0)
+    }
+    const kgObjetivo = batches * (litrosBase * 1.05 + extraKg)
+    return { kgObjetivo, litrosBase, extraKg }
+  }
+
+  async function agregarLinea() {
     if (!productoSel) { toast2('Seleccioná un producto', 'error'); return }
     const cantidad = parseInt(lineaCantidad || '1', 10)
     if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
     if (tipoActivo === 'helado') {
+      const { kgObjetivo, litrosBase, extraKg } = await calcularKgObjetivo(productoSel.nombre, cantidad)
       setLineas(ls => [...ls, {
         tipo: 'helado', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
         cantidad, litros: cantidad * LITROS_BATCH,
+        kg_objetivo: kgObjetivo, litros_base: litrosBase, extra_kg: extraKg,
       }])
     } else {
       setLineas(ls => [...ls, {
         tipo: 'impulsivo', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
-        cantidad,
+        cantidad, kg_objetivo: 0,
       }])
     }
     setLineaCantidad('1')
@@ -154,6 +178,9 @@ export default function Ordenes() {
       batches: l.tipo === 'helado' ? l.cantidad : null,
       litros_total: l.tipo === 'helado' ? l.litros : null,
       cantidad_unidades: l.tipo === 'impulsivo' ? l.cantidad : null,
+      kg_objetivo: l.tipo === 'helado' ? l.kg_objetivo : 0,
+      kg_producido: 0,
+      porcentaje_completitud: 0,
       operario_id: form.operario_id ? parseInt(form.operario_id, 10) : null,
       operario_nombre: form.operario_nombre || null,
       estado: 'pendiente',
@@ -231,6 +258,29 @@ export default function Ordenes() {
     if (!stockAlert) return
     cambiarEstado(stockAlert.orden.id, 'en_proceso')
     setStockAlert(null)
+  }
+
+  async function abrirDashboard(item) {
+    setOrdenDetalle(item)
+    setCargandoDetalle(true)
+    const { data } = await supabase.from('producciones').select('*')
+      .ilike('producto_nombre', item.sabor_nombre)
+      .eq('fecha', item.fecha_produccion)
+      .order('created_at', { ascending: false })
+      .limit(20)
+    setDetalleRegistros(data || [])
+    setCargandoDetalle(false)
+  }
+
+  async function finalizarManual() {
+    if (!ordenDetalle) return
+    setFinalizando(true)
+    const { error, pct } = await finalizarOrdenManual(ordenDetalle)
+    setFinalizando(false)
+    if (error) { toast2(error.message, 'error'); return }
+    toast2(`Orden ${ordenDetalle.numero} finalizada manualmente (${fmtNum(pct)}%)`)
+    setOrdenDetalle(null)
+    cargar()
   }
 
   const grupos = useMemo(() => {
@@ -441,15 +491,22 @@ export default function Ordenes() {
               <div className="space-y-2">
                 {grupo.items.map(item => {
                   const e = estadoInfo(item.estado)
+                  const tieneObjetivo = item.tipo_producto === 'helado' && (item.kg_objetivo || 0) > 0
+                  const pct = item.porcentaje_completitud || 0
+                  const completada95 = tieneObjetivo && pct >= 95
+                  const clickable = tieneObjetivo && item.estado === ESTADO_EN_PROCESO
                   return (
                     <div key={item.id} className="p-3"
                       style={{ backgroundColor: colors.bg, borderRadius: radius.md, borderLeft: `4px solid ${e.color}` }}>
-                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="flex items-start justify-between gap-3 flex-wrap"
+                        style={clickable ? { cursor: 'pointer' } : undefined}
+                        onClick={clickable ? () => abrirDashboard(item) : undefined}>
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-semibold text-sm" style={{ color: colors.textPrimary }}>{item.sabor_nombre}</p>
                             <Badge variant="neutral">{item.tipo_producto === 'impulsivo' ? 'Impulsivo/Postre' : 'Helado'}</Badge>
                             <Badge variant={e.variant}>{e.label}</Badge>
+                            {completada95 && <Badge variant="success">✅ COMPLETADA</Badge>}
                           </div>
                           {item.observaciones && (
                             <p className="text-xs mt-1" style={{ color: colors.textSecondary }}>{item.observaciones}</p>
@@ -466,6 +523,24 @@ export default function Ordenes() {
                           )}
                         </div>
                       </div>
+                      {tieneObjetivo && (
+                        <div className="mt-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs" style={{ color: colors.textMuted }}>
+                              {fmtNum(item.kg_producido)} kg de {fmtNum(item.kg_objetivo)} kg objetivo
+                            </span>
+                            <span className="text-xs font-bold" style={{ color: progresoColor(pct, colors) }}>
+                              {fmtNum(pct)}%
+                            </span>
+                          </div>
+                          <div className="w-full h-2 rounded-full overflow-hidden" style={{ backgroundColor: colors.border }}>
+                            <div className="h-full rounded-full transition-all" style={{
+                              width: `${Math.min(100, pct)}%`,
+                              backgroundColor: progresoColor(pct, colors),
+                            }} />
+                          </div>
+                        </div>
+                      )}
                       <div className="flex gap-2 flex-wrap items-center mt-2">
                         {ESTADOS.filter(es => es.key !== item.estado && es.key !== 'cancelada').map(es => (
                           <Button key={es.key} variant="ghost" size="sm" onClick={() => intentarCambiarEstado(item, es.key)}
@@ -581,6 +656,11 @@ export default function Ordenes() {
                         ? `${l.cantidad} batch${l.cantidad !== 1 ? 'es' : ''} · ${l.litros} L`
                         : `${l.cantidad} unidad${l.cantidad !== 1 ? 'es' : ''}`}
                     </p>
+                    {l.tipo === 'helado' && (
+                      <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>
+                        Objetivo estimado: {fmtNum(l.kg_objetivo)} kg ({fmtNum(l.litros_base)}L base + {fmtNum(l.extra_kg)} kg agregados)
+                      </p>
+                    )}
                   </div>
                   <button onClick={() => quitarLinea(idx)} className="w-7 h-7 flex items-center justify-center rounded-full transition-colors hover:bg-slate-200" style={{ color: colors.textMuted }}>
                     <X size={14} />
@@ -635,6 +715,72 @@ export default function Ordenes() {
               </div>
             </div>
           )
+        )}
+      </Modal>
+
+      <Modal
+        open={!!ordenDetalle}
+        onClose={() => setOrdenDetalle(null)}
+        title={ordenDetalle ? `${ordenDetalle.sabor_nombre} · ${ordenDetalle.numero}` : ''}
+        maxWidth="max-w-lg"
+        footer={ordenDetalle && (
+          <>
+            <Button variant="secondary" onClick={() => setOrdenDetalle(null)} className="flex-1">Cerrar</Button>
+            <Button variant="primary" onClick={finalizarManual} loading={finalizando} className="flex-1">
+              Finalizar orden manualmente
+            </Button>
+          </>
+        )}
+      >
+        {ordenDetalle && (
+          <div className="space-y-4">
+            <p className="text-sm" style={{ color: colors.textMuted }}>
+              Operario: <span style={{ color: colors.textPrimary }}>{ordenDetalle.operario_nombre || '—'}</span>
+            </p>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>
+                  {fmtNum(ordenDetalle.kg_producido)} kg / {fmtNum(ordenDetalle.kg_objetivo)} kg
+                </span>
+                <span className="text-lg font-bold" style={{ color: progresoColor(ordenDetalle.porcentaje_completitud, colors) }}>
+                  {fmtNum(ordenDetalle.porcentaje_completitud)}%
+                </span>
+              </div>
+              <div className="w-full h-4 rounded-full overflow-hidden" style={{ backgroundColor: colors.border }}>
+                <div className="h-full rounded-full transition-all" style={{
+                  width: `${Math.min(100, ordenDetalle.porcentaje_completitud || 0)}%`,
+                  backgroundColor: progresoColor(ordenDetalle.porcentaje_completitud, colors),
+                }} />
+              </div>
+            </div>
+
+            <div>
+              <p className="text-sm font-semibold mb-2" style={{ color: colors.textPrimary }}>Últimos registros de producción</p>
+              {cargandoDetalle ? (
+                <div className="flex justify-center py-6"><Spinner size={20} /></div>
+              ) : detalleRegistros.length === 0 ? (
+                <p className="text-sm" style={{ color: colors.textMuted }}>Todavía no hay registros vinculados a esta orden.</p>
+              ) : (
+                <div className="overflow-hidden max-h-64 overflow-y-auto" style={{ border: `1px solid ${colors.border}`, borderRadius: radius.md }}>
+                  <Table>
+                    <Thead>
+                      <Tr><Th>Hora</Th><Th>Operario</Th><Th>Kg</Th></Tr>
+                    </Thead>
+                    <Tbody>
+                      {detalleRegistros.map(r => (
+                        <Tr key={r.id}>
+                          <Td>{new Date(r.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</Td>
+                          <Td>{r.operario_nombre || '—'}</Td>
+                          <Td className="text-right font-semibold" style={{ color: colors.brand }}>{fmtNum(r.peso_kg)} kg</Td>
+                        </Tr>
+                      ))}
+                    </Tbody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </Modal>
     </div>

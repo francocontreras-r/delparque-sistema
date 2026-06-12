@@ -9,6 +9,7 @@ import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
+import { aplicarProduccionAOrden, ESTADO_EN_PROCESO } from '../lib/ordenes'
 import { colors, radius, shadow } from '../styles/design-system'
 import { Package, Users, Scale, Hash, ScanLine, PenLine, FileText, Printer, X, Plus, ClipboardCheck } from 'lucide-react'
 import logoUrl from '../assets/logo.png'
@@ -52,6 +53,11 @@ function fmtNum(n) {
   return Number((n || 0).toFixed(2)).toString()
 }
 
+function fmtPeso(n, unidad) {
+  if (unidad === 'u') return fmtNum(n)
+  return Number((n || 0).toFixed(3)).toString()
+}
+
 function unidadDe(r) {
   if (r.origen !== 'manual') return 'kg'
   const c = (r.categoria || '').toLowerCase()
@@ -71,7 +77,6 @@ export default function Produccion() {
   const [productos, setProductos]     = useState([])
   const [registros, setRegistros]     = useState([])
   const [saboresCamara, setSaboresCamara] = useState([])
-  const [saboresProduccion, setSaboresProduccion] = useState([])
   const [impulsivosList, setImpulsivosList] = useState([])
   const [loading, setLoading]         = useState(true)
   const [toast, setToast]             = useState(null)
@@ -123,14 +128,13 @@ export default function Produccion() {
   }, [fechaHoy])
 
   async function inicializar() {
-    let [{ data: ops }, { data: prods }, { data: regs }, { data: sab }, { data: imp }, { data: saboresProd }] = await Promise.all([
+    let [{ data: ops }, { data: prods }, { data: regs }, { data: sab }, { data: imp }] = await Promise.all([
       supabase.from('operarios').select('*').order('nombre'),
       supabase.from('productos_produccion').select('*').order('nombre'),
       supabase.from('producciones').select('*').eq('fecha', fechaHoy)
         .order('created_at', { ascending: false }).limit(50),
       supabase.from('stock_camaras').select('id,nombre').order('nombre'),
       supabase.from('impulsivos').select('id,nombre').order('nombre'),
-      supabase.from('sabores').select('id,nombre,codigo'),
     ])
     if (!ops || ops.length === 0) {
       const { data: s } = await supabase.from('operarios')
@@ -145,7 +149,6 @@ export default function Produccion() {
     setProductos(prods || [])
     setRegistros(regs || [])
     setSaboresCamara(sab || [])
-    setSaboresProduccion(saboresProd || [])
     setImpulsivosList(imp || [])
     if (ops && ops.length > 0) setOperarioSel(String(ops[0].id))
     setManualLote(lote)
@@ -194,15 +197,13 @@ export default function Produccion() {
     }
     console.log('prod:', decoded.prod, 'peso:', decoded.peso)
     const productoPP = productos.find(p => p.codigo === decoded.prod)
-    const sabor = !productoPP ? saboresProduccion.find(s => s.codigo === decoded.prod) : null
-    const producto = productoPP || sabor
-    console.log('Producto encontrado:', producto || null)
+    console.log('Producto encontrado:', productoPP || null)
     const operario = operarios.find(o => String(o.id) === operarioSel)
     agregarAPreCarga({
       fecha: fechaHoy,
       producto_codigo: decoded.prod,
-      producto_nombre: producto?.nombre || `Producto #${decoded.prod}`,
-      categoria: productoPP?.categoria || (sabor ? 'Helado' : null),
+      producto_nombre: productoPP?.nombre || `Producto #${decoded.prod}`,
+      categoria: productoPP?.categoria || null,
       origen: 'escaneo',
       peso_kg: decoded.peso,
       lote,
@@ -249,7 +250,7 @@ export default function Produccion() {
   async function confirmarYRegistrarTodo() {
     if (preCarga.length === 0) return
     setConfirmando(true)
-    const payload = preCarga.map(({ _id, ...item }) => ({
+    const payload = preCarga.map(({ _id, categoria, ...item }) => ({
       ...item,
       observaciones: item.observaciones?.trim() || null,
     }))
@@ -283,6 +284,26 @@ export default function Produccion() {
       if (!errCam) camarasActualizadas++
     }
 
+    // Vincular con órdenes en curso del mismo producto: sumar kg producidos
+    // al avance de la orden y, si llega al 95%, finalizarla automáticamente.
+    const mensajesOrdenes = []
+    for (const { nombre, kg } of Object.values(sumasPorProducto)) {
+      const { data: ords } = await supabase.from('ordenes_produccion')
+        .select('*')
+        .eq('estado', ESTADO_EN_PROCESO)
+        .eq('fecha_produccion', fechaHoy)
+        .eq('tipo_producto', 'helado')
+        .gt('kg_objetivo', 0)
+        .ilike('sabor_nombre', nombre)
+        .order('id', { ascending: true })
+        .limit(1)
+      const orden = ords?.[0]
+      if (!orden) continue
+      const resultado = await aplicarProduccionAOrden(orden, kg)
+      if (resultado.error) continue
+      mensajesOrdenes.push(`Orden ${orden.numero} actualizada: ${resultado.pct.toFixed(1)}% completada`)
+    }
+
     setPreCarga([])
     localStorage.removeItem(PRECARGA_KEY)
     const { data: regs } = await supabase.from('producciones').select('*').eq('fecha', fechaHoy)
@@ -292,7 +313,8 @@ export default function Produccion() {
     const sufijoCamaras = camarasActualizadas > 0
       ? ` · ${camarasActualizadas} producto${camarasActualizadas === 1 ? '' : 's'} actualizado${camarasActualizadas === 1 ? '' : 's'} en cámaras`
       : ''
-    toast2(`${cantidad} registro${cantidad === 1 ? '' : 's'} guardado${cantidad === 1 ? '' : 's'} correctamente${sufijoCamaras}`)
+    const sufijoOrdenes = mensajesOrdenes.length > 0 ? ' · ' + mensajesOrdenes.join(' · ') : ''
+    toast2(`${cantidad} registro${cantidad === 1 ? '' : 's'} guardado${cantidad === 1 ? '' : 's'} correctamente${sufijoCamaras}${sufijoOrdenes}`)
     setTimeout(() => inputRef.current?.focus(), 100)
   }
 
@@ -335,7 +357,7 @@ export default function Produccion() {
         <td>${r.producto_nombre}</td>
         <td>${r.categoria || '—'}</td>
         <td>${r.operario_nombre || '—'}</td>
-        <td style="text-align:right">${fmtNum(r.peso_kg)} ${unidadDe(r)}</td>
+        <td style="text-align:right">${fmtPeso(r.peso_kg, unidadDe(r))} ${unidadDe(r)}</td>
         <td>${r.lote || '—'}</td>
         <td>${r.observaciones || ''}</td>
       </tr>`).join('')
@@ -507,7 +529,7 @@ export default function Produccion() {
                   <Td className="font-bold whitespace-nowrap" style={{ color: colors.brand }}>{item.lote}</Td>
                   <Td className="whitespace-nowrap">{item.operario_nombre}</Td>
                   <Td className="font-medium">{item.producto_nombre}</Td>
-                  <Td className="text-right whitespace-nowrap">{fmtNum(item.peso_kg)} {unidadDe(item)}</Td>
+                  <Td className="text-right whitespace-nowrap">{fmtPeso(item.peso_kg, unidadDe(item))} {unidadDe(item)}</Td>
                   <Td>
                     <input
                       type="text"
@@ -557,7 +579,7 @@ export default function Produccion() {
                   <Td className="font-bold whitespace-nowrap" style={{ color: colors.brand }}>{r.lote || '—'}</Td>
                   <Td className="whitespace-nowrap">{r.operario_nombre || '—'}</Td>
                   <Td className="font-medium">{r.producto_nombre}</Td>
-                  <Td className="text-right whitespace-nowrap">{fmtNum(r.peso_kg)} {unidadDe(r)}</Td>
+                  <Td className="text-right whitespace-nowrap">{fmtPeso(r.peso_kg, unidadDe(r))} {unidadDe(r)}</Td>
                   <Td>{r.observaciones || '—'}</Td>
                 </Tr>
               ))}
@@ -601,7 +623,7 @@ export default function Produccion() {
                       <Td className="font-medium">{r.producto_nombre}</Td>
                       <Td>{r.categoria || '—'}</Td>
                       <Td>{r.operario_nombre || '—'}</Td>
-                      <Td className="text-right">{fmtNum(r.peso_kg)} {unidadDe(r)}</Td>
+                      <Td className="text-right">{fmtPeso(r.peso_kg, unidadDe(r))} {unidadDe(r)}</Td>
                       <Td>{r.lote || '—'}</Td>
                     </Tr>
                   ))}

@@ -107,3 +107,10 @@ INSERT INTO productos_produccion (codigo, nombre, categoria) VALUES
 ON CONFLICT (codigo) DO UPDATE SET nombre = EXCLUDED.nombre;
 
 NOTIFY pgrst, 'reload schema';
+
+-- ── 14) Órdenes → seguimiento de producción escaneada (kg objetivo/producido) ─
+ALTER TABLE ordenes_produccion ADD COLUMN IF NOT EXISTS kg_objetivo numeric DEFAULT 0;
+ALTER TABLE ordenes_produccion ADD COLUMN IF NOT EXISTS kg_producido numeric DEFAULT 0;
+ALTER TABLE ordenes_produccion ADD COLUMN IF NOT EXISTS porcentaje_completitud numeric DEFAULT 0;
+
+NOTIFY pgrst, 'reload schema';

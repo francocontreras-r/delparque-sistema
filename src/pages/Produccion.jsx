@@ -18,6 +18,8 @@ function decodearEAN(code) {
   // Formato nuevo: prefijo fijo "20000" + código de producto (2 dígitos) + peso (6 dígitos)
   if (code.startsWith('20000')) {
     const prod = parseInt(code.substring(5, 7), 10)
+    console.log('raw peso string:', code.substring(7, 13))
+    console.log('peso calculado:', parseInt(code.substring(7, 13), 10) / 1000)
     const peso = parseInt(code.substring(7, 13), 10) / 1000
     return { prod, peso }
   }
@@ -58,6 +60,12 @@ function unidadDe(r) {
 
 let preCargaSeq = 0
 
+const PRECARGA_KEY = 'delparque_precarga'
+
+function guardarPreCargaLS(lista) {
+  localStorage.setItem(PRECARGA_KEY, JSON.stringify(lista))
+}
+
 export default function Produccion() {
   const [operarios, setOperarios]     = useState([])
   const [productos, setProductos]     = useState([])
@@ -90,6 +98,17 @@ export default function Produccion() {
   useEffect(() => {
     if (modo === 'escaneo') inputRef.current?.focus()
   }, [modo])
+
+  useEffect(() => {
+    const saved = localStorage.getItem(PRECARGA_KEY)
+    if (saved) {
+      try {
+        setPreCarga(JSON.parse(saved))
+      } catch {
+        localStorage.removeItem(PRECARGA_KEY)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     inicializar()
@@ -134,15 +153,27 @@ export default function Produccion() {
   }
 
   function agregarAPreCarga(item) {
-    setPreCarga(prev => [...prev, { ...item, _id: `pc-${Date.now()}-${preCargaSeq++}` }])
+    setPreCarga(prev => {
+      const next = [...prev, { ...item, _id: `pc-${Date.now()}-${preCargaSeq++}` }]
+      guardarPreCargaLS(next)
+      return next
+    })
   }
 
   function quitarDePreCarga(id) {
-    setPreCarga(prev => prev.filter(it => it._id !== id))
+    setPreCarga(prev => {
+      const next = prev.filter(it => it._id !== id)
+      guardarPreCargaLS(next)
+      return next
+    })
   }
 
   function actualizarObsPreCarga(id, value) {
-    setPreCarga(prev => prev.map(it => it._id === id ? { ...it, observaciones: value } : it))
+    setPreCarga(prev => {
+      const next = prev.map(it => it._id === id ? { ...it, observaciones: value } : it)
+      guardarPreCargaLS(next)
+      return next
+    })
   }
 
   function handleKey(e) {
@@ -158,7 +189,7 @@ export default function Produccion() {
     if (!decoded) {
       toast2('Código inválido — debe ser EAN-13 Del Parque (200…)', 'error')
       setCodigo('')
-      inputRef.current?.focus()
+      setTimeout(() => inputRef.current?.focus(), 50)
       return
     }
     console.log('prod:', decoded.prod, 'peso:', decoded.peso)
@@ -180,7 +211,7 @@ export default function Produccion() {
       observaciones: '',
     })
     setCodigo('')
-    inputRef.current?.focus()
+    setTimeout(() => inputRef.current?.focus(), 50)
   }
 
   function agregarManualALista() {
@@ -253,6 +284,7 @@ export default function Produccion() {
     }
 
     setPreCarga([])
+    localStorage.removeItem(PRECARGA_KEY)
     const { data: regs } = await supabase.from('producciones').select('*').eq('fecha', fechaHoy)
       .order('created_at', { ascending: false }).limit(50)
     setRegistros(regs || [])

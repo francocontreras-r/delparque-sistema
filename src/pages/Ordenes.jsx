@@ -15,7 +15,8 @@ import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { finalizarOrdenManual, progresoColor, ESTADO_EN_PROCESO } from '../lib/ordenes'
-import { ClipboardList, Plus, Printer, FileDown, AlertTriangle, CheckCircle2, Warehouse, X } from 'lucide-react'
+import { POSTRES } from '../lib/postres'
+import { ClipboardList, Plus, Printer, FileDown, AlertTriangle, CheckCircle2, Warehouse, X, ChevronDown, ChevronUp, Package } from 'lucide-react'
 import logoUrl from '../assets/logo.png'
 
 function toDataURL(url) {
@@ -120,10 +121,10 @@ export default function Ordenes() {
   const [ordenarPor, setOrdenarPor]   = useState('fecha')
   const [pagina, setPagina]           = useState(1)
 
-  const [tipoActivo, setTipoActivo]   = useState('helado')
   const [lineaSel, setLineaSel]       = useState('')
   const [lineaCantidad, setLineaCantidad] = useState('1')
   const [lineas, setLineas]           = useState([])
+  const [mpExpandido, setMpExpandido] = useState({})
   const [form, setForm] = useState({
     fecha_produccion: new Date().toISOString().split('T')[0],
     operario_id: '', operario_nombre: '', observaciones: '',
@@ -164,23 +165,14 @@ export default function Ordenes() {
 
   function upd(k, v) { setForm(f => ({ ...f, [k]: v })) }
 
-  function cambiarTipoActivo(tipo) {
-    setTipoActivo(tipo)
-    setLineaCantidad('1')
-    if (tipo === 'helado') {
-      setLineaSel(saboresCamara[0] ? `sabor-${saboresCamara[0].id}` : (bases[0] ? `base-${bases[0].id}` : ''))
-    } else {
-      setLineaSel(impulsivos[0] ? `imp-${impulsivos[0].id}` : '')
-    }
-  }
-
-  const opcionesActivas = tipoActivo === 'helado'
-    ? [
-        ...saboresCamara.map(s => ({ ...s, _key: `sabor-${s.id}`, _tipo: 'sabor' })),
-        ...bases.map(b => ({ ...b, _key: `base-${b.id}`, _tipo: 'base' })),
-      ]
-    : impulsivos.map(p => ({ ...p, _key: `imp-${p.id}`, _tipo: 'impulsivo' }))
+  const opcionesActivas = [
+    ...bases.map(b => ({ ...b, _key: `base-${b.id}`, _tipo: 'base', _grupo: 'BASES' })),
+    ...saboresCamara.map(s => ({ ...s, _key: `sabor-${s.id}`, _tipo: 'sabor', _grupo: 'SABORES' })),
+    ...impulsivos.map(p => ({ ...p, _key: `imp-${p.id}`, _tipo: 'impulsivo', _grupo: 'IMPULSIVOS' })),
+    ...POSTRES.map((p, idx) => ({ ...p, _key: `postre-${idx}`, _tipo: 'postre', _grupo: 'POSTRES', id: null })),
+  ]
   const productoSel = opcionesActivas.find(p => p._key === lineaSel)
+  const productoSelEsHelado = productoSel?._tipo === 'sabor' || productoSel?._tipo === 'base'
   const stockActualSel = productoSel?._tipo === 'sabor' ? (productoSel.baldes || 0) : null
   const faltaStockSel  = productoSel?._tipo === 'sabor' && stockActualSel < 2
 
@@ -202,7 +194,7 @@ export default function Ordenes() {
 
   function agregarLinea() {
     if (!productoSel) { toast2('Seleccioná un producto', 'error'); return }
-    if (tipoActivo === 'helado') {
+    if (productoSelEsHelado) {
       const cantidad = parseFloat(lineaCantidad || '1')
       if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
       const { kgObjetivo, litrosBase, extraKg } = calcularKgObjetivo(productoSel.nombre, cantidad)
@@ -323,9 +315,11 @@ export default function Ordenes() {
   }
 
   async function cambiarEstado(id, estado) {
-    const { error } = await supabase.from('ordenes_produccion').update({ estado }).eq('id', id)
+    const update = { estado }
+    if (estado === 'en_proceso') update.fecha_inicio = new Date().toISOString().split('T')[0]
+    const { error } = await supabase.from('ordenes_produccion').update(update).eq('id', id)
     if (error) { toast2(error.message, 'error'); return }
-    setOrdenes(prev => prev.map(o => o.id === id ? { ...o, estado } : o))
+    setOrdenes(prev => prev.map(o => o.id === id ? { ...o, ...update } : o))
     toast2('Estado actualizado')
   }
 
@@ -397,10 +391,14 @@ export default function Ordenes() {
   async function finalizarManual() {
     if (!ordenDetalle) return
     setFinalizando(true)
-    const { error, pct } = await finalizarOrdenManual(ordenDetalle)
+    const { error, pct, mermaError } = await finalizarOrdenManual(ordenDetalle)
     setFinalizando(false)
     if (error) { toast2(error.message, 'error'); return }
-    toast2(`Orden ${ordenDetalle.numero} finalizada manualmente (${fmtNum(pct)}%)`)
+    if (mermaError) {
+      toast2(`Orden finalizada, pero hubo un error al registrar la merma: ${mermaError.message}`, 'error')
+    } else {
+      toast2(`Orden ${ordenDetalle.numero} finalizada manualmente (${fmtNum(pct)}%)`)
+    }
     setOrdenDetalle(null)
     cargar()
   }
@@ -817,30 +815,40 @@ export default function Ordenes() {
                           </div>
                         </div>
                       )}
-                      {materiasPrimas.length > 0 && (
-                        <div className="mt-2">
-                          <div className="flex items-center justify-between mb-1.5">
-                            <p className="text-xs font-semibold" style={{ color: colors.textPrimary }}>Materias Primas Necesarias</p>
-                            <Button variant="ghost" size="sm" onClick={() => imprimirListaMP(grupo, item)}>
-                              <Printer size={12} /> Imprimir lista MP
-                            </Button>
-                          </div>
-                          <div className="overflow-hidden" style={{ border: `1px solid ${colors.border}`, borderRadius: radius.md }}>
-                            <Table>
-                              <Thead><Tr><Th>Ingrediente</Th><Th>Necesario</Th><Th>Unidad</Th><Th>Stock</Th><Th>Estado</Th></Tr></Thead>
-                              <Tbody>
-                                {materiasPrimas.map((m, i) => (
-                                  <Tr key={i}>
-                                    <Td className="font-medium">{m.nombre}</Td>
-                                    <Td className="text-right">{fmtNum(m.necesario)}</Td>
-                                    <Td>{m.unidad}</Td>
-                                    <Td className="text-right">{m.estado === 'sinlimite' ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`}</Td>
-                                    <Td>{m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</Td>
-                                  </Tr>
-                                ))}
-                              </Tbody>
-                            </Table>
-                          </div>
+                      {(item.estado === 'pendiente' || item.estado === ESTADO_EN_PROCESO) && materiasPrimas.length > 0 && (
+                        <div className="mt-2 overflow-hidden" style={{ border: `1px solid ${colors.border}`, borderRadius: radius.md }}>
+                          <button
+                            onClick={() => setMpExpandido(s => ({ ...s, [item.id]: !s[item.id] }))}
+                            className="w-full flex items-center justify-between px-2.5 py-1.5 text-xs font-semibold transition-colors"
+                            style={{ color: colors.textPrimary, backgroundColor: colors.bg }}
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <Package size={13} /> Materias Primas
+                            </span>
+                            {mpExpandido[item.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          </button>
+                          {mpExpandido[item.id] && (
+                            <div style={{ borderTop: `1px solid ${colors.border}` }}>
+                              <div className="flex justify-end px-2 py-1.5" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                                <Button variant="ghost" size="sm" onClick={() => imprimirListaMP(grupo, item)}>
+                                  <Printer size={12} /> Imprimir lista MP
+                                </Button>
+                              </div>
+                              <Table>
+                                <Thead><Tr><Th>Ingrediente</Th><Th>Necesario</Th><Th>Stock</Th><Th>Estado</Th></Tr></Thead>
+                                <Tbody>
+                                  {materiasPrimas.map((m, i) => (
+                                    <Tr key={i}>
+                                      <Td className="font-medium">{m.nombre}</Td>
+                                      <Td className="text-right">{fmtNum(m.necesario)} {m.unidad}</Td>
+                                      <Td className="text-right">{m.estado === 'sinlimite' ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`}</Td>
+                                      <Td>{m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</Td>
+                                    </Tr>
+                                  ))}
+                                </Tbody>
+                              </Table>
+                            </div>
+                          )}
                         </div>
                       )}
                       <div className="flex gap-2 flex-wrap items-center mt-2">
@@ -917,44 +925,32 @@ export default function Ordenes() {
           </div>
 
           <div className="pt-2" style={{ borderTop: `1px solid ${colors.border}` }}>
-            <div className="flex gap-1.5 mb-3 mt-3">
-              {[{ key: 'helado', label: 'Helados' }, { key: 'impulsivo', label: 'Impulsivos y Postres' }].map(t => (
-                <button key={t.key} onClick={() => cambiarTipoActivo(t.key)}
-                  className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border"
-                  style={{
-                    backgroundColor: tipoActivo === t.key ? colors.brand : 'transparent',
-                    borderColor: tipoActivo === t.key ? colors.brand : colors.border,
-                    color: tipoActivo === t.key ? 'white' : colors.textSecondary,
-                  }}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
+            <p className="text-sm font-medium text-[#374151] mb-2 mt-3">Agregar producto</p>
 
             {opcionesActivas.length === 0 ? (
               <p className="text-sm" style={{ color: colors.textMuted }}>
-                {tipoActivo === 'helado' ? 'No hay sabores ni bases cargados.' : 'No hay impulsivos cargados.'}
+                No hay productos cargados.
               </p>
             ) : (
               <div className="flex gap-2 items-end">
                 <div className="flex-1">
-                  <Select label={tipoActivo === 'helado' ? 'Sabor / Base' : 'Impulsivo / Postre'} value={lineaSel} onChange={e => setLineaSel(e.target.value)}>
-                    {tipoActivo === 'helado' ? (
-                      <>
-                        <optgroup label="-- SABORES --">
-                          {saboresCamara.map(s => <option key={`sabor-${s.id}`} value={`sabor-${s.id}`}>{s.nombre}</option>)}
-                        </optgroup>
-                        <optgroup label="-- BASES --">
-                          {bases.map(b => <option key={`base-${b.id}`} value={`base-${b.id}`}>{b.nombre}</option>)}
-                        </optgroup>
-                      </>
-                    ) : (
-                      impulsivos.map(p => <option key={`imp-${p.id}`} value={`imp-${p.id}`}>{p.nombre}</option>)
-                    )}
+                  <Select label="Producto" value={lineaSel} onChange={e => { setLineaSel(e.target.value); setLineaCantidad('1') }}>
+                    <optgroup label="── BASES ──">
+                      {bases.map(b => <option key={`base-${b.id}`} value={`base-${b.id}`}>{b.nombre}</option>)}
+                    </optgroup>
+                    <optgroup label="── SABORES ──">
+                      {saboresCamara.map(s => <option key={`sabor-${s.id}`} value={`sabor-${s.id}`}>{s.nombre}</option>)}
+                    </optgroup>
+                    <optgroup label="── IMPULSIVOS ──">
+                      {impulsivos.map(p => <option key={`imp-${p.id}`} value={`imp-${p.id}`}>{p.nombre}</option>)}
+                    </optgroup>
+                    <optgroup label="── POSTRES ──">
+                      {POSTRES.map((p, idx) => <option key={`postre-${idx}`} value={`postre-${idx}`}>{p.nombre}</option>)}
+                    </optgroup>
                   </Select>
                 </div>
                 <div className="w-28">
-                  {tipoActivo === 'helado' ? (
+                  {productoSelEsHelado ? (
                     <Select label="Batches" value={lineaCantidad} onChange={e => setLineaCantidad(e.target.value)}>
                       {BATCH_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
                     </Select>

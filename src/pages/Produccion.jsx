@@ -287,6 +287,7 @@ export default function Produccion() {
     // Vincular con órdenes en curso del mismo producto: sumar kg producidos
     // al avance de la orden y, si llega al 95%, finalizarla automáticamente.
     const mensajesOrdenes = []
+    const mermaErrores = []
     for (const { nombre, kg } of Object.values(sumasPorProducto)) {
       const { data: ords } = await supabase.from('ordenes_produccion')
         .select('*')
@@ -302,6 +303,7 @@ export default function Produccion() {
       const resultado = await aplicarProduccionAOrden(orden, kg)
       if (resultado.error) continue
       mensajesOrdenes.push(`Orden ${orden.numero} actualizada: ${resultado.pct.toFixed(1)}% completada`)
+      if (resultado.mermaError) mermaErrores.push(`Orden ${orden.numero}: ${resultado.mermaError.message}`)
     }
 
     setPreCarga([])
@@ -315,6 +317,9 @@ export default function Produccion() {
       : ''
     const sufijoOrdenes = mensajesOrdenes.length > 0 ? ' · ' + mensajesOrdenes.join(' · ') : ''
     toast2(`${cantidad} registro${cantidad === 1 ? '' : 's'} guardado${cantidad === 1 ? '' : 's'} correctamente${sufijoCamaras}${sufijoOrdenes}`)
+    if (mermaErrores.length > 0) {
+      setTimeout(() => toast2(`Error al registrar merma automática: ${mermaErrores.join(' · ')}`, 'error'), 3200)
+    }
     setTimeout(() => inputRef.current?.focus(), 100)
   }
 

@@ -8,11 +8,12 @@ export const ROLE_PERMISOS = {
   supervisor: {
     produccion: true, camaras: true, rendimientos: true,
     deposito: true, mermas: true, ordenes: true, recetas: true,
+    informes: true,
   },
   admin: {
     produccion: true, camaras: true, rendimientos: true,
     deposito: true, mermas: true, ordenes: true, recetas: true,
-    finanzas: true, usuarios: true,
+    finanzas: true, usuarios: true, informes: true,
   },
 }
 

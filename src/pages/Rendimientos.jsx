@@ -8,13 +8,16 @@ import Select from '../components/ui/Select'
 import Input from '../components/ui/Input'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { TrendingUp, Users, Scale, Package, ClipboardCheck, Calendar } from 'lucide-react'
+import { TrendingUp, Users, Scale, Package, ClipboardCheck, Calendar, Target, Clock } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts'
 
-const TABS = ['Rendimientos', 'Informe del Día']
+const TABS = ['Rendimientos', 'Productividad', 'Informe del Día']
+
+// Días de referencia para considerar que una orden se completó "a tiempo".
+const DIAS_ESPERADOS = 2
 
 const PERIODOS = [
   { key: 'hoy',    label: 'Hoy',    dias: 0  },
@@ -55,6 +58,19 @@ function nivelDesempeno(pct) {
   return               { label: 'BAJO',       variant: 'danger',  color: colors.danger }
 }
 
+function nivelProductividad(pct) {
+  if (pct >= 90) return { label: 'EXCELENTE', variant: 'success', color: colors.success }
+  if (pct >= 70) return { label: 'BUENO',     variant: 'info',    color: colors.info }
+  if (pct >= 50) return { label: 'REGULAR',   variant: 'warning', color: colors.warning }
+  return               { label: 'BAJO',       variant: 'danger',  color: colors.danger }
+}
+
+function diffDias(inicio, fin) {
+  const a = new Date(inicio)
+  const b = new Date(fin)
+  return Math.max(1, Math.round((b - a) / (1000 * 60 * 60 * 24)))
+}
+
 export default function Rendimientos() {
   const [tab, setTab]           = useState('Rendimientos')
   const [periodo, setPeriodo]   = useState('semana')
@@ -68,8 +84,19 @@ export default function Rendimientos() {
   const [ordenesDia, setOrdenesDia]             = useState([])
   const [loadingInforme, setLoadingInforme]     = useState(true)
 
+  const [ordenesProd, setOrdenesProd]   = useState([])
+  const [loadingProd, setLoadingProd]   = useState(true)
+
   useEffect(() => { cargar() }, [periodo])
   useEffect(() => { cargarInforme() }, [fechaInforme])
+  useEffect(() => { cargarProductividad() }, [])
+
+  async function cargarProductividad() {
+    setLoadingProd(true)
+    const { data } = await supabase.from('ordenes_produccion').select('*').neq('estado', 'cancelada')
+    setOrdenesProd(data || [])
+    setLoadingProd(false)
+  }
 
   async function cargar() {
     setLoading(true)
@@ -181,6 +208,37 @@ export default function Rendimientos() {
       .sort((a, b) => b.pct - a.pct)
     return { global, porOperario: porOp }
   }, [ordenesDia])
+
+  const productividad = useMemo(() => {
+    const mapa = {}
+    ordenesProd.forEach(o => {
+      const op = o.operario_nombre || 'Sin asignar'
+      if (!mapa[op]) mapa[op] = { nombre: op, asignadas: 0, completadas: 0, kgPedido: 0, kgProducido: 0, dias: [] }
+      mapa[op].asignadas++
+      if (o.estado === 'completada') mapa[op].completadas++
+      mapa[op].kgPedido += o.kg_objetivo || 0
+      mapa[op].kgProducido += o.kg_producido || 0
+      if (o.fecha_inicio && o.fecha_fin) mapa[op].dias.push(diffDias(o.fecha_inicio, o.fecha_fin))
+    })
+    return Object.values(mapa).map(o => {
+      const pctCumplimiento = o.kgPedido > 0 ? (o.kgProducido / o.kgPedido) * 100 : 0
+      const tiempoPromedio = o.dias.length > 0 ? o.dias.reduce((a, b) => a + b, 0) / o.dias.length : null
+      const factorTiempo = tiempoPromedio ? Math.min(1, DIAS_ESPERADOS / tiempoPromedio) : 1
+      const pctAjustado = Math.min(100, pctCumplimiento * factorTiempo)
+      return { ...o, pctCumplimiento, tiempoPromedio, pctAjustado }
+    }).sort((a, b) => b.pctAjustado - a.pctAjustado)
+  }, [ordenesProd])
+
+  const productividadKpis = useMemo(() => {
+    const conPedido = productividad.filter(o => o.kgPedido > 0)
+    const cumplimientoProm = conPedido.length > 0
+      ? conPedido.reduce((a, o) => a + o.pctCumplimiento, 0) / conPedido.length : 0
+    const ajustadoProm = conPedido.length > 0
+      ? conPedido.reduce((a, o) => a + o.pctAjustado, 0) / conPedido.length : 0
+    const totalAsignadas  = productividad.reduce((a, o) => a + o.asignadas, 0)
+    const totalCompletadas = productividad.reduce((a, o) => a + o.completadas, 0)
+    return { cumplimientoProm, ajustadoProm, totalAsignadas, totalCompletadas }
+  }, [productividad])
 
   return (
     <div className="space-y-5">
@@ -320,6 +378,67 @@ export default function Rendimientos() {
           )}
         </>
       )}
+      </>
+      )}
+
+      {tab === 'Productividad' && (
+      <>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <KpiCard label="Órdenes completadas" value={loadingProd ? '—' : `${productividadKpis.totalCompletadas}/${productividadKpis.totalAsignadas}`} icon={ClipboardCheck} color={colors.brand} />
+          <KpiCard label="% cumplimiento prom." value={loadingProd ? '—' : `${productividadKpis.cumplimientoProm.toFixed(0)}%`} icon={Target} color={semaforoPct(productividadKpis.cumplimientoProm).color} />
+          <KpiCard label="% ajustado prom." value={loadingProd ? '—' : `${productividadKpis.ajustadoProm.toFixed(0)}%`} icon={Clock} color={nivelProductividad(productividadKpis.ajustadoProm).color} />
+          <KpiCard label="Operarios evaluados" value={loadingProd ? '—' : productividad.length} icon={Users} />
+        </div>
+
+        {loadingProd ? (
+          <div className="flex justify-center py-14"><Spinner size={28} /></div>
+        ) : productividad.length === 0 ? (
+          <EmptyState icon={TrendingUp} title="Sin órdenes registradas" subtitle="Creá órdenes de producción para ver la productividad por operario" />
+        ) : (
+          <div style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm, overflow: 'hidden' }}>
+            <Table className="min-w-[820px]">
+              <Thead>
+                <Tr>
+                  <Th>Operario</Th>
+                  <Th>Órdenes (compl./asign.)</Th>
+                  <Th>Kg pedidos</Th>
+                  <Th>Kg producidos</Th>
+                  <Th>% Cumplimiento</Th>
+                  <Th>Tiempo prom.</Th>
+                  <Th>% Ajustado</Th>
+                  <Th>Nivel</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {productividad.map(op => {
+                  const n = nivelProductividad(op.pctAjustado)
+                  return (
+                    <Tr key={op.nombre}>
+                      <Td className="font-medium">{op.nombre}</Td>
+                      <Td>{op.completadas}/{op.asignadas}</Td>
+                      <Td className="text-right">{op.kgPedido.toFixed(1)} kg</Td>
+                      <Td className="text-right">{op.kgProducido.toFixed(1)} kg</Td>
+                      <Td>
+                        <span style={{ color: semaforoPct(op.pctCumplimiento).color, fontWeight: 700 }}>
+                          {op.pctCumplimiento.toFixed(0)}%
+                        </span>
+                      </Td>
+                      <Td className="text-xs" style={{ color: colors.textMuted }}>
+                        {op.tiempoPromedio !== null ? `${op.tiempoPromedio.toFixed(1)} días` : '—'}
+                      </Td>
+                      <Td>
+                        <span style={{ color: n.color, fontWeight: 700 }}>
+                          {op.pctAjustado.toFixed(0)}%
+                        </span>
+                      </Td>
+                      <Td><Badge variant={n.variant}>{n.label}</Badge></Td>
+                    </Tr>
+                  )
+                })}
+              </Tbody>
+            </Table>
+          </div>
+        )}
       </>
       )}
 

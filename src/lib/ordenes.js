@@ -14,30 +14,39 @@ export function progresoColor(pct, colors) {
   return colors.danger
 }
 
-// Si la orden cierra con kg_producido por debajo del objetivo, la diferencia
-// se registra como merma automática para no perder esa trazabilidad.
+// Cuando una orden se finaliza (manual o automáticamente al alcanzar el 95%),
+// se registra un movimiento en "mermas" con el resultado de la producción
+// (diferencia entre lo planificado y lo producido) para mantener trazabilidad.
 export async function registrarMermaAutomatica(orden, kgProducidoFinal) {
+  console.log('registrarMermaAutomatica → orden:', orden.numero, 'kgProducidoFinal:', kgProducidoFinal)
   const kgObjetivo = orden.kg_objetivo || 0
-  const merma = kgObjetivo - kgProducidoFinal
-  if (merma <= 0) return
+  if (kgObjetivo <= 0) {
+    console.log('registrarMermaAutomatica → orden sin kg_objetivo, no se registra merma')
+    return { error: null }
+  }
+  const diferencia = kgObjetivo - kgProducidoFinal
+  const porcentaje = (diferencia / kgObjetivo) * 100
+  console.log('registrarMermaAutomatica → kg_objetivo:', kgObjetivo, 'diferencia:', diferencia, 'porcentaje:', porcentaje)
+
   const payload = {
-    fecha: orden.fecha_produccion,
-    sabor_nombre: orden.sabor_nombre,
+    fecha: new Date().toISOString().split('T')[0],
+    sabor_nombre: orden.sabor_nombre || orden.producto_nombre,
     operario_nombre: orden.operario_nombre || null,
     kg_teoricos: kgObjetivo,
     kg_reales: kgProducidoFinal,
-    diferencia: merma,
-    porcentaje: (merma / kgObjetivo) * 100,
-    causa: 'Producción finalizada',
-    observaciones: 'Registrado automáticamente al finalizar orden',
+    diferencia,
+    porcentaje,
+    causa: 'Producción finalizada - registro automático',
+    observaciones: `Orden ${orden.numero}`,
   }
   console.log('registrarMermaAutomatica → insertando en mermas:', payload)
   const { error } = await supabase.from('mermas').insert(payload)
   if (error) {
     console.error('registrarMermaAutomatica → error al insertar:', error)
-  } else {
-    console.log('registrarMermaAutomatica → merma registrada correctamente')
+    return { error }
   }
+  console.log('registrarMermaAutomatica → merma registrada correctamente')
+  return { error: null }
 }
 
 export async function aplicarProduccionAOrden(orden, kgIncremento) {
@@ -46,17 +55,24 @@ export async function aplicarProduccionAOrden(orden, kgIncremento) {
   const pct = pctCompletitud(kgProducido, kgObjetivo)
   const nuevoEstado = pct >= 95 ? ESTADO_COMPLETADA : orden.estado
 
-  const { error } = await supabase.from('ordenes_produccion').update({
+  const update = {
     kg_producido: kgProducido,
     porcentaje_completitud: pct,
     estado: nuevoEstado,
-  }).eq('id', orden.id)
+  }
+  if (nuevoEstado === ESTADO_COMPLETADA && orden.estado !== ESTADO_COMPLETADA) {
+    update.fecha_fin = new Date().toISOString().split('T')[0]
+  }
+
+  const { error } = await supabase.from('ordenes_produccion').update(update).eq('id', orden.id)
   if (error) return { error }
 
+  let mermaError = null
   if (nuevoEstado === ESTADO_COMPLETADA && orden.estado !== ESTADO_COMPLETADA) {
-    await registrarMermaAutomatica(orden, kgProducido)
+    const resultado = await registrarMermaAutomatica(orden, kgProducido)
+    mermaError = resultado.error
   }
-  return { kgProducido, pct, estado: nuevoEstado }
+  return { kgProducido, pct, estado: nuevoEstado, mermaError }
 }
 
 export async function finalizarOrdenManual(orden) {
@@ -64,12 +80,17 @@ export async function finalizarOrdenManual(orden) {
   const kgProducido = orden.kg_producido || 0
   const pct = pctCompletitud(kgProducido, kgObjetivo)
 
-  const { error } = await supabase.from('ordenes_produccion').update({
+  const update = {
     estado: ESTADO_COMPLETADA,
     porcentaje_completitud: pct,
-  }).eq('id', orden.id)
+  }
+  if (orden.estado !== ESTADO_COMPLETADA) {
+    update.fecha_fin = new Date().toISOString().split('T')[0]
+  }
+
+  const { error } = await supabase.from('ordenes_produccion').update(update).eq('id', orden.id)
   if (error) return { error }
 
-  await registrarMermaAutomatica(orden, kgProducido)
-  return { pct }
+  const { error: mermaError } = await registrarMermaAutomatica(orden, kgProducido)
+  return { pct, mermaError }
 }

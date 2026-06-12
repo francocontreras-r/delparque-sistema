@@ -11,11 +11,18 @@ import Ordenes from './pages/Ordenes'
 import Recetas from './pages/Recetas'
 import Finanzas from './pages/Finanzas'
 import Usuarios from './pages/Usuarios'
+import Informes from './pages/Informes'
 
 function AdminRoute({ children }) {
   const { isAdmin, loading } = useUser()
   if (loading) return null
   return isAdmin ? children : <Navigate to="/produccion" replace />
+}
+
+function InformesRoute({ children }) {
+  const { tienePermiso, loading } = useUser()
+  if (loading) return null
+  return tienePermiso('informes') ? children : <Navigate to="/produccion" replace />
 }
 
 function AppRoutes() {
@@ -35,6 +42,7 @@ function AppRoutes() {
           <Route path="ordenes"      element={<Ordenes />} />
           <Route path="recetas"      element={<Recetas />} />
           <Route path="finanzas"     element={<AdminRoute><Finanzas /></AdminRoute>} />
+          <Route path="informes"     element={<InformesRoute><Informes /></InformesRoute>} />
           <Route path="usuarios"     element={<AdminRoute><Usuarios /></AdminRoute>} />
           <Route path="*"            element={<Navigate to="/produccion" replace />} />
         </Route>

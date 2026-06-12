@@ -12,7 +12,7 @@ import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { TrendingDown, Plus, DollarSign } from 'lucide-react'
+import { TrendingDown, Plus, DollarSign, User } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 const TABS   = ['Por Sabor', 'Por Operario', 'Por Causa', 'Historial']
@@ -43,6 +43,12 @@ function pctVariant(pct) {
 }
 
 function pesos(n) { return Math.round(n || 0).toLocaleString('es-AR') }
+
+// Las mermas automáticas guardan el número de orden en "observaciones" como "Orden <numero>".
+function ordenNumero(m) {
+  const match = (m.observaciones || '').match(/^Orden (.+)$/)
+  return match ? match[1] : '—'
+}
 
 function AgrupacionList({ filas }) {
   if (filas.length === 0) return <EmptyState icon={TrendingDown} title="Sin datos" subtitle="Registrá mermas para ver el análisis" />
@@ -175,6 +181,17 @@ export default function Mermas() {
     mermas.reduce((a, m) => a + costoMerma(m), 0)
   ), [mermas, costoKgPorSabor])
 
+  const mermaDelMes = useMemo(() => {
+    const ahora = new Date()
+    const ym = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}`
+    return mermas.filter(m => (m.fecha || '').startsWith(ym)).reduce((a, m) => a + (m.diferencia || 0), 0)
+  }, [mermas])
+
+  const operarioMasMerma = useMemo(() => {
+    if (porOperario.length === 0) return null
+    return [...porOperario].sort((a, b) => b.dif - a.dif)[0]
+  }, [porOperario])
+
   return (
     <div className="space-y-5">
       <Toast toast={toast} />
@@ -188,10 +205,14 @@ export default function Mermas() {
         </Button>
       </div>
 
-      <div className={`grid grid-cols-2 ${isAdmin ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-3`}>
+      <div className={`grid grid-cols-2 sm:grid-cols-3 ${isAdmin ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3`}>
         <KpiCard label="KG perdidos" value={loading ? '—' : totalDif.toFixed(1)} color={totalDif > 0 ? colors.danger : undefined} icon={TrendingDown} />
+        <KpiCard label="KG merma del mes" value={loading ? '—' : mermaDelMes.toFixed(1)} color={mermaDelMes > 0 ? colors.danger : undefined} icon={TrendingDown} />
         <KpiCard label="% global"    value={loading ? '—' : pctGlobal.toFixed(1) + '%'} color={pctColor(pctGlobal)} />
-        <KpiCard label="Registros"   value={loading ? '—' : mermas.length} />
+        <KpiCard label="Operario con más merma"
+          value={loading ? '—' : (operarioMasMerma?.nombre || '—')}
+          sub={operarioMasMerma ? `${operarioMasMerma.dif.toFixed(1)} kg perdidos` : undefined}
+          icon={User} />
         {isAdmin && (
           <KpiCard label="Costo total mermas" value={loading ? '—' : `$${pesos(totalCostoMermas)}`} color={colors.danger} icon={DollarSign} />
         )}
@@ -272,16 +293,17 @@ export default function Mermas() {
               ? <EmptyState icon={TrendingDown} title="Sin historial" subtitle="Los registros aparecen aquí" />
               : (
                 <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-                  <Table className="min-w-[680px]">
+                  <Table className="min-w-[760px]">
                     <Thead>
                       <Tr>
                         <Th>Fecha</Th>
-                        <Th>Sabor</Th>
+                        <Th>Orden N°</Th>
+                        <Th>Producto</Th>
                         <Th>Operario</Th>
-                        <Th>KG teórico</Th>
-                        <Th>KG real</Th>
+                        <Th>Kg Teórico</Th>
+                        <Th>Kg Real</Th>
                         <Th>Diferencia</Th>
-                        <Th>%</Th>
+                        <Th>% Merma</Th>
                         <Th>Costo merma $</Th>
                         <Th>Causa</Th>
                       </Tr>
@@ -290,6 +312,7 @@ export default function Mermas() {
                       {mermas.map(m => (
                         <Tr key={m.id}>
                           <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{m.fecha}</Td>
+                          <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{ordenNumero(m)}</Td>
                           <Td className="font-medium">{m.sabor_nombre}</Td>
                           <Td className="text-xs" style={{ color: colors.textSecondary }}>{m.operario_nombre || '—'}</Td>
                           <Td className="text-xs text-right" style={{ color: colors.textSecondary }}>{m.kg_teoricos}</Td>

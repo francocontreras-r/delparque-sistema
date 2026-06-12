@@ -119,3 +119,24 @@ NOTIFY pgrst, 'reload schema';
 ALTER TABLE ordenes_produccion ALTER COLUMN batches TYPE numeric;
 
 NOTIFY pgrst, 'reload schema';
+
+-- ── 16) Órdenes → fechas de inicio/fin para medir productividad ───────────
+ALTER TABLE ordenes_produccion ADD COLUMN IF NOT EXISTS fecha_inicio date;
+ALTER TABLE ordenes_produccion ADD COLUMN IF NOT EXISTS fecha_fin date;
+
+NOTIFY pgrst, 'reload schema';
+
+-- ── 17) Control de stock semanal: historial de conteos físicos ────────────
+CREATE TABLE IF NOT EXISTS conteos_stock (
+  id bigserial primary key,
+  tipo text, -- 'camara' o 'deposito'
+  producto_nombre text,
+  stock_sistema numeric,
+  stock_fisico numeric,
+  diferencia numeric,
+  responsable text,
+  fecha timestamptz default now(),
+  observaciones text
+);
+
+NOTIFY pgrst, 'reload schema';

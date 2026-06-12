@@ -6,7 +6,7 @@ import LogoDelParque from './LogoDelParque'
 import { colors } from '../styles/design-system'
 import {
   Factory, Thermometer, Warehouse, TrendingUp, TrendingDown,
-  ClipboardList, BookOpen, LogOut, Menu, X, DollarSign, Users, Download,
+  ClipboardList, BookOpen, LogOut, Menu, X, DollarSign, Users, Download, FileText,
 } from 'lucide-react'
 
 const NAV = [
@@ -18,6 +18,7 @@ const NAV = [
   { to: '/ordenes',      label: 'Órdenes',      Icon: ClipboardList, modulo: 'ordenes'      },
   { to: '/recetas',      label: 'Recetas',      Icon: BookOpen,      modulo: 'recetas'      },
   { to: '/finanzas',     label: 'Finanzas',     Icon: DollarSign,    modulo: 'finanzas'     },
+  { to: '/informes',     label: 'Informes',     Icon: FileText,      modulo: 'informes'     },
   { to: '/usuarios',     label: 'Usuarios',     Icon: Users,         modulo: 'usuarios'     },
 ]
 

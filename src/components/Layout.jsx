@@ -19,6 +19,7 @@ const NAV = [
   { to: '/recetas',      label: 'Recetas',      Icon: BookOpen,      modulo: 'recetas'      },
   { to: '/finanzas',     label: 'Finanzas',     Icon: DollarSign,    modulo: 'finanzas'     },
   { to: '/informes',     label: 'Informes',     Icon: FileText,      modulo: 'informes'     },
+  { to: '/rendimiento-operarios', label: 'Rendimiento', Icon: TrendingUp, modulo: 'rendimientoOperarios' },
   { to: '/usuarios',     label: 'Usuarios',     Icon: Users,         modulo: 'usuarios'     },
 ]
 

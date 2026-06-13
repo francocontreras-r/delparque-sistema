@@ -150,3 +150,19 @@ VALUES
 ON CONFLICT DO NOTHING;
 
 NOTIFY pgrst, 'reload schema';
+
+-- ── 19) Órdenes → tiempo estimado/real y rendimiento profesional ──────────
+-- fecha_inicio/fecha_fin pasan de "date" a "timestamptz" para medir horas
+-- (no solo días). horas_estimadas se carga al crear la orden; horas_reales,
+-- eficiencia_kg, eficiencia_tiempo y rendimiento_final se calculan al
+-- finalizar (manual o automático) en src/lib/ordenes.js.
+ALTER TABLE ordenes_produccion ALTER COLUMN fecha_inicio TYPE timestamptz USING fecha_inicio::timestamptz;
+ALTER TABLE ordenes_produccion ALTER COLUMN fecha_fin TYPE timestamptz USING fecha_fin::timestamptz;
+
+ALTER TABLE ordenes_produccion ADD COLUMN IF NOT EXISTS horas_estimadas numeric DEFAULT 0;
+ALTER TABLE ordenes_produccion ADD COLUMN IF NOT EXISTS horas_reales numeric DEFAULT 0;
+ALTER TABLE ordenes_produccion ADD COLUMN IF NOT EXISTS eficiencia_kg numeric DEFAULT 0;
+ALTER TABLE ordenes_produccion ADD COLUMN IF NOT EXISTS eficiencia_tiempo numeric DEFAULT 0;
+ALTER TABLE ordenes_produccion ADD COLUMN IF NOT EXISTS rendimiento_final numeric DEFAULT 0;
+
+NOTIFY pgrst, 'reload schema';

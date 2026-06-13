@@ -14,9 +14,9 @@ import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { finalizarOrdenManual, progresoColor, ESTADO_EN_PROCESO } from '../lib/ordenes'
+import { finalizarOrdenManual, progresoColor, ESTADO_EN_PROCESO, ESTADO_COMPLETADA } from '../lib/ordenes'
 import { POSTRES } from '../lib/postres'
-import { ClipboardList, Plus, Printer, FileDown, AlertTriangle, CheckCircle2, Warehouse, X, ChevronDown, ChevronUp, Package } from 'lucide-react'
+import { ClipboardList, Plus, Printer, FileDown, AlertTriangle, CheckCircle2, Warehouse, X, ChevronDown, ChevronUp, Package, Clock } from 'lucide-react'
 import logoUrl from '../assets/logo.png'
 
 function toDataURL(url) {
@@ -51,6 +51,32 @@ function estadoInfo(estado) {
 
 function fmtNum(n) {
   return Number((n || 0).toFixed(2)).toString()
+}
+
+function formatDuracion(horas) {
+  if (!horas || horas <= 0) return '0h 0m'
+  const totalMin = Math.round(horas * 60)
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  return `${h}h ${m}m`
+}
+
+function eficienciaVariant(pct) {
+  if ((pct || 0) >= 90) return 'success'
+  if ((pct || 0) >= 70) return 'warning'
+  return 'danger'
+}
+
+// Muestra el tiempo transcurrido desde fecha_inicio, actualizándose en vivo.
+function TiempoTranscurrido({ fechaInicio }) {
+  const [ahora, setAhora] = useState(Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setAhora(Date.now()), 30000)
+    return () => clearInterval(t)
+  }, [])
+  if (!fechaInicio) return null
+  const horas = Math.max(0, (ahora - new Date(fechaInicio).getTime()) / 3600000)
+  return <>{formatDuracion(horas)}</>
 }
 
 // Busca la receta de un sabor o, si no existe, de una base, por nombre.
@@ -127,6 +153,7 @@ export default function Ordenes() {
   const [tabProducto, setTabProducto] = useState('BASES')
   const [lineaSel, setLineaSel]       = useState('')
   const [lineaCantidad, setLineaCantidad] = useState('1')
+  const [lineaHoras, setLineaHoras]   = useState('')
   const [lineas, setLineas]           = useState([])
   const [mpExpandido, setMpExpandido] = useState({})
   const [stockAlertAgregar, setStockAlertAgregar] = useState(null)
@@ -226,6 +253,7 @@ export default function Ordenes() {
 
   function agregarLinea() {
     if (!productoSel) { toast2('Seleccioná un producto', 'error'); return }
+    const horasEstimadas = parseFloat(lineaHoras || '0') || 0
     if (productoSelEsHelado) {
       const cantidad = parseFloat(lineaCantidad || '1')
       if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
@@ -234,6 +262,7 @@ export default function Ordenes() {
         tipo: 'helado', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
         cantidad, litros: cantidad * LITROS_BATCH,
         kg_objetivo: kgObjetivo, litros_base: litrosBase, extra_kg: extraKg,
+        horas_estimadas: horasEstimadas,
       }
       const items = compararConStock(requerimientosDeLineas([linea]))
       if (items.some(it => it.estado !== 'ok')) {
@@ -246,10 +275,11 @@ export default function Ordenes() {
       if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
       setLineas(ls => [...ls, {
         tipo: 'impulsivo', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
-        cantidad, kg_objetivo: 0,
+        cantidad, kg_objetivo: 0, horas_estimadas: horasEstimadas,
       }])
     }
     setLineaCantidad('1')
+    setLineaHoras('')
   }
 
   function agregarLineaConFaltantes() {
@@ -257,6 +287,7 @@ export default function Ordenes() {
     setLineas(ls => [...ls, stockAlertAgregar.linea])
     setStockAlertAgregar(null)
     setLineaCantidad('1')
+    setLineaHoras('')
   }
 
   function quitarLinea(idx) {
@@ -341,6 +372,7 @@ export default function Ordenes() {
       kg_objetivo: l.tipo === 'helado' ? l.kg_objetivo : 0,
       kg_producido: 0,
       porcentaje_completitud: 0,
+      horas_estimadas: l.horas_estimadas || 0,
       operario_id: form.operario_id ? parseInt(form.operario_id, 10) : null,
       operario_nombre: form.operario_nombre || null,
       estado: 'pendiente',
@@ -359,18 +391,29 @@ export default function Ordenes() {
     cargar()
   }
 
-  async function cambiarEstado(id, estado) {
+  async function cambiarEstado(item, estado) {
+    if (estado === ESTADO_COMPLETADA) {
+      const { error, mermaError } = await finalizarOrdenManual(item)
+      if (error) { toast2(error.message, 'error'); return }
+      if (mermaError) {
+        toast2(`Orden finalizada, pero hubo un error al registrar la merma: ${mermaError.message}`, 'error')
+      } else {
+        toast2('Estado actualizado')
+      }
+      cargar()
+      return
+    }
     const update = { estado }
-    if (estado === 'en_proceso') update.fecha_inicio = new Date().toISOString().split('T')[0]
-    const { error } = await supabase.from('ordenes_produccion').update(update).eq('id', id)
+    if (estado === 'en_proceso') update.fecha_inicio = new Date().toISOString()
+    const { error } = await supabase.from('ordenes_produccion').update(update).eq('id', item.id)
     if (error) { toast2(error.message, 'error'); return }
-    setOrdenes(prev => prev.map(o => o.id === id ? { ...o, ...update } : o))
+    setOrdenes(prev => prev.map(o => o.id === item.id ? { ...o, ...update } : o))
     toast2('Estado actualizado')
   }
 
   async function intentarCambiarEstado(item, estado) {
     if (estado !== 'en_proceso') {
-      cambiarEstado(item.id, estado)
+      cambiarEstado(item, estado)
       return
     }
     setCheckingId(item.id)
@@ -417,7 +460,7 @@ export default function Ordenes() {
 
   function confirmarInicio() {
     if (!stockAlert) return
-    cambiarEstado(stockAlert.orden.id, 'en_proceso')
+    cambiarEstado(stockAlert.orden, 'en_proceso')
     setStockAlert(null)
   }
 
@@ -860,6 +903,25 @@ export default function Ordenes() {
                           </div>
                         </div>
                       )}
+                      {item.estado === ESTADO_EN_PROCESO && item.fecha_inicio && (
+                        <div className="mt-2 flex items-center gap-1.5 text-xs" style={{ color: colors.textMuted }}>
+                          <Clock size={12} />
+                          <span>Tiempo transcurrido: <strong style={{ color: colors.textPrimary }}><TiempoTranscurrido fechaInicio={item.fecha_inicio} /></strong>
+                            {item.horas_estimadas > 0 && ` (estimado: ${fmtNum(item.horas_estimadas)}h)`}
+                          </span>
+                        </div>
+                      )}
+                      {item.estado === ESTADO_COMPLETADA && (item.horas_estimadas > 0 || item.horas_reales > 0) && (
+                        <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
+                          <span className="flex items-center gap-1.5 text-xs" style={{ color: colors.textMuted }}>
+                            <Clock size={12} />
+                            Estimado: {fmtNum(item.horas_estimadas)}h · Real: {fmtNum(item.horas_reales)}h
+                          </span>
+                          <Badge variant={eficienciaVariant(item.eficiencia_tiempo)}>
+                            ⏱ {fmtNum(item.eficiencia_tiempo)}% tiempo
+                          </Badge>
+                        </div>
+                      )}
                       {(item.estado === 'pendiente' || item.estado === ESTADO_EN_PROCESO) && materiasPrimas.length > 0 && (
                         <div className="mt-2 overflow-hidden" style={{ border: `1px solid ${colors.border}`, borderRadius: radius.md }}>
                           <button
@@ -905,7 +967,7 @@ export default function Ordenes() {
                           </Button>
                         ))}
                         {item.estado !== 'cancelada' && (
-                          <Button variant="ghost" size="sm" onClick={() => cambiarEstado(item.id, 'cancelada')}
+                          <Button variant="ghost" size="sm" onClick={() => cambiarEstado(item, 'cancelada')}
                             className="!border" style={{ borderColor: colors.border, color: colors.textMuted }}>
                             Cancelar
                           </Button>
@@ -1015,6 +1077,10 @@ export default function Ordenes() {
                     <Plus size={14} /> Agregar
                   </Button>
                 </div>
+                <div className="w-32 mt-2">
+                  <Input label="Tiempo estimado (h)" type="number" min="0" step="0.5" placeholder="ej: 4.5"
+                    value={lineaHoras} onChange={e => setLineaHoras(e.target.value)} />
+                </div>
               </>
             )}
 
@@ -1041,6 +1107,11 @@ export default function Ordenes() {
                     {l.tipo === 'helado' && (
                       <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>
                         Objetivo estimado: {fmtNum(l.kg_objetivo)} kg ({fmtNum(l.litros_base)}L base + {fmtNum(l.extra_kg)} kg agregados)
+                      </p>
+                    )}
+                    {l.horas_estimadas > 0 && (
+                      <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>
+                        Tiempo estimado: {fmtNum(l.horas_estimadas)} h
                       </p>
                     )}
                   </div>
@@ -1214,6 +1285,15 @@ export default function Ordenes() {
                 }} />
               </div>
             </div>
+
+            {ordenDetalle.estado === ESTADO_EN_PROCESO && ordenDetalle.fecha_inicio && (
+              <div className="flex items-center gap-1.5 text-sm" style={{ color: colors.textMuted }}>
+                <Clock size={14} />
+                <span>Tiempo transcurrido: <strong style={{ color: colors.textPrimary }}><TiempoTranscurrido fechaInicio={ordenDetalle.fecha_inicio} /></strong>
+                  {ordenDetalle.horas_estimadas > 0 && ` (estimado: ${fmtNum(ordenDetalle.horas_estimadas)}h)`}
+                </span>
+              </div>
+            )}
 
             {materiasPrimasDe(ordenDetalle).length > 0 && (
               <div>

@@ -14,6 +14,38 @@ export function progresoColor(pct, colors) {
   return colors.danger
 }
 
+// Horas reales transcurridas entre el inicio y el fin de una orden.
+export function calcularHorasReales(fechaInicio, fechaFin) {
+  if (!fechaInicio || !fechaFin) return 0
+  const inicio = new Date(fechaInicio).getTime()
+  const fin = new Date(fechaFin).getTime()
+  if (isNaN(inicio) || isNaN(fin) || fin <= inicio) return 0
+  return (fin - inicio) / (1000 * 60 * 60)
+}
+
+// Producción sin kg_objetivo (p.ej. impulsivos) no se penaliza: rinde 100%.
+export function calcularEficienciaKg(kgProducido, kgObjetivo) {
+  if (!kgObjetivo || kgObjetivo <= 0) return 100
+  return (kgProducido / kgObjetivo) * 100
+}
+
+// Sin tiempo estimado o sin datos de inicio/fin no se penaliza: rinde 100%.
+export function calcularEficienciaTiempo(horasEstimadas, horasReales) {
+  if (!horasEstimadas || horasEstimadas <= 0) return 100
+  if (!horasReales || horasReales <= 0) return 100
+  return (horasEstimadas / horasReales) * 100
+}
+
+export function calcularRendimientoFinal(eficienciaKg, eficienciaTiempo) {
+  return (eficienciaKg || 0) * 0.6 + (eficienciaTiempo || 0) * 0.4
+}
+
+export function eficienciaColor(pct, colors) {
+  if ((pct || 0) >= 90) return colors.success
+  if ((pct || 0) >= 70) return colors.warning
+  return colors.danger
+}
+
 // Cuando una orden se finaliza (manual o automáticamente al alcanzar el 95%),
 // se registra un movimiento en "mermas" con el resultado de la producción
 // (diferencia entre lo planificado y lo producido) para mantener trazabilidad.
@@ -60,15 +92,25 @@ export async function aplicarProduccionAOrden(orden, kgIncremento) {
     porcentaje_completitud: pct,
     estado: nuevoEstado,
   }
-  if (nuevoEstado === ESTADO_COMPLETADA && orden.estado !== ESTADO_COMPLETADA) {
-    update.fecha_fin = new Date().toISOString().split('T')[0]
+
+  const seFinaliza = nuevoEstado === ESTADO_COMPLETADA && orden.estado !== ESTADO_COMPLETADA
+  if (seFinaliza) {
+    const fechaFin = new Date().toISOString()
+    const horasReales = calcularHorasReales(orden.fecha_inicio, fechaFin)
+    const eficienciaKg = calcularEficienciaKg(kgProducido, kgObjetivo)
+    const eficienciaTiempo = calcularEficienciaTiempo(orden.horas_estimadas, horasReales)
+    update.fecha_fin = fechaFin
+    update.horas_reales = horasReales
+    update.eficiencia_kg = eficienciaKg
+    update.eficiencia_tiempo = eficienciaTiempo
+    update.rendimiento_final = calcularRendimientoFinal(eficienciaKg, eficienciaTiempo)
   }
 
   const { error } = await supabase.from('ordenes_produccion').update(update).eq('id', orden.id)
   if (error) return { error }
 
   let mermaError = null
-  if (nuevoEstado === ESTADO_COMPLETADA && orden.estado !== ESTADO_COMPLETADA) {
+  if (seFinaliza) {
     const resultado = await registrarMermaAutomatica(orden, kgProducido)
     mermaError = resultado.error
   }
@@ -84,8 +126,18 @@ export async function finalizarOrdenManual(orden) {
     estado: ESTADO_COMPLETADA,
     porcentaje_completitud: pct,
   }
-  if (orden.estado !== ESTADO_COMPLETADA) {
-    update.fecha_fin = new Date().toISOString().split('T')[0]
+
+  const seFinaliza = orden.estado !== ESTADO_COMPLETADA
+  if (seFinaliza) {
+    const fechaFin = new Date().toISOString()
+    const horasReales = calcularHorasReales(orden.fecha_inicio, fechaFin)
+    const eficienciaKg = calcularEficienciaKg(kgProducido, kgObjetivo)
+    const eficienciaTiempo = calcularEficienciaTiempo(orden.horas_estimadas, horasReales)
+    update.fecha_fin = fechaFin
+    update.horas_reales = horasReales
+    update.eficiencia_kg = eficienciaKg
+    update.eficiencia_tiempo = eficienciaTiempo
+    update.rendimiento_final = calcularRendimientoFinal(eficienciaKg, eficienciaTiempo)
   }
 
   const { error } = await supabase.from('ordenes_produccion').update(update).eq('id', orden.id)

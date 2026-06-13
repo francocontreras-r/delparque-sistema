@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
@@ -72,6 +73,7 @@ function diffDias(inicio, fin) {
 }
 
 export default function Rendimientos() {
+  const navigate = useNavigate()
   const [tab, setTab]           = useState('Rendimientos')
   const [periodo, setPeriodo]   = useState('semana')
   const [filtroOp, setFiltroOp] = useState('Todos')
@@ -384,7 +386,7 @@ export default function Rendimientos() {
       {tab === 'Productividad' && (
       <>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <KpiCard label="Órdenes completadas" value={loadingProd ? '—' : `${productividadKpis.totalCompletadas}/${productividadKpis.totalAsignadas}`} icon={ClipboardCheck} color={colors.brand} />
+          <KpiCard label="Órdenes completadas" value={loadingProd ? '—' : `${productividadKpis.totalCompletadas}/${productividadKpis.totalAsignadas}`} icon={ClipboardCheck} color={colors.brand} onClick={() => navigate('/ordenes?estado=completada')} />
           <KpiCard label="% cumplimiento prom." value={loadingProd ? '—' : `${productividadKpis.cumplimientoProm.toFixed(0)}%`} icon={Target} color={semaforoPct(productividadKpis.cumplimientoProm).color} />
           <KpiCard label="% ajustado prom." value={loadingProd ? '—' : `${productividadKpis.ajustadoProm.toFixed(0)}%`} icon={Clock} color={nivelProductividad(productividadKpis.ajustadoProm).color} />
           <KpiCard label="Operarios evaluados" value={loadingProd ? '—' : productividad.length} icon={Users} />
@@ -415,7 +417,7 @@ export default function Rendimientos() {
                   return (
                     <Tr key={op.nombre}>
                       <Td className="font-medium">{op.nombre}</Td>
-                      <Td>{op.completadas}/{op.asignadas}</Td>
+                      <Td className="cursor-pointer hover:underline" style={{ color: colors.brand }} onClick={() => navigate(`/ordenes?operario=${encodeURIComponent(op.nombre)}`)}>{op.completadas}/{op.asignadas}</Td>
                       <Td className="text-right">{op.kgPedido.toFixed(1)} kg</Td>
                       <Td className="text-right">{op.kgProducido.toFixed(1)} kg</Td>
                       <Td>
@@ -459,7 +461,7 @@ export default function Rendimientos() {
               <KpiCard label="Total unidades"      value={kpiInforme.unidades}          icon={Package} />
               <KpiCard label="Total KG"            value={kpiInforme.kg.toFixed(1)}      icon={Scale} />
               <KpiCard label="Operarios activos"   value={kpiInforme.operariosActivos}  icon={Users} color={colors.brand} />
-              <KpiCard label="Órdenes completadas" value={kpiInforme.ordenesCompletadas} icon={ClipboardCheck} color={colors.success} />
+              <KpiCard label="Órdenes completadas" value={kpiInforme.ordenesCompletadas} icon={ClipboardCheck} color={colors.success} onClick={() => navigate(`/ordenes?estado=completada&fecha=${fechaInforme}`)} />
             </div>
 
             {produccionesDia.length === 0 ? (

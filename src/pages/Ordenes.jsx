@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -33,6 +33,8 @@ function toDataURL(url) {
 const LITROS_BATCH = 120
 const BATCH_OPTIONS = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5]
 const POR_PAGINA = 20
+
+const GRUPOS_PRODUCTO = ['BASES', 'SABORES', 'IMPULSIVOS', 'POSTRES']
 
 const ESTADOS = [
   { key: 'pendiente',  label: 'Pendiente',  color: colors.warning,   variant: 'warning' },
@@ -92,6 +94,7 @@ function computeMateriasPrimas(item, ctx) {
 
 export default function Ordenes() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [ordenes, setOrdenes]         = useState([])
   const [saboresCamara, setSaboresCamara] = useState([])
   const [sabores, setSabores]         = useState([])
@@ -121,16 +124,28 @@ export default function Ordenes() {
   const [ordenarPor, setOrdenarPor]   = useState('fecha')
   const [pagina, setPagina]           = useState(1)
 
+  const [tabProducto, setTabProducto] = useState('BASES')
   const [lineaSel, setLineaSel]       = useState('')
   const [lineaCantidad, setLineaCantidad] = useState('1')
   const [lineas, setLineas]           = useState([])
   const [mpExpandido, setMpExpandido] = useState({})
+  const [stockAlertAgregar, setStockAlertAgregar] = useState(null)
   const [form, setForm] = useState({
     fecha_produccion: new Date().toISOString().split('T')[0],
     operario_id: '', operario_nombre: '', observaciones: '',
   })
 
   useEffect(() => { cargar() }, [])
+
+  useEffect(() => {
+    const estado = searchParams.get('estado')
+    const fecha = searchParams.get('fecha')
+    const operario = searchParams.get('operario')
+    if (estado) setFiltroEstado(estado)
+    if (fecha) setFiltroFecha(fecha)
+    if (operario) setBusqueda(operario)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function cargar() {
     const [{ data: ord }, { data: sab }, { data: imp }, { data: ops }, { data: recetas }, { data: ingredientes }, { data: insumosData }, { data: basesData }, { data: baseIngs }] = await Promise.all([
@@ -153,7 +168,16 @@ export default function Ordenes() {
     setInsumosStock(insumosData || [])
     setBases(basesData || [])
     setBaseIngredientes(baseIngs || [])
-    if (sab && sab.length > 0) setLineaSel(`sabor-${sab[0].id}`)
+
+    const opciones = [
+      ...(basesData || []).map(b => ({ _key: `base-${b.id}`, _grupo: 'BASES' })),
+      ...(sab || []).map(s => ({ _key: `sabor-${s.id}`, _grupo: 'SABORES' })),
+      ...(imp || []).map(p => ({ _key: `imp-${p.id}`, _grupo: 'IMPULSIVOS' })),
+      ...POSTRES.map((p, idx) => ({ _key: `postre-${idx}`, _grupo: 'POSTRES' })),
+    ]
+    const primero = GRUPOS_PRODUCTO.map(g => opciones.find(o => o._grupo === g)).find(Boolean)
+    if (primero) { setTabProducto(primero._grupo); setLineaSel(primero._key) }
+
     if (ops && ops.length > 0) setForm(f => ({ ...f, operario_id: String(ops[0].id), operario_nombre: ops[0].nombre }))
     setLoading(false)
   }
@@ -171,10 +195,18 @@ export default function Ordenes() {
     ...impulsivos.map(p => ({ ...p, _key: `imp-${p.id}`, _tipo: 'impulsivo', _grupo: 'IMPULSIVOS' })),
     ...POSTRES.map((p, idx) => ({ ...p, _key: `postre-${idx}`, _tipo: 'postre', _grupo: 'POSTRES', id: null })),
   ]
+  const opcionesDelTab = opcionesActivas.filter(p => p._grupo === tabProducto)
   const productoSel = opcionesActivas.find(p => p._key === lineaSel)
   const productoSelEsHelado = productoSel?._tipo === 'sabor' || productoSel?._tipo === 'base'
   const stockActualSel = productoSel?._tipo === 'sabor' ? (productoSel.baldes || 0) : null
   const faltaStockSel  = productoSel?._tipo === 'sabor' && stockActualSel < 2
+
+  function cambiarTabProducto(grupo) {
+    setTabProducto(grupo)
+    const opciones = opcionesActivas.filter(p => p._grupo === grupo)
+    setLineaSel(opciones[0]?._key || '')
+    setLineaCantidad('1')
+  }
 
   function resolverReceta(nombre) {
     return resolverRecetaCtx(nombre, { sabores, bases, saborIngredientes, baseIngredientes })
@@ -198,11 +230,17 @@ export default function Ordenes() {
       const cantidad = parseFloat(lineaCantidad || '1')
       if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
       const { kgObjetivo, litrosBase, extraKg } = calcularKgObjetivo(productoSel.nombre, cantidad)
-      setLineas(ls => [...ls, {
+      const linea = {
         tipo: 'helado', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
         cantidad, litros: cantidad * LITROS_BATCH,
         kg_objetivo: kgObjetivo, litros_base: litrosBase, extra_kg: extraKg,
-      }])
+      }
+      const items = compararConStock(requerimientosDeLineas([linea]))
+      if (items.some(it => it.estado !== 'ok')) {
+        setStockAlertAgregar({ items, linea })
+        return
+      }
+      setLineas(ls => [...ls, linea])
     } else {
       const cantidad = parseInt(lineaCantidad || '1', 10)
       if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
@@ -211,6 +249,13 @@ export default function Ordenes() {
         cantidad, kg_objetivo: 0,
       }])
     }
+    setLineaCantidad('1')
+  }
+
+  function agregarLineaConFaltantes() {
+    if (!stockAlertAgregar) return
+    setLineas(ls => [...ls, stockAlertAgregar.linea])
+    setStockAlertAgregar(null)
     setLineaCantidad('1')
   }
 
@@ -932,37 +977,45 @@ export default function Ordenes() {
                 No hay productos cargados.
               </p>
             ) : (
-              <div className="flex gap-2 items-end">
-                <div className="flex-1">
-                  <Select label="Producto" value={lineaSel} onChange={e => { setLineaSel(e.target.value); setLineaCantidad('1') }}>
-                    <optgroup label="── BASES ──">
-                      {bases.map(b => <option key={`base-${b.id}`} value={`base-${b.id}`}>{b.nombre}</option>)}
-                    </optgroup>
-                    <optgroup label="── SABORES ──">
-                      {saboresCamara.map(s => <option key={`sabor-${s.id}`} value={`sabor-${s.id}`}>{s.nombre}</option>)}
-                    </optgroup>
-                    <optgroup label="── IMPULSIVOS ──">
-                      {impulsivos.map(p => <option key={`imp-${p.id}`} value={`imp-${p.id}`}>{p.nombre}</option>)}
-                    </optgroup>
-                    <optgroup label="── POSTRES ──">
-                      {POSTRES.map((p, idx) => <option key={`postre-${idx}`} value={`postre-${idx}`}>{p.nombre}</option>)}
-                    </optgroup>
-                  </Select>
+              <>
+                <div className="flex gap-1.5 flex-wrap mb-2">
+                  {GRUPOS_PRODUCTO.map(g => (
+                    <button key={g} type="button" onClick={() => cambiarTabProducto(g)}
+                      className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border"
+                      style={{
+                        backgroundColor: tabProducto === g ? colors.brand : 'transparent',
+                        borderColor: tabProducto === g ? colors.brand : colors.border,
+                        color: tabProducto === g ? 'white' : colors.textSecondary,
+                      }}>
+                      {g}
+                    </button>
+                  ))}
                 </div>
-                <div className="w-28">
-                  {productoSelEsHelado ? (
-                    <Select label="Batches" value={lineaCantidad} onChange={e => setLineaCantidad(e.target.value)}>
-                      {BATCH_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <Select label="Producto" value={lineaSel} onChange={e => { setLineaSel(e.target.value); setLineaCantidad('1') }}>
+                      {opcionesDelTab.length === 0 ? (
+                        <option value="">— Sin productos —</option>
+                      ) : (
+                        opcionesDelTab.map(p => <option key={p._key} value={p._key}>{p.nombre}</option>)
+                      )}
                     </Select>
-                  ) : (
-                    <Input label="Unidades" type="number" min="1" value={lineaCantidad}
-                      onChange={e => setLineaCantidad(e.target.value)} />
-                  )}
+                  </div>
+                  <div className="w-28">
+                    {productoSelEsHelado ? (
+                      <Select label="Batches" value={lineaCantidad} onChange={e => setLineaCantidad(e.target.value)}>
+                        {BATCH_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
+                      </Select>
+                    ) : (
+                      <Input label="Unidades" type="number" min="1" value={lineaCantidad}
+                        onChange={e => setLineaCantidad(e.target.value)} />
+                    )}
+                  </div>
+                  <Button variant="secondary" onClick={agregarLinea}>
+                    <Plus size={14} /> Agregar
+                  </Button>
                 </div>
-                <Button variant="secondary" onClick={agregarLinea}>
-                  <Plus size={14} /> Agregar
-                </Button>
-              </div>
+              </>
             )}
 
             {faltaStockSel && (
@@ -1032,6 +1085,44 @@ export default function Ordenes() {
                     <Td className="text-right">{fmtNum(it.disponible)} {it.unidad}</Td>
                     <Td className="text-right font-semibold" style={{ color: it.estado === 'ok' ? colors.success : colors.danger }}>
                       {it.estado === 'ok' ? 'OK' : `${fmtNum(it.diferencia)} ${it.unidad}`}
+                    </Td>
+                  </Tr>
+                ))}
+              </Tbody>
+            </Table>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={!!stockAlertAgregar}
+        onClose={() => setStockAlertAgregar(null)}
+        title="Stock insuficiente para este producto"
+        maxWidth="max-w-lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setStockAlertAgregar(null)} className="flex-1">Cancelar</Button>
+            <Button variant="primary" onClick={agregarLineaConFaltantes} className="flex-1">
+              Agregar igual
+            </Button>
+          </>
+        }
+      >
+        {stockAlertAgregar && (
+          <div className="space-y-2">
+            <p className="text-sm" style={{ color: colors.textSecondary }}>
+              Algunos insumos no alcanzan para cubrir <strong>{stockAlertAgregar.linea?.producto_nombre}</strong>:
+            </p>
+            <Table>
+              <Thead><Tr><Th>Ingrediente</Th><Th>Necesario</Th><Th>En stock</Th><Th>Estado</Th></Tr></Thead>
+              <Tbody>
+                {stockAlertAgregar.items.map((it, i) => (
+                  <Tr key={i}>
+                    <Td className="font-medium">{it.nombre}</Td>
+                    <Td className="text-right">{fmtNum(it.necesario)} {it.unidad}</Td>
+                    <Td className="text-right">{fmtNum(it.disponible)} {it.unidad}</Td>
+                    <Td className="text-right font-semibold" style={{ color: it.estado === 'ok' ? colors.success : colors.danger }}>
+                      {it.estado === 'ok' ? '✅ OK' : '❌ Falta'}
                     </Td>
                   </Tr>
                 ))}

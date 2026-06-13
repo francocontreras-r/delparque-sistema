@@ -2,14 +2,10 @@ import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
-import Toast from '../components/ui/Toast'
-import Modal from '../components/ui/Modal'
-import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
-import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import { colors, radius, shadow } from '../styles/design-system'
-import { BookOpen, ChevronDown, ChevronUp, ClipboardList, Search } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronUp, Search } from 'lucide-react'
 import { POSTRES } from '../lib/postres'
 
 const TABS = ['Bases', 'Sabores', 'Impulsivos', 'Postres']
@@ -34,14 +30,9 @@ export default function Recetas() {
   const [stockCamaras, setStockCamaras] = useState([])
   const [impulsivos, setImpulsivos]   = useState([])
   const [impIngs, setImpIngs]         = useState([])
-  const [operarios, setOperarios]     = useState([])
   const [loading, setLoading]         = useState(true)
   const [expandida, setExpandida]     = useState(null)
-  const [toast, setToast]             = useState(null)
   const [busqueda, setBusqueda]       = useState('')
-  const [modalOrden, setModalOrden]   = useState(null)
-  const [savingOrden, setSavingOrden] = useState(false)
-  const [formOrden, setFormOrden]     = useState({ operario_id: '', operario_nombre: '', batches: '1', fecha_produccion: new Date().toISOString().split('T')[0] })
 
   useEffect(() => { cargar() }, [])
 
@@ -51,7 +42,6 @@ export default function Recetas() {
       { data: s }, { data: si },
       { data: sc },
       { data: imp }, { data: ii },
-      { data: o },
     ] = await Promise.all([
       supabase.from('bases').select('*').order('nombre'),
       supabase.from('base_ingredientes').select('*'),
@@ -60,7 +50,6 @@ export default function Recetas() {
       supabase.from('stock_camaras').select('id,nombre,tipo'),
       supabase.from('impulsivos').select('*').order('nombre'),
       supabase.from('impulsivo_ingredientes').select('*'),
-      supabase.from('operarios').select('*').order('nombre'),
     ])
     setBases(b || [])
     setBaseIngs(bi || [])
@@ -69,14 +58,7 @@ export default function Recetas() {
     setStockCamaras(sc || [])
     setImpulsivos(imp || [])
     setImpIngs(ii || [])
-    setOperarios(o || [])
-    if (o && o.length > 0) setFormOrden(f => ({ ...f, operario_id: String(o[0].id), operario_nombre: o[0].nombre }))
     setLoading(false)
-  }
-
-  function toast2(msg, type = 'ok') {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 3000)
   }
 
   const datosActivos = useMemo(() => {
@@ -119,30 +101,8 @@ export default function Recetas() {
     return lista.filter(r => r.nombre.toLowerCase().includes(busqueda.toLowerCase()))
   }, [tab, busqueda, datosActivos])
 
-  async function crearOrden() {
-    if (!modalOrden) return
-    setSavingOrden(true)
-    const numero = `OP-${Date.now().toString().slice(-6)}`
-    const litros = parseInt(formOrden.batches, 10) * (modalOrden.litros_batch || 120)
-    const { error } = await supabase.from('ordenes_produccion').insert({
-      numero,
-      sabor_nombre: modalOrden.nombre,
-      operario_id: formOrden.operario_id ? parseInt(formOrden.operario_id, 10) : null,
-      operario_nombre: formOrden.operario_nombre || null,
-      batches: parseInt(formOrden.batches, 10),
-      litros_total: litros,
-      estado: 'pendiente',
-      fecha_produccion: formOrden.fecha_produccion,
-    })
-    setSavingOrden(false)
-    if (error) { toast2(error.message, 'error'); return }
-    toast2(`Orden ${numero} creada para ${modalOrden.nombre}`)
-    setModalOrden(null)
-  }
-
   return (
     <div className="space-y-5">
-      <Toast toast={toast} />
       <div>
         <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Recetas</h1>
         <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Catálogo de fórmulas Del Parque</p>
@@ -198,11 +158,6 @@ export default function Recetas() {
                     )}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {tab !== 'Postres' && (
-                      <Button variant="primary" size="sm" onClick={e => { e.stopPropagation(); setModalOrden(r) }}>
-                        <ClipboardList size={12} /> Crear orden
-                      </Button>
-                    )}
                     {abierta ? <ChevronUp size={16} style={{ color: colors.textMuted }} /> : <ChevronDown size={16} style={{ color: colors.textMuted }} />}
                   </div>
                 </button>
@@ -238,49 +193,6 @@ export default function Recetas() {
           })}
         </div>
       )}
-
-      <Modal
-        open={!!modalOrden}
-        onClose={() => setModalOrden(null)}
-        title="Crear orden de producción"
-        maxWidth="max-w-sm"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setModalOrden(null)} disabled={savingOrden} className="flex-1">
-              Cancelar
-            </Button>
-            <Button variant="primary" onClick={crearOrden} loading={savingOrden} className="flex-1">
-              {savingOrden ? 'Creando…' : 'Crear orden'}
-            </Button>
-          </>
-        }
-      >
-        {modalOrden && (
-          <div className="space-y-3">
-            <div className="px-4 py-2.5" style={{ backgroundColor: `${colors.brand}0d`, border: `1px solid ${colors.brand}30`, borderRadius: radius.md }}>
-              <p className="text-xs" style={{ color: colors.textMuted }}>Sabor</p>
-              <p className="font-bold" style={{ color: colors.textPrimary }}>{modalOrden.nombre}</p>
-              <p className="text-xs" style={{ color: colors.textMuted }}>{modalOrden.tipo}</p>
-            </div>
-            <Input label="Fecha de producción" type="date" value={formOrden.fecha_produccion}
-              onChange={e => setFormOrden(f => ({ ...f, fecha_produccion: e.target.value }))} />
-            <Select label="Operario" value={formOrden.operario_id} onChange={e => {
-              const o = operarios.find(o => String(o.id) === e.target.value)
-              setFormOrden(f => ({ ...f, operario_id: e.target.value, operario_nombre: o?.nombre || '' }))
-            }}>
-              <option value="">— Sin asignar —</option>
-              {operarios.map(o => <option key={o.id} value={String(o.id)}>{o.nombre}</option>)}
-            </Select>
-            <Input label="Batches" type="number" min="1" max="20" value={formOrden.batches}
-              onChange={e => setFormOrden(f => ({ ...f, batches: e.target.value }))} />
-            {modalOrden.litros_batch > 0 && (
-              <p className="text-center text-sm" style={{ color: colors.textSecondary }}>
-                Total: <strong style={{ color: colors.brand }}>{parseInt(formOrden.batches || '1', 10) * modalOrden.litros_batch} L</strong>
-              </p>
-            )}
-          </div>
-        )}
-      </Modal>
     </div>
   )
 }

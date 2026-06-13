@@ -140,3 +140,13 @@ CREATE TABLE IF NOT EXISTS conteos_stock (
 );
 
 NOTIFY pgrst, 'reload schema';
+
+-- ── 18) Postres Mini → alta en tabla impulsivos ────────────────────────────
+INSERT INTO impulsivos (nombre, costo_materiales, mano_de_obra, costo_total)
+VALUES
+  ('Mini Barra Almendrado', 6031.42, 285, 6316.42),
+  ('Mini Barra Tricolor', 5815.93, 456, 6271.93),
+  ('Mini Pionono', 5916.42, 285, 6201.42)
+ON CONFLICT DO NOTHING;
+
+NOTIFY pgrst, 'reload schema';

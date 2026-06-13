@@ -5,11 +5,12 @@ import { useUser } from '../context/UserContext'
 import LogoDelParque from './LogoDelParque'
 import { colors } from '../styles/design-system'
 import {
-  Factory, Thermometer, Warehouse, TrendingUp, TrendingDown,
+  LayoutDashboard, Factory, Thermometer, Warehouse, TrendingUp, TrendingDown,
   ClipboardList, BookOpen, LogOut, Menu, X, DollarSign, Users, Download, FileText,
 } from 'lucide-react'
 
 const NAV = [
+  { to: '/',             label: 'Inicio',       Icon: LayoutDashboard, modulo: 'dashboard'  },
   { to: '/produccion',   label: 'Producción',   Icon: Factory,       modulo: 'produccion'   },
   { to: '/camaras',      label: 'Cámaras',      Icon: Thermometer,   modulo: 'camaras'      },
   { to: '/deposito',     label: 'Depósito',     Icon: Warehouse,     modulo: 'deposito'     },
@@ -257,7 +258,7 @@ export default function Layout() {
   const location = useLocation()
 
   const navItems = NAV.filter(n => tienePermiso(n.modulo))
-  const pageTitle = NAV.find(n => location.pathname.startsWith(n.to))?.label || 'Del Parque'
+  const pageTitle = NAV.find(n => n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to))?.label || 'Del Parque'
   const initial   = user?.email?.charAt(0).toUpperCase() || 'U'
 
   async function handleLogout() {

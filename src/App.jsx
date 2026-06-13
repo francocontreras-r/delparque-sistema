@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { UserProvider, useUser } from './context/UserContext'
 import Login from './pages/Login'
 import Layout from './components/Layout'
+import Dashboard from './pages/Dashboard'
 import Produccion from './pages/Produccion'
 import Camaras from './pages/Camaras'
 import Deposito from './pages/Deposito'
@@ -40,7 +41,7 @@ function AppRoutes() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Layout />}>
-          <Route index element={<Navigate to="/produccion" replace />} />
+          <Route index element={<Dashboard />} />
           <Route path="produccion"   element={<Produccion />} />
           <Route path="camaras"      element={<Camaras />} />
           <Route path="deposito"     element={<Deposito />} />

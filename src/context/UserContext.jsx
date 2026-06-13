@@ -3,14 +3,17 @@ import { supabase } from '../lib/supabase'
 
 export const ROLE_PERMISOS = {
   operario: {
+    dashboard: true,
     produccion: true, camaras: true, rendimientos: true,
   },
   supervisor: {
+    dashboard: true,
     produccion: true, camaras: true, rendimientos: true,
     deposito: true, mermas: true, ordenes: true, recetas: true,
     informes: true, rendimientoOperarios: true,
   },
   admin: {
+    dashboard: true,
     produccion: true, camaras: true, rendimientos: true,
     deposito: true, mermas: true, ordenes: true, recetas: true,
     finanzas: true, usuarios: true, informes: true, rendimientoOperarios: true,

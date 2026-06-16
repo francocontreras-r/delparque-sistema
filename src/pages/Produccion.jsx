@@ -19,9 +19,12 @@ function decodearEAN(code) {
   // Formato nuevo: prefijo fijo "20000" + código de producto (2 dígitos) + peso (6 dígitos)
   if (code.startsWith('20000')) {
     const prod = parseInt(code.substring(5, 7), 10)
-    console.log('raw peso string:', code.substring(7, 13))
-    console.log('peso calculado:', parseInt(code.substring(7, 13), 10) / 1000)
-    const peso = parseInt(code.substring(7, 13), 10) / 1000
+    const pesoStr6 = code.substring(7, 13)
+    const pesoStr4 = code.substring(7, 11)
+    console.log('[EAN decode] prefijo=20000 | prod=', prod,
+      '| sub(7,13)=', pesoStr6, '→', parseInt(pesoStr6, 10) / 1000, 'kg',
+      '| sub(7,11)=', pesoStr4, '→', parseInt(pesoStr4, 10) / 100, 'kg (÷100)')
+    const peso = parseInt(pesoStr6, 10) / 1000
     return { prod, peso }
   }
   // Formato viejo: prefijo "200" + código de producto (4 dígitos) + peso (4 dígitos)
@@ -99,6 +102,9 @@ export default function Produccion() {
   const [modalOperarios, setModalOperarios] = useState(false)
   const [nuevoOpNombre, setNuevoOpNombre] = useState('')
   const [savingOp, setSavingOp] = useState(false)
+
+  const [debugRaw, setDebugRaw]     = useState('')
+  const [debugClean, setDebugClean] = useState('')
 
   const fechaHoy = new Date().toISOString().split('T')[0]
   const hoyDate  = new Date()
@@ -210,23 +216,33 @@ export default function Produccion() {
     })
   }
 
-  function handleKey(e) {
-    if (e.key !== 'Enter') return
-    const val = e.target.value.trim()
-    if (!val) return
+  function procesarCodigo(rawValue) {
+    const raw = rawValue ?? ''
+    const clean = raw.trim().replace(/\D/g, '')
+
+    console.log('Código raw recibido:', JSON.stringify(raw))
+    console.log('Código limpio:', clean)
+    console.log('Longitud:', clean.length)
+    console.log('Primeros 5 dígitos:', clean.substring(0, 5))
+
+    setDebugRaw(raw)
+    setDebugClean(clean)
+
+    if (!clean) return
     if (!operarioSel) {
       toast2('Seleccioná un operario antes de escanear', 'error')
+      setCodigo('')
       return
     }
-    const decoded = decodearEAN(val)
-    console.log('Código escaneado:', val)
+
+    const decoded = decodearEAN(clean)
     if (!decoded) {
-      toast2('Código inválido — debe ser EAN-13 Del Parque (200…)', 'error')
+      toast2(`Código inválido (${clean.length} dígitos) — debe ser EAN-13 Del Parque (200…)`, 'error')
       setCodigo('')
       setTimeout(() => inputRef.current?.focus(), 50)
       return
     }
-    console.log('prod:', decoded.prod, 'peso:', decoded.peso)
+
     const productoPP = productos.find(p => p.codigo === decoded.prod)
     console.log('Producto encontrado:', productoPP || null)
     const operario = operarios.find(o => String(o.id) === operarioSel)
@@ -243,7 +259,25 @@ export default function Produccion() {
       observaciones: '',
     })
     setCodigo('')
+    setDebugRaw('')
+    setDebugClean('')
     setTimeout(() => inputRef.current?.focus(), 50)
+  }
+
+  function handleKey(e) {
+    if (e.key !== 'Enter') return
+    procesarCodigo(e.target.value)
+  }
+
+  function handleChangeCodigo(e) {
+    const val = e.target.value
+    setCodigo(val)
+    const clean = val.trim().replace(/\D/g, '')
+    setDebugRaw(val)
+    setDebugClean(clean)
+    if (clean.length >= 13) {
+      procesarCodigo(val)
+    }
   }
 
   function agregarManualALista() {
@@ -529,21 +563,36 @@ export default function Produccion() {
         </div>
 
         {modo === 'escaneo' ? (
-          <input
-            ref={inputRef}
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            value={codigo}
-            onChange={e => setCodigo(e.target.value)}
-            onKeyDown={handleKey}
-            placeholder="Escanear código de barra..."
-            autoFocus
-            className="w-full font-mono tracking-wide text-center outline-none transition-colors"
-            style={{ padding: '20px 24px', fontSize: 18, borderRadius: radius.lg, border: `2px solid ${colors.border}`, color: colors.textPrimary }}
-            onFocus={e => { e.target.style.borderColor = colors.brand }}
-            onBlur={e => { e.target.style.borderColor = colors.border }}
-          />
+          <div>
+            <input
+              ref={inputRef}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={codigo}
+              onChange={handleChangeCodigo}
+              onKeyDown={handleKey}
+              placeholder="Escanear código de barra..."
+              autoFocus
+              className="w-full font-mono tracking-wide text-center outline-none transition-colors"
+              style={{ padding: '20px 24px', fontSize: 18, borderRadius: radius.lg, border: `2px solid ${colors.border}`, color: colors.textPrimary }}
+              onFocus={e => { e.target.style.borderColor = colors.brand }}
+              onBlur={e => { e.target.style.borderColor = colors.border }}
+            />
+            {(debugRaw || debugClean) && (
+              <div className="mt-2 px-3 py-2 rounded-lg font-mono" style={{ fontSize: 11, color: '#555', backgroundColor: '#f8f8f8', border: '1px solid #e5e7eb', lineHeight: 1.8 }}>
+                <div><strong>Raw:</strong> {JSON.stringify(debugRaw)}</div>
+                <div><strong>Limpio:</strong> {debugClean} &nbsp;|&nbsp; <strong>Largo:</strong> {debugClean.length}</div>
+                {debugClean.length >= 5 && (
+                  <>
+                    <div><strong>sub(5,7):</strong> {debugClean.substring(5, 7)} &nbsp;→ prod #{parseInt(debugClean.substring(5, 7), 10) || '?'}</div>
+                    <div><strong>sub(7,11):</strong> {debugClean.substring(7, 11)} &nbsp;→ {(parseInt(debugClean.substring(7, 11), 10) / 100).toFixed(3)} kg (÷100)</div>
+                    <div><strong>sub(7,13):</strong> {debugClean.substring(7, 13)} &nbsp;→ {(parseInt(debugClean.substring(7, 13), 10) / 1000).toFixed(3)} kg (÷1000)</div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         ) : (
           <div className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

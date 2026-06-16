@@ -113,6 +113,9 @@ function computeMateriasPrimas(item, ctx) {
   ctx.insumosStock.forEach(i => { insumoPorNombre[(i.nombre || '').trim().toLowerCase()] = i })
   return receta.ingredientes.map(ing => {
     const necesario = (ing.cantidad || 0) * (item.batches || 0)
+    if ((ing.insumo_nombre || '').toLowerCase().includes('agua')) {
+      return { nombre: ing.insumo_nombre, necesario, unidad: ing.unidad, disponible: null, estado: 'sinlimite' }
+    }
     const insumo = insumoPorNombre[(ing.insumo_nombre || '').trim().toLowerCase()]
     if (!insumo) return { nombre: ing.insumo_nombre, necesario, unidad: ing.unidad, disponible: null, estado: 'sinlimite' }
     const disponible = insumo.stock_actual || 0
@@ -167,6 +170,7 @@ export default function Ordenes() {
   const [stockBases, setStockBases] = useState([])
   const [baseSel, setBaseSel]       = useState('')
   const [kgBaseAUsar, setKgBaseAUsar] = useState('')
+  const [pdfLoadingGrupo, setPdfLoadingGrupo] = useState(null)
 
   useEffect(() => { cargar() }, [])
 
@@ -336,6 +340,9 @@ export default function Ordenes() {
     const insumoPorNombre = {}
     insumosStock.forEach(i => { insumoPorNombre[(i.nombre || '').trim().toLowerCase()] = i })
     return requeridos.map(r => {
+      if ((r.nombre || '').toLowerCase().includes('agua')) {
+        return { nombre: r.nombre, necesario: r.cantidad, unidad: r.unidad, disponible: Infinity, diferencia: Infinity, estado: 'ok' }
+      }
       const insumo = insumoPorNombre[r.nombre.trim().toLowerCase()]
       const disponible = insumo ? (insumo.stock_actual || 0) : 0
       const diferencia = disponible - r.cantidad
@@ -469,6 +476,7 @@ export default function Ordenes() {
 
     const faltantes = []
     for (const ing of ings) {
+      if ((ing.insumo_nombre || '').toLowerCase().includes('agua')) continue
       const requerido = (ing.cantidad || 0) * ing.factor
       const insumo = insumoPorNombre[(ing.insumo_nombre || '').trim().toLowerCase()]
       const disponible = insumo?.stock_actual ?? 0
@@ -639,8 +647,25 @@ export default function Ordenes() {
   const kpiEnProceso   = ordenes.filter(o => o.estado === 'en_proceso').length
   const kpiCompletadas = ordenes.filter(o => o.estado === 'completada').length
 
-  function imprimirOrden(grupo) {
+  async function imprimirOrden(grupo) {
     const w = window.open('', '_blank')
+    if (!w) { toast2('Popups bloqueados — habilitá popups para imprimir', 'error'); return }
+    w.document.write('<html><body><p style="font-family:sans-serif;padding:24px;color:#6b7280">Preparando impresión…</p></body></html>')
+    setPdfLoadingGrupo(grupo.numero + '-print')
+
+    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock }
+    if (!saborIngredientes.length || !insumosStock.length) {
+      const [{ data: ings }, { data: ins }, { data: baseIngs }] = await Promise.all([
+        supabase.from('sabor_ingredientes').select('*'),
+        supabase.from('insumos').select('nombre,stock_actual,unidad'),
+        supabase.from('base_ingredientes').select('*'),
+      ])
+      if (ings) { setSaborIngredientes(ings); ctx = { ...ctx, saborIngredientes: ings } }
+      if (ins)  { setInsumosStock(ins);  ctx = { ...ctx, insumosStock: ins } }
+      if (baseIngs) { setBaseIngredientes(baseIngs); ctx = { ...ctx, baseIngredientes: baseIngs } }
+    }
+
+    setPdfLoadingGrupo(null)
     const obs = grupo.items.find(i => i.observaciones)?.observaciones
     const filas = grupo.items.map(it => `
       <tr>
@@ -649,6 +674,33 @@ export default function Ordenes() {
         <td style="text-align:right">${it.tipo_producto === 'impulsivo' ? `${it.cantidad_unidades} u` : `${it.batches} batch${it.batches !== 1 ? 'es' : ''} (${it.litros_total} L)`}</td>
         <td>${estadoInfo(it.estado).label}</td>
       </tr>`).join('')
+
+    const mpSecciones = grupo.items
+      .filter(it => it.tipo_producto === 'helado')
+      .map(it => ({ it, mp: computeMateriasPrimas(it, ctx) }))
+      .filter(s => s.mp.length > 0)
+
+    const mpHTML = mpSecciones.map(({ it, mp }) => {
+      const filasMP = mp.map(m => `
+        <tr>
+          <td>${m.nombre}</td>
+          <td style="text-align:right">${fmtNum(m.necesario)}</td>
+          <td>${m.unidad}</td>
+          <td style="text-align:right">${m.estado === 'sinlimite' ? '♾️' : `${fmtNum(m.disponible)} ${m.unidad}`}</td>
+          <td>${m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</td>
+          <td style="text-align:center"><div class="checkbox"></div></td>
+        </tr>`).join('')
+      return `
+        <h3 style="font-size:11px;font-weight:700;margin:18px 0 6px;color:#374151;text-transform:uppercase;letter-spacing:.05em">
+          MP — ${it.sabor_nombre} (${it.batches} batch${it.batches !== 1 ? 'es' : ''})
+        </h3>
+        <table>
+          <thead><tr><th>Ingrediente</th><th>Cantidad</th><th>Unidad</th><th>Stock</th><th>Estado</th><th>Entregado ✓</th></tr></thead>
+          <tbody>${filasMP}</tbody>
+        </table>`
+    }).join('')
+
+    w.document.open()
     w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
     <title>Orden ${grupo.numero}</title>
     <style>
@@ -664,6 +716,7 @@ export default function Ordenes() {
       table{width:100%;border-collapse:collapse;margin-bottom:20px}
       th{background:#f3f4f6;font-size:9px;font-weight:700;text-transform:uppercase;padding:6px 8px;text-align:left;border-bottom:2px solid ${colors.brand}}
       td{padding:6px 8px;border-bottom:1px solid #f3f4f6;font-size:11px}
+      .checkbox{width:14px;height:14px;border:1.5px solid #374151;border-radius:3px;margin:0 auto}
       .firma-area{display:flex;gap:48px;margin-top:48px}
       .firma{flex:1;border-top:1px solid #374151;padding-top:8px;font-size:9px;color:#6b7280}
       @media print{body{padding:0}}
@@ -681,6 +734,7 @@ export default function Ordenes() {
       <tbody>${filas}</tbody>
     </table>
     ${obs ? `<div class="campo" style="margin-bottom:20px"><div class="campo-label">Observaciones</div><div style="font-size:11px">${obs}</div></div>` : ''}
+    ${mpHTML}
     <div class="firma-area">
       <div class="firma">Supervisor</div>
       <div class="firma">Operario / Fecha</div>
@@ -772,6 +826,19 @@ export default function Ordenes() {
   }
 
   async function exportarPDF(grupo) {
+    setPdfLoadingGrupo(grupo.numero + '-pdf')
+    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock }
+    if (!saborIngredientes.length || !insumosStock.length) {
+      const [{ data: ings }, { data: ins }, { data: baseIngs }] = await Promise.all([
+        supabase.from('sabor_ingredientes').select('*'),
+        supabase.from('insumos').select('nombre,stock_actual,unidad'),
+        supabase.from('base_ingredientes').select('*'),
+      ])
+      if (ings) { setSaborIngredientes(ings); ctx = { ...ctx, saborIngredientes: ings } }
+      if (ins)  { setInsumosStock(ins);  ctx = { ...ctx, insumosStock: ins } }
+      if (baseIngs) { setBaseIngredientes(baseIngs); ctx = { ...ctx, baseIngredientes: baseIngs } }
+    }
+
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const pageWidth = doc.internal.pageSize.getWidth()
 
@@ -824,8 +891,46 @@ export default function Ordenes() {
       finalY += 15
     }
 
-    finalY += 40
-    if (finalY > doc.internal.pageSize.getHeight() - 10) finalY = doc.internal.pageSize.getHeight() - 10
+    // Sección de materias primas por cada helado
+    const mpSecciones = grupo.items
+      .filter(it => it.tipo_producto === 'helado')
+      .map(it => ({ it, mp: computeMateriasPrimas(it, ctx) }))
+      .filter(s => s.mp.length > 0)
+
+    for (const { it, mp } of mpSecciones) {
+      if (finalY > doc.internal.pageSize.getHeight() - 40) {
+        doc.addPage()
+        finalY = 20
+      }
+      doc.setFontSize(9)
+      doc.setTextColor(55, 65, 81)
+      doc.setFont(undefined, 'bold')
+      doc.text(`Materias Primas — ${it.sabor_nombre} (${it.batches} batches)`, 14, finalY)
+      doc.setFont(undefined, 'normal')
+      finalY += 4
+      autoTable(doc, {
+        startY: finalY,
+        head: [['Ingrediente', 'Cantidad', 'Unidad', 'Stock', 'Estado', 'Entregado ✓']],
+        body: mp.map(m => [
+          m.nombre,
+          fmtNum(m.necesario),
+          m.unidad,
+          m.estado === 'sinlimite' ? '♾️' : `${fmtNum(m.disponible)} ${m.unidad}`,
+          m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE',
+          '',
+        ]),
+        styles: { fontSize: 8, cellPadding: 1.5 },
+        headStyles: { fillColor: [212, 82, 26], textColor: 255 },
+        alternateRowStyles: { fillColor: [249, 250, 251] },
+      })
+      finalY = (doc.lastAutoTable?.finalY || finalY) + 8
+    }
+
+    finalY += 20
+    if (finalY > doc.internal.pageSize.getHeight() - 10) {
+      doc.addPage()
+      finalY = 20
+    }
 
     const firmas = [
       { label: 'Supervisor', x: 14 },
@@ -840,6 +945,7 @@ export default function Ordenes() {
     })
 
     doc.save(`orden_${grupo.numero}.pdf`)
+    setPdfLoadingGrupo(null)
   }
 
   return (
@@ -962,10 +1068,10 @@ export default function Ordenes() {
                   </p>
                 </div>
                 <div className="flex gap-1.5">
-                  <Button variant="ghost" size="sm" onClick={() => imprimirOrden(grupo)}>
+                  <Button variant="ghost" size="sm" onClick={() => imprimirOrden(grupo)} loading={pdfLoadingGrupo === grupo.numero + '-print'}>
                     <Printer size={12} /> Imprimir
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => exportarPDF(grupo)}>
+                  <Button variant="ghost" size="sm" onClick={() => exportarPDF(grupo)} loading={pdfLoadingGrupo === grupo.numero + '-pdf'}>
                     <FileDown size={12} /> PDF
                   </Button>
                 </div>

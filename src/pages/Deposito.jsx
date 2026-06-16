@@ -738,13 +738,13 @@ export default function Deposito() {
                         <Tr key={m.id}>
                           <Td>
                             <Badge variant={m.tipo === 'ingreso' ? 'success' : 'danger'}>
-                              {m.tipo === 'ingreso' ? '↑' : '↓'} {fmtFecha(m.fecha)}
+                              {m.tipo === 'ingreso' ? '↑ Ingreso' : '↓ Egreso'}
                             </Badge>
-                            {m.created_at && (
-                              <p className="text-[10px] mt-1" style={{ color: colors.textMuted }}>
-                                {fmtHora(m.created_at)}
-                              </p>
-                            )}
+                            <p className="text-[10px] mt-1" style={{ color: colors.textMuted }}>
+                              {m.created_at
+                                ? new Date(m.created_at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' hs'
+                                : fmtFecha(m.fecha) + ' 00:00 hs'}
+                            </p>
                           </Td>
                           <Td className="font-medium">{m.producto_nombre}</Td>
                           <Td className="text-xs" style={{ color: colors.textMuted }}>{[m.marca, m.lote].filter(Boolean).join(' · ') || '—'}</Td>

@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown } from 'lucide-react'
+import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown, FileDown } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 const logoUrl = '/logo_delparque.png'
 import { colors, shadow, radius } from '../styles/design-system'
 import KpiCard from '../components/ui/KpiCard'
@@ -395,6 +397,12 @@ export default function Camaras() {
   const [modalItem, setModalItem]       = useState(null)
   const [userRole, setUserRole]         = useState('operario')
 
+  const [tabCamara, setTabCamara]       = useState('stock')
+  const [movimientos, setMovimientos]   = useState([])
+  const [loadingMovs, setLoadingMovs]   = useState(false)
+  const [filtroMovFecha, setFiltroMovFecha] = useState(new Date().toISOString().split('T')[0])
+  const [filtroMovTipo, setFiltroMovTipo]   = useState('')
+
   const showVal = userRole === 'admin'
 
   useEffect(() => {
@@ -411,6 +419,55 @@ export default function Camaras() {
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [])
+
+  useEffect(() => {
+    if (tabCamara === 'movimientos') cargarMovimientos()
+  }, [tabCamara, filtroMovFecha, filtroMovTipo])
+
+  async function cargarMovimientos() {
+    setLoadingMovs(true)
+    let q = supabase.from('movimientos_camara').select('*').order('created_at', { ascending: false }).limit(500)
+    if (filtroMovFecha) q = q.eq('fecha', filtroMovFecha)
+    if (filtroMovTipo) q = q.eq('tipo_producto', filtroMovTipo)
+    const { data } = await q
+    setMovimientos(data || [])
+    setLoadingMovs(false)
+  }
+
+  async function exportarMovimientosPDF() {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const titulo = `Del Parque — Movimientos de Cámara${filtroMovFecha ? ' ' + filtroMovFecha : ''}`
+    doc.setFontSize(12)
+    doc.setTextColor(40, 40, 40)
+    doc.text(titulo, pageWidth / 2, 14, { align: 'center' })
+    const kgIng = movimientos.filter(m => m.tipo === 'ingreso').reduce((a, m) => a + (m.kg || 0), 0)
+    const kgEgr = movimientos.filter(m => m.tipo === 'egreso').reduce((a, m) => a + (m.kg || 0), 0)
+    autoTable(doc, {
+      startY: 20,
+      head: [['Hora', 'Producto', 'Tipo', 'KG', 'Baldes', 'Lote', 'Operario']],
+      body: movimientos.map(m => [
+        m.created_at ? new Date(m.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '—',
+        m.producto_nombre || '—',
+        m.tipo === 'ingreso' ? 'Ingreso' : 'Egreso',
+        (m.kg || 0).toFixed(1),
+        m.baldes || 0,
+        m.lote || '—',
+        m.operario_nombre || '—',
+      ]),
+      styles: { fontSize: 8, cellPadding: 1.5 },
+      headStyles: { fillColor: [212, 82, 26], textColor: 255 },
+      alternateRowStyles: { fillColor: [249, 250, 251] },
+    })
+    const finalY = (doc.lastAutoTable?.finalY || 20) + 8
+    doc.setFontSize(9)
+    doc.setTextColor(80, 80, 80)
+    doc.text(
+      `KG ingresados: ${kgIng.toFixed(1)}  |  KG egresados: ${kgEgr.toFixed(1)}  |  Balance: ${(kgIng - kgEgr).toFixed(1)}`,
+      14, finalY
+    )
+    doc.save(`movimientos_camara_${filtroMovFecha || new Date().toISOString().split('T')[0]}.pdf`)
+  }
 
   function mostrarToast(msg, type = 'ok') {
     setToast({ msg, type })
@@ -514,6 +571,21 @@ export default function Camaras() {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-1.5">
+        {[{ key: 'stock', label: 'Stock' }, { key: 'movimientos', label: 'Movimientos' }].map(t => (
+          <button key={t.key} onClick={() => setTabCamara(t.key)}
+            className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border"
+            style={{
+              backgroundColor: tabCamara === t.key ? colors.brand : 'transparent',
+              borderColor: tabCamara === t.key ? colors.brand : colors.border,
+              color: tabCamara === t.key ? 'white' : colors.textSecondary,
+            }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {/* Error */}
       {errorCarga && (
         <div className="rounded-xl px-4 py-3 text-sm flex items-center gap-2"
@@ -522,8 +594,93 @@ export default function Camaras() {
         </div>
       )}
 
+      {/* Tab Movimientos */}
+      {tabCamara === 'movimientos' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex gap-2 flex-wrap items-center">
+              <input type="date" value={filtroMovFecha} onChange={e => setFiltroMovFecha(e.target.value)}
+                className="rounded-lg border text-sm px-3 py-1.5 outline-none focus:ring-2"
+                style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.surface }} />
+              <select value={filtroMovTipo} onChange={e => setFiltroMovTipo(e.target.value)}
+                className="rounded-lg border text-sm px-3 py-1.5 outline-none"
+                style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.surface }}>
+                <option value="">Todos los tipos</option>
+                <option value="helado">Helados</option>
+                <option value="impulsivo">Impulsivos</option>
+                <option value="postre">Postres</option>
+              </select>
+            </div>
+            <button
+              onClick={exportarMovimientosPDF}
+              disabled={movimientos.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors"
+              style={{ borderColor: colors.border, color: colors.textSecondary, backgroundColor: colors.surface }}
+            >
+              <FileDown size={14} /> Exportar PDF
+            </button>
+          </div>
+          {loadingMovs ? (
+            <div className="flex justify-center py-12"><span className="text-sm" style={{ color: colors.textMuted }}>Cargando…</span></div>
+          ) : movimientos.length === 0 ? (
+            <div className="py-12 text-center text-sm" style={{ color: colors.textMuted }}>Sin movimientos para esta fecha</div>
+          ) : (
+            <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[680px]">
+                  <thead>
+                    <tr style={{ backgroundColor: '#fafafa', borderBottom: `1px solid ${colors.border}` }}>
+                      {['Hora', 'Producto', 'Tipo', 'KG', 'Baldes', 'Lote', 'Operario'].map(h => (
+                        <th key={h} className="py-2.5 px-4 text-left font-semibold uppercase"
+                          style={{ fontSize: 10, color: colors.textMuted, letterSpacing: '0.07em' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movimientos.map(m => (
+                      <tr key={m.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                        <td className="py-2.5 px-4 text-xs whitespace-nowrap" style={{ color: colors.textMuted }}>
+                          {m.created_at ? new Date(m.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                        </td>
+                        <td className="py-2.5 px-4 text-sm font-medium" style={{ color: colors.textPrimary }}>{m.producto_nombre}</td>
+                        <td className="py-2.5 px-4">
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                            style={{
+                              backgroundColor: m.tipo === 'ingreso' ? '#dcfce7' : '#fee2e2',
+                              color: m.tipo === 'ingreso' ? '#16a34a' : '#dc2626',
+                            }}>
+                            {m.tipo === 'ingreso' ? '🟢 Ingreso' : '🔴 Egreso'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-4 text-sm text-right font-semibold" style={{ color: colors.brand }}>
+                          {(m.kg || 0).toFixed(1)}
+                        </td>
+                        <td className="py-2.5 px-4 text-sm text-right">{m.baldes || 0}</td>
+                        <td className="py-2.5 px-4 text-xs font-mono" style={{ color: colors.textMuted }}>{m.lote || '—'}</td>
+                        <td className="py-2.5 px-4 text-xs" style={{ color: colors.textSecondary }}>{m.operario_nombre || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="px-4 py-2.5 flex gap-6 text-xs font-semibold" style={{ borderTop: `1px solid ${colors.border}`, backgroundColor: colors.bg }}>
+                <span style={{ color: colors.success }}>
+                  KG ingresados: {movimientos.filter(m => m.tipo === 'ingreso').reduce((a, m) => a + (m.kg || 0), 0).toFixed(1)}
+                </span>
+                <span style={{ color: colors.danger }}>
+                  KG egresados: {movimientos.filter(m => m.tipo === 'egreso').reduce((a, m) => a + (m.kg || 0), 0).toFixed(1)}
+                </span>
+                <span style={{ color: colors.textPrimary }}>
+                  Balance: {(movimientos.filter(m => m.tipo === 'ingreso').reduce((a, m) => a + (m.kg || 0), 0) - movimientos.filter(m => m.tipo === 'egreso').reduce((a, m) => a + (m.kg || 0), 0)).toFixed(1)} kg
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* KPIs */}
-      {!errorCarga && (
+      {tabCamara === 'stock' && !errorCarga && (
         <div className={`grid gap-3 ${showVal ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-7' : 'grid-cols-2 sm:grid-cols-5'}`}>
           <KpiCard label="Total baldes" value={loading ? '—' : totalBaldes} />
           <KpiCard label="Total KG"     value={loading ? '—' : `${totalKg} kg`} />
@@ -538,6 +695,24 @@ export default function Camaras() {
           )}
         </div>
       )}
+
+      {tabCamara === 'stock' && <>
+
+      {/* Resumen por tipo */}
+      {!loading && !errorCarga && (() => {
+        const porTipo = {}
+        stockTipo.forEach(s => { const t = s.tipo || 'Sin tipo'; if (!porTipo[t]) porTipo[t] = { baldes: 0, kg: 0 }; porTipo[t].baldes += s.baldes; porTipo[t].kg += s.kg })
+        return Object.keys(porTipo).length > 0 ? (
+          <div className="flex gap-2 flex-wrap text-xs px-1">
+            {Object.entries(porTipo).map(([tipo, { baldes, kg }]) => (
+              <div key={tipo} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textSecondary }}>
+                <span className="text-[10px] uppercase tracking-wide">{tipo}</span>
+                <span style={{ color: colors.brand }}>{baldes} baldes · {kg} kg</span>
+              </div>
+            ))}
+          </div>
+        ) : null
+      })()}
 
       {/* Filtro tipo de producto */}
       <div className="flex gap-1.5 flex-wrap">
@@ -631,6 +806,8 @@ export default function Camaras() {
               ))}
             </div>
       )}
+
+      </>}
 
       {/* Modal */}
       {modalItem && (

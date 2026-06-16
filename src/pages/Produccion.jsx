@@ -11,7 +11,7 @@ import Select from '../components/ui/Select'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { aplicarProduccionAOrden, ESTADO_EN_PROCESO } from '../lib/ordenes'
 import { colors, radius, shadow } from '../styles/design-system'
-import { Package, Users, Scale, Hash, ScanLine, PenLine, FileText, Printer, X, Plus, ClipboardCheck } from 'lucide-react'
+import { Package, Users, Scale, Hash, ScanLine, PenLine, FileText, Printer, X, Plus, ClipboardCheck, Settings } from 'lucide-react'
 const logoUrl = '/logo_delparque.png'
 
 function decodearEAN(code) {
@@ -96,6 +96,10 @@ export default function Produccion() {
   const [cargandoInforme, setCargandoInforme] = useState(false)
   const [informeData, setInformeData] = useState([])
 
+  const [modalOperarios, setModalOperarios] = useState(false)
+  const [nuevoOpNombre, setNuevoOpNombre] = useState('')
+  const [savingOp, setSavingOp] = useState(false)
+
   const fechaHoy = new Date().toISOString().split('T')[0]
   const hoyDate  = new Date()
   const lote = `${String(hoyDate.getDate()).padStart(2,'0')}${String(hoyDate.getMonth()+1).padStart(2,'0')}${hoyDate.getFullYear()}`
@@ -129,7 +133,7 @@ export default function Produccion() {
 
   async function inicializar() {
     let [{ data: ops }, { data: prods }, { data: regs }, { data: sab }, { data: imp }] = await Promise.all([
-      supabase.from('operarios').select('*').order('nombre'),
+      supabase.from('operarios').select('*').eq('activo', true).order('nombre'),
       supabase.from('productos_produccion').select('*').order('nombre'),
       supabase.from('producciones').select('*').eq('fecha', fechaHoy)
         .order('created_at', { ascending: false }).limit(50),
@@ -145,12 +149,18 @@ export default function Produccion() {
       const { data: s } = await supabase.from('productos_produccion').insert(PRODUCTOS_SEED).select()
       prods = s || []
     }
-    setOperarios(ops || [])
+    const vistosOp = new Set()
+    const opsUnicos = (ops || []).filter(o => {
+      if (vistosOp.has(o.nombre)) return false
+      vistosOp.add(o.nombre)
+      return true
+    })
+    setOperarios(opsUnicos)
     setProductos(prods || [])
     setRegistros(regs || [])
     setSaboresCamara(sab || [])
     setImpulsivosList(imp || [])
-    if (ops && ops.length > 0) setOperarioSel(String(ops[0].id))
+    if (opsUnicos.length > 0) setOperarioSel(String(opsUnicos[0].id))
     setManualLote(lote)
     setLoading(false)
   }
@@ -169,6 +179,27 @@ export default function Produccion() {
       guardarPreCargaLS(next)
       return next
     })
+  }
+
+  async function agregarOperario() {
+    const nombre = nuevoOpNombre.trim()
+    if (!nombre) return
+    setSavingOp(true)
+    const { data, error } = await supabase.from('operarios')
+      .insert({ nombre, activo: true }).select().single()
+    setSavingOp(false)
+    if (error) { toast2(error.message, 'error'); return }
+    setOperarios(prev => [...prev, data].sort((a, b) => a.nombre.localeCompare(b.nombre)))
+    setNuevoOpNombre('')
+    toast2(`Operario "${nombre}" agregado`)
+  }
+
+  async function eliminarOperario(id) {
+    const { error } = await supabase.from('operarios').update({ activo: false }).eq('id', id)
+    if (error) { toast2(error.message, 'error'); return }
+    setOperarios(prev => prev.filter(o => o.id !== id))
+    if (operarioSel === String(id)) setOperarioSel('')
+    toast2('Operario eliminado')
   }
 
   function actualizarObsPreCarga(id, value) {
@@ -262,26 +293,51 @@ export default function Produccion() {
     }
     const cantidad = preCarga.length
 
-    // Afectar stock de cámaras: sumar los kg producidos a cada producto que exista allí
+    // Afectar stock de cámaras y registrar movimientos
     const sumasPorProducto = {}
     preCarga.forEach(item => {
       const nombre = (item.producto_nombre || '').trim()
       if (!nombre) return
       const key = nombre.toLowerCase()
-      if (!sumasPorProducto[key]) sumasPorProducto[key] = { nombre, kg: 0 }
-      sumasPorProducto[key].kg += item.peso_kg || 0
+      const esUnidad = unidadDe(item) === 'u'
+      if (!sumasPorProducto[key]) sumasPorProducto[key] = { nombre, kg: 0, unidades: 0, esUnidad, lote: item.lote, operario: item.operario_nombre }
+      if (esUnidad) {
+        sumasPorProducto[key].unidades += item.peso_kg || 0
+      } else {
+        sumasPorProducto[key].kg += item.peso_kg || 0
+      }
     })
     let camarasActualizadas = 0
-    for (const { nombre, kg: kgProducidos } of Object.values(sumasPorProducto)) {
+    for (const prod of Object.values(sumasPorProducto)) {
+      const { nombre, kg: kgProducidos, unidades, esUnidad, lote, operario } = prod
       const { data: camaras } = await supabase.from('stock_camaras')
-        .select('id,kg').ilike('nombre', nombre).limit(1)
+        .select('id,kg,baldes').ilike('nombre', nombre).limit(1)
       const camara = camaras?.[0]
       if (!camara) continue
-      const nuevoKg = (camara.kg || 0) + kgProducidos
+      let nuevoKg, nuevosBaldes
+      if (esUnidad) {
+        nuevosBaldes = (camara.baldes || 0) + Math.round(unidades)
+        nuevoKg = camara.kg || 0
+      } else {
+        nuevoKg = (camara.kg || 0) + kgProducidos
+        nuevosBaldes = Math.round(nuevoKg / 7)
+      }
       const { error: errCam } = await supabase.from('stock_camaras')
-        .update({ kg: nuevoKg, baldes: Math.floor(nuevoKg / 7), updated_at: new Date().toISOString() })
+        .update({ kg: nuevoKg, baldes: nuevosBaldes, updated_at: new Date().toISOString() })
         .eq('id', camara.id)
-      if (!errCam) camarasActualizadas++
+      if (!errCam) {
+        camarasActualizadas++
+        await supabase.from('movimientos_camara').insert({
+          producto_nombre: nombre,
+          tipo: 'ingreso',
+          tipo_producto: esUnidad ? 'impulsivo' : 'helado',
+          kg: kgProducidos,
+          baldes: esUnidad ? Math.round(unidades) : Math.round(kgProducidos / 7),
+          lote: lote || null,
+          operario_nombre: operario || null,
+          fecha: new Date().toISOString().split('T')[0],
+        })
+      }
     }
 
     // Vincular con órdenes en curso del mismo producto: sumar kg producidos
@@ -456,13 +512,20 @@ export default function Produccion() {
         </div>
 
         <div className="max-w-xs mb-4">
-          <Select label="Operario *" value={operarioSel} onChange={e => setOperarioSel(e.target.value)}
-            error={!operarioSel ? 'Seleccioná un operario para poder registrar' : undefined}>
-            <option value="">Seleccionar operario...</option>
-            {operarios.map(o => (
-              <option key={o.id} value={String(o.id)}>{o.nombre}</option>
-            ))}
-          </Select>
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <Select label="Operario *" value={operarioSel} onChange={e => setOperarioSel(e.target.value)}
+                error={!operarioSel ? 'Seleccioná un operario para poder registrar' : undefined}>
+                <option value="">Seleccionar operario...</option>
+                {operarios.map(o => (
+                  <option key={o.id} value={String(o.id)}>{o.nombre}</option>
+                ))}
+              </Select>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setModalOperarios(true)} title="Gestionar operarios" style={{ marginBottom: '1px' }}>
+              <Settings size={15} />
+            </Button>
+          </div>
         </div>
 
         {modo === 'escaneo' ? (
@@ -592,6 +655,58 @@ export default function Produccion() {
           </Table>
         )}
       </div>
+
+      {/* Gestionar operarios */}
+      <Modal
+        open={modalOperarios}
+        onClose={() => { setModalOperarios(false); setNuevoOpNombre('') }}
+        title="Gestionar Operarios"
+        maxWidth="max-w-md"
+        footer={
+          <Button variant="secondary" onClick={() => { setModalOperarios(false); setNuevoOpNombre('') }} className="w-full">
+            Cerrar
+          </Button>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <p className="text-sm font-semibold mb-2" style={{ color: colors.textPrimary }}>Operarios activos</p>
+            {operarios.length === 0 ? (
+              <p className="text-sm" style={{ color: colors.textMuted }}>No hay operarios activos registrados</p>
+            ) : (
+              <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                {operarios.map(o => (
+                  <div key={o.id} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ backgroundColor: colors.bg }}>
+                    <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>{o.nombre}</span>
+                    <button
+                      onClick={() => eliminarOperario(o.id)}
+                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-50 transition-colors flex-shrink-0"
+                      style={{ color: colors.danger }}
+                      title="Eliminar operario"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: '12px' }}>
+            <p className="text-sm font-semibold mb-2" style={{ color: colors.textPrimary }}>Agregar nuevo operario</p>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Nombre completo..."
+                value={nuevoOpNombre}
+                onChange={e => setNuevoOpNombre(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !savingOp && nuevoOpNombre.trim() && agregarOperario()}
+              />
+              <Button variant="primary" onClick={agregarOperario} loading={savingOp} disabled={!nuevoOpNombre.trim()}>
+                <Plus size={14} />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
 
       {/* Informe del día */}
       <Modal

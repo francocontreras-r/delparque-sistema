@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
-import LogoDelParque from './LogoDelParque'
+
 import { colors } from '../styles/design-system'
 import {
   LayoutDashboard, Factory, Thermometer, Warehouse, TrendingUp, TrendingDown,
@@ -97,9 +97,8 @@ function SidebarContent({ onClose, user, onLogout, navItems }) {
         className="flex items-center justify-between px-5 py-5 flex-shrink-0"
         style={{ borderBottom: `1px solid ${colors.sidebarHover}` }}
       >
-        <div className="flex items-center gap-3">
-          <LogoDelParque size={32} />
-          <p className="font-bold text-white text-lg leading-none">Del Parque</p>
+        <div className="flex items-center">
+          <img src="/logo_delparque.png" alt="Del Parque" style={{ height: '44px', objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
         </div>
         {onClose && (
           <button

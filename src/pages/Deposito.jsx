@@ -15,7 +15,7 @@ import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, ClipboardCheck, AlertTriangle } from 'lucide-react'
-import logoUrl from '../assets/logo.png'
+const logoUrl = '/logo_delparque.png'
 
 const TABS         = ['Movimientos', 'Stock', 'Trazabilidad', 'Informes', 'Control Semanal']
 const DESTINOS     = ['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones']

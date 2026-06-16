@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import logoUrl from '../assets/logo.png'
+const logoUrl = '/logo_delparque.png'
 import { colors, shadow, radius } from '../styles/design-system'
 import KpiCard from '../components/ui/KpiCard'
 import Toast from '../components/ui/Toast'

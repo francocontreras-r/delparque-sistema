@@ -16,7 +16,7 @@ import {
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
-import logoUrl from '../assets/logo.png'
+const logoUrl = '/logo_delparque.png'
 
 const TABS = ['Producción', 'Mermas', 'Financiero']
 

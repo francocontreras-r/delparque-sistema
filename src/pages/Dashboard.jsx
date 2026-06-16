@@ -83,6 +83,7 @@ export default function Dashboard() {
   const [insumos, setInsumos] = useState([])
   const [camaras, setCamaras] = useState([])
   const [movimientos, setMovimientos] = useState([])
+  const [stockBases, setStockBases] = useState([])
 
   const hoy = hoyISO()
 
@@ -106,6 +107,7 @@ export default function Dashboard() {
       { data: ins },
       { data: stockCamaras },
       { data: movsHoy },
+      { data: basesDisp },
     ] = await Promise.all([
       supabase.from('producciones').select('*').gte('fecha', inicioSemana).lte('fecha', finSemana),
       supabase.from('ordenes_produccion').select('*').eq('estado', 'en_proceso').order('fecha_inicio', { ascending: true }),
@@ -114,6 +116,7 @@ export default function Dashboard() {
       supabase.from('insumos').select('*'),
       supabase.from('stock_camaras').select('*'),
       supabase.from('movimientos_deposito').select('*').eq('fecha', hoy).order('created_at', { ascending: false }),
+      supabase.from('stock_bases').select('*').gt('kg_disponible', 0).order('fecha', { ascending: false }),
     ])
 
     setProducciones(prods || [])
@@ -123,6 +126,7 @@ export default function Dashboard() {
     setInsumos(ins || [])
     setCamaras(stockCamaras || [])
     setMovimientos(movsHoy || [])
+    setStockBases(basesDisp || [])
     setLoading(false)
   }
 
@@ -240,9 +244,12 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>{saludo()}, {nombre}</h1>
-        <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>{fechaLarga()}</p>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>{saludo()}, {nombre}</h1>
+          <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>{fechaLarga()}</p>
+        </div>
+        <img src="/logo_delparque.png" alt="Del Parque" style={{ height: '56px', objectFit: 'contain' }} />
       </div>
 
       {loading ? (
@@ -411,6 +418,44 @@ export default function Dashboard() {
               )}
             </div>
           </div>
+
+          {/* Sección 5b: Bases disponibles para elaborar */}
+          {stockBases.length > 0 && (
+            <div className="overflow-hidden" style={SURFACE}>
+              <h3 className="px-4 pt-4 pb-3 text-sm font-semibold" style={{ color: colors.textPrimary }}>
+                Bases disponibles para elaborar
+              </h3>
+              <div className="px-4 pb-4 space-y-3">
+                {stockBases.map(b => {
+                  const pct = b.kg_original > 0 ? (b.kg_disponible / b.kg_original) * 100 : 100
+                  const bajo = pct < 20
+                  return (
+                    <div key={b.id}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>{b.base_nombre}</span>
+                        <div className="flex items-center gap-2">
+                          {bajo && <Badge variant="warning">⚠ Poco stock</Badge>}
+                          <span className="text-sm font-bold" style={{ color: bajo ? colors.warning : colors.brand }}>
+                            {fmtNum(b.kg_disponible)} kg
+                          </span>
+                        </div>
+                      </div>
+                      <div className="h-2 w-full rounded-full overflow-hidden" style={{ backgroundColor: colors.border }}>
+                        <div className="h-full rounded-full transition-all" style={{
+                          width: `${Math.min(100, pct)}%`,
+                          backgroundColor: bajo ? colors.warning : colors.success,
+                        }} />
+                      </div>
+                      <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
+                        {fmtNum(b.kg_disponible)} / {fmtNum(b.kg_original)} kg · {pct.toFixed(0)}% disponible
+                        {b.operario_nombre ? ` · ${b.operario_nombre}` : ''}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Sección 6: Actividad reciente */}
           <div className="overflow-hidden" style={SURFACE}>

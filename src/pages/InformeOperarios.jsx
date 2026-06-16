@@ -18,7 +18,7 @@ import {
   BarChart, Bar, LineChart, Line, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell,
 } from 'recharts'
-import logoUrl from '../assets/logo.png'
+const logoUrl = '/logo_delparque.png'
 
 const TABS = ['Resumen General', 'Por Operario', 'Ranking del Equipo', 'Informe PDF']
 

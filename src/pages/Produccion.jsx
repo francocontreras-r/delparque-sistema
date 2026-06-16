@@ -12,7 +12,7 @@ import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { aplicarProduccionAOrden, ESTADO_EN_PROCESO } from '../lib/ordenes'
 import { colors, radius, shadow } from '../styles/design-system'
 import { Package, Users, Scale, Hash, ScanLine, PenLine, FileText, Printer, X, Plus, ClipboardCheck } from 'lucide-react'
-import logoUrl from '../assets/logo.png'
+const logoUrl = '/logo_delparque.png'
 
 function decodearEAN(code) {
   if (!code || code.length !== 13 || !code.startsWith('200')) return null

@@ -17,7 +17,7 @@ import { colors, radius, shadow } from '../styles/design-system'
 import { finalizarOrdenManual, progresoColor, ESTADO_EN_PROCESO, ESTADO_COMPLETADA } from '../lib/ordenes'
 import { POSTRES } from '../lib/postres'
 import { ClipboardList, Plus, Printer, FileDown, AlertTriangle, CheckCircle2, Warehouse, X, ChevronDown, ChevronUp, Package, Clock } from 'lucide-react'
-import logoUrl from '../assets/logo.png'
+const logoUrl = '/logo_delparque.png'
 
 function toDataURL(url) {
   return fetch(url)
@@ -42,6 +42,8 @@ const ESTADOS = [
   { key: 'completada', label: 'Completada', color: colors.success,   variant: 'success' },
   { key: 'cancelada',  label: 'Cancelada',  color: colors.textMuted, variant: 'neutral' },
 ]
+
+const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 
 const textareaClass = 'w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
 
@@ -162,6 +164,10 @@ export default function Ordenes() {
     operario_id: '', operario_nombre: '', observaciones: '',
   })
 
+  const [stockBases, setStockBases] = useState([])
+  const [baseSel, setBaseSel]       = useState('')
+  const [kgBaseAUsar, setKgBaseAUsar] = useState('')
+
   useEffect(() => { cargar() }, [])
 
   useEffect(() => {
@@ -175,7 +181,11 @@ export default function Ordenes() {
   }, [])
 
   async function cargar() {
-    const [{ data: ord }, { data: sab }, { data: imp }, { data: ops }, { data: recetas }, { data: ingredientes }, { data: insumosData }, { data: basesData }, { data: baseIngs }] = await Promise.all([
+    const [
+      { data: ord }, { data: sab }, { data: imp }, { data: ops },
+      { data: recetas }, { data: ingredientes }, { data: insumosData },
+      { data: basesData }, { data: baseIngs }, { data: stockBasesData },
+    ] = await Promise.all([
       supabase.from('ordenes_produccion').select('*').order('id', { ascending: false }).limit(300),
       supabase.from('stock_camaras').select('id,nombre,tipo,baldes').order('nombre'),
       supabase.from('impulsivos').select('id,nombre').order('nombre'),
@@ -185,6 +195,7 @@ export default function Ordenes() {
       supabase.from('insumos').select('nombre,stock_actual,unidad'),
       supabase.from('bases').select('id,nombre,litros_batch').order('nombre'),
       supabase.from('base_ingredientes').select('*'),
+      supabase.from('stock_bases').select('*').gt('kg_disponible', 0).order('fecha', { ascending: false }),
     ])
     setOrdenes(ord || [])
     setSaboresCamara(sab || [])
@@ -195,6 +206,7 @@ export default function Ordenes() {
     setInsumosStock(insumosData || [])
     setBases(basesData || [])
     setBaseIngredientes(baseIngs || [])
+    setStockBases(stockBasesData || [])
 
     const opciones = [
       ...(basesData || []).map(b => ({ _key: `base-${b.id}`, _grupo: 'BASES' })),
@@ -233,6 +245,8 @@ export default function Ordenes() {
     const opciones = opcionesActivas.filter(p => p._grupo === grupo)
     setLineaSel(opciones[0]?._key || '')
     setLineaCantidad('1')
+    setBaseSel('')
+    setKgBaseAUsar('')
   }
 
   function resolverReceta(nombre) {
@@ -241,13 +255,13 @@ export default function Ordenes() {
 
   function calcularKgObjetivo(nombreProducto, batches) {
     const receta = resolverReceta(nombreProducto)
-    if (!receta) return { kgObjetivo: batches * LITROS_BATCH * 1.05, litrosBase: LITROS_BATCH, extraKg: 0 }
+    if (!receta) return { kgObjetivo: batches * LITROS_BATCH, litrosBase: LITROS_BATCH, extraKg: 0 }
     if (receta.tipo === 'base') {
-      const kgObjetivo = batches * receta.litrosBase * 1.05
+      const kgObjetivo = batches * receta.litrosBase
       return { kgObjetivo, litrosBase: receta.litrosBase, extraKg: 0 }
     }
     const extraKg = receta.ingredientes.filter(i => i.unidad === 'kg').reduce((a, i) => a + (i.cantidad || 0), 0)
-    const kgObjetivo = batches * (receta.litrosBase * 1.05 + extraKg)
+    const kgObjetivo = batches * (receta.litrosBase + extraKg)
     return { kgObjetivo, litrosBase: receta.litrosBase, extraKg }
   }
 
@@ -258,11 +272,17 @@ export default function Ordenes() {
       const cantidad = parseFloat(lineaCantidad || '1')
       if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
       const { kgObjetivo, litrosBase, extraKg } = calcularKgObjetivo(productoSel.nombre, cantidad)
+      const baseNombre = tabProducto === 'SABORES' && baseSel
+        ? (stockBases.find(b => String(b.id) === baseSel)?.base_nombre || null)
+        : null
+      const kgBaseUsado = baseNombre ? (parseFloat(kgBaseAUsar) || litrosBase * cantidad) : 0
       const linea = {
         tipo: 'helado', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
         cantidad, litros: cantidad * LITROS_BATCH,
         kg_objetivo: kgObjetivo, litros_base: litrosBase, extra_kg: extraKg,
         horas_estimadas: horasEstimadas,
+        base_nombre: baseNombre,
+        kg_base_consumida: kgBaseUsado,
       }
       const items = compararConStock(requerimientosDeLineas([linea]))
       if (items.some(it => it.estado !== 'ok')) {
@@ -276,10 +296,13 @@ export default function Ordenes() {
       setLineas(ls => [...ls, {
         tipo: 'impulsivo', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
         cantidad, kg_objetivo: 0, horas_estimadas: horasEstimadas,
+        base_nombre: null, kg_base_consumida: 0,
       }])
     }
     setLineaCantidad('1')
     setLineaHoras('')
+    setBaseSel('')
+    setKgBaseAUsar('')
   }
 
   function agregarLineaConFaltantes() {
@@ -378,6 +401,8 @@ export default function Ordenes() {
       estado: 'pendiente',
       fecha_produccion: form.fecha_produccion,
       observaciones: form.observaciones || null,
+      base_nombre: l.base_nombre || null,
+      kg_base_consumida: l.kg_base_consumida || 0,
     }))
 
     const { error } = await supabase.from('ordenes_produccion').insert(filas)
@@ -397,8 +422,11 @@ export default function Ordenes() {
       if (error) { toast2(error.message, 'error'); return }
       if (mermaError) {
         toast2(`Orden finalizada, pero hubo un error al registrar la merma: ${mermaError.message}`, 'error')
-      } else {
-        toast2('Estado actualizado')
+      }
+      const esBase = await manejarCompletadaBase(item)
+      if (!esBase) {
+        await manejarCompletadaSabor(item)
+        if (!mermaError) toast2('Estado actualizado')
       }
       cargar()
       return
@@ -484,11 +512,66 @@ export default function Ordenes() {
     if (error) { toast2(error.message, 'error'); return }
     if (mermaError) {
       toast2(`Orden finalizada, pero hubo un error al registrar la merma: ${mermaError.message}`, 'error')
-    } else {
-      toast2(`Orden ${ordenDetalle.numero} finalizada manualmente (${fmtNum(pct)}%)`)
+    }
+    const esBase = await manejarCompletadaBase(ordenDetalle)
+    if (!esBase) {
+      await manejarCompletadaSabor(ordenDetalle)
+      if (!mermaError) toast2(`Orden ${ordenDetalle.numero} finalizada manualmente (${fmtNum(pct)}%)`)
     }
     setOrdenDetalle(null)
     cargar()
+  }
+
+  async function manejarCompletadaBase(item) {
+    const receta = resolverReceta(item.sabor_nombre)
+    if (receta?.tipo !== 'base') return false
+    const litrosBase = receta.litrosBase || LITROS_BATCH
+    const kgProducidos = (item.batches || 0) * litrosBase
+    const hoy = new Date().toISOString().split('T')[0]
+    const { error } = await supabase.from('stock_bases').insert({
+      base_nombre: item.sabor_nombre,
+      kg_disponible: kgProducidos,
+      kg_original: kgProducidos,
+      orden_origen: item.numero,
+      operario_nombre: item.operario_nombre,
+      fecha: hoy,
+    })
+    if (!error) {
+      toast2(`Base ${item.sabor_nombre} lista: ${kgProducidos.toFixed(1)} kg disponibles para elaborar sabores`)
+    }
+    return true
+  }
+
+  async function manejarCompletadaSabor(item) {
+    if (!item.base_nombre || !((item.kg_base_consumida || 0) > 0)) return
+    const { data: rows } = await supabase.from('stock_bases')
+      .select('*').eq('base_nombre', item.base_nombre).gt('kg_disponible', 0)
+      .order('fecha', { ascending: false }).limit(1)
+    if (rows && rows.length > 0) {
+      const row = rows[0]
+      const nuevosKg = Math.max(0, row.kg_disponible - (item.kg_base_consumida || 0))
+      await supabase.from('stock_bases').update({ kg_disponible: nuevosKg }).eq('id', row.id)
+      if (nuevosKg === 0) {
+        toast2(`Base ${item.base_nombre} agotada`)
+      }
+    }
+    const kgBase = item.kg_base_consumida || 0
+    const kgSabor = item.kg_producido || 0
+    const diferencia = kgBase - kgSabor
+    if (diferencia > 0) {
+      const hoy = new Date().toISOString().split('T')[0]
+      await supabase.from('mermas').insert({
+        fecha: hoy,
+        sabor_nombre: item.sabor_nombre,
+        operario_nombre: item.operario_nombre,
+        kg_teoricos: kgBase,
+        kg_reales: kgSabor,
+        diferencia,
+        porcentaje: (diferencia / kgBase) * 100,
+        causa: 'Elaboración de sabores',
+        observaciones: `Orden ${item.numero} · Base: ${item.base_nombre}`,
+      })
+    }
   }
 
   const grupos = useMemo(() => {
@@ -778,6 +861,45 @@ export default function Ordenes() {
         <KpiCard label="Completadas" value={loading ? '—' : kpiCompletadas} color={colors.success} />
       </div>
 
+      {stockBases.length > 0 && (
+        <div className="overflow-hidden" style={SURFACE}>
+          <h3 className="px-4 pt-4 pb-1 text-sm font-semibold" style={{ color: colors.textPrimary }}>
+            Stock de Bases Disponible
+          </h3>
+          <Table>
+            <Thead>
+              <Tr>
+                <Th>Base</Th>
+                <Th className="text-right">Kg disponibles</Th>
+                <Th className="text-right">Kg original</Th>
+                <Th>Fecha elaboración</Th>
+                <Th>Operario</Th>
+                <Th>Orden origen</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {stockBases.map(b => {
+                const pct = b.kg_original > 0 ? (b.kg_disponible / b.kg_original) * 100 : 100
+                return (
+                  <Tr key={b.id}>
+                    <Td className="font-medium">{b.base_nombre}</Td>
+                    <Td className="text-right">
+                      <span className="font-bold" style={{ color: pct < 30 ? colors.warning : colors.brand }}>
+                        {fmtNum(b.kg_disponible)} kg
+                      </span>
+                    </Td>
+                    <Td className="text-right" style={{ color: colors.textMuted }}>{fmtNum(b.kg_original)} kg</Td>
+                    <Td>{b.fecha || '—'}</Td>
+                    <Td>{b.operario_nombre || '—'}</Td>
+                    <Td>{b.orden_origen || '—'}</Td>
+                  </Tr>
+                )
+              })}
+            </Tbody>
+          </Table>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2 items-end">
         <div className="flex-1 min-w-[220px]">
           <Input placeholder="Buscar por N° orden, producto u operario..." value={busqueda}
@@ -870,6 +992,11 @@ export default function Ordenes() {
                             <Badge variant={e.variant}>{e.label}</Badge>
                             {completada95 && <Badge variant="success">✅ COMPLETADA</Badge>}
                           </div>
+                          {item.base_nombre && (
+                            <p className="text-xs mt-0.5 font-medium" style={{ color: colors.info }}>
+                              Base: {item.base_nombre} · {fmtNum(item.kg_base_consumida)} kg
+                            </p>
+                          )}
                           {item.observaciones && (
                             <p className="text-xs mt-1" style={{ color: colors.textSecondary }}>{item.observaciones}</p>
                           )}
@@ -1081,6 +1208,46 @@ export default function Ordenes() {
                   <Input label="Tiempo estimado (h)" type="number" min="0" step="0.5" placeholder="ej: 4.5"
                     value={lineaHoras} onChange={e => setLineaHoras(e.target.value)} />
                 </div>
+
+                {tabProducto === 'SABORES' && productoSelEsHelado && (
+                  <div className="mt-3 space-y-2 pt-3" style={{ borderTop: `1px solid ${colors.border}` }}>
+                    <p className="text-xs font-semibold uppercase" style={{ color: colors.textMuted }}>Base a usar (Etapa 1)</p>
+                    <Select
+                      label="Base disponible"
+                      value={baseSel}
+                      onChange={e => { setBaseSel(e.target.value); setKgBaseAUsar('') }}
+                    >
+                      <option value="">— Sin base (elaboración directa) —</option>
+                      {stockBases.filter(b => b.kg_disponible > 0).map(b => (
+                        <option key={b.id} value={String(b.id)}>
+                          {b.base_nombre} — {fmtNum(b.kg_disponible)} kg disponibles
+                        </option>
+                      ))}
+                    </Select>
+                    {baseSel && (() => {
+                      const batches = parseFloat(lineaCantidad || '1') || 1
+                      const { litrosBase } = calcularKgObjetivo(productoSel?.nombre || '', batches)
+                      const kgDefault = (litrosBase * batches).toFixed(1)
+                      const baseSelObj = stockBases.find(b => String(b.id) === baseSel)
+                      return (
+                        <>
+                          {baseSelObj && (
+                            <p className="text-xs" style={{ color: colors.textMuted }}>
+                              Disponible: <strong style={{ color: colors.brand }}>{fmtNum(baseSelObj.kg_disponible)} kg</strong>
+                            </p>
+                          )}
+                          <Input
+                            label={`Kg de base a usar (default: ${kgDefault} kg)`}
+                            type="number" min="0.1" step="0.1"
+                            placeholder={`${kgDefault}`}
+                            value={kgBaseAUsar}
+                            onChange={e => setKgBaseAUsar(e.target.value)}
+                          />
+                        </>
+                      )
+                    })()}
+                  </div>
+                )}
               </>
             )}
 
@@ -1107,6 +1274,11 @@ export default function Ordenes() {
                     {l.tipo === 'helado' && (
                       <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>
                         Objetivo estimado: {fmtNum(l.kg_objetivo)} kg ({fmtNum(l.litros_base)}L base + {fmtNum(l.extra_kg)} kg agregados)
+                      </p>
+                    )}
+                    {l.base_nombre && (
+                      <p className="text-xs mt-0.5 font-medium" style={{ color: colors.info }}>
+                        Base: {l.base_nombre} · {fmtNum(l.kg_base_consumida)} kg
                       </p>
                     )}
                     {l.horas_estimadas > 0 && (

@@ -16,15 +16,14 @@ const logoUrl = '/logo_delparque.png'
 
 function decodearEAN(code) {
   if (!code || code.length !== 13 || !code.startsWith('200')) return null
-  // Formato nuevo: prefijo fijo "20000" + código de producto (2 dígitos) + peso (6 dígitos)
   if (code.startsWith('20000')) {
     const prod = parseInt(code.substring(5, 7), 10)
-    const pesoStr6 = code.substring(7, 13)
-    const pesoStr4 = code.substring(7, 11)
-    console.log('[EAN decode] prefijo=20000 | prod=', prod,
-      '| sub(7,13)=', pesoStr6, '→', parseInt(pesoStr6, 10) / 1000, 'kg',
-      '| sub(7,11)=', pesoStr4, '→', parseInt(pesoStr4, 10) / 100, 'kg (÷100)')
-    const peso = parseInt(pesoStr6, 10) / 1000
+    const rawPeso6 = parseInt(code.substring(7, 13), 10) / 1000
+    const rawPeso4 = parseInt(code.substring(7, 11), 10) / 1000
+    // Si rawPeso6 > 50 kg es irreal → usar rawPeso4; si rawPeso4 < 0.1 kg es irreal → usar rawPeso6
+    const peso = rawPeso6 > 50 ? rawPeso4 : (rawPeso4 < 0.1 ? rawPeso6 : rawPeso6)
+    console.log('[EAN decode] prod=', prod,
+      '| rawPeso4=', rawPeso4.toFixed(3), 'kg | rawPeso6=', rawPeso6.toFixed(3), 'kg → usando', peso.toFixed(3), 'kg')
     return { prod, peso }
   }
   // Formato viejo: prefijo "200" + código de producto (4 dígitos) + peso (4 dígitos)
@@ -583,13 +582,19 @@ export default function Produccion() {
               <div className="mt-2 px-3 py-2 rounded-lg font-mono" style={{ fontSize: 11, color: '#555', backgroundColor: '#f8f8f8', border: '1px solid #e5e7eb', lineHeight: 1.8 }}>
                 <div><strong>Raw:</strong> {JSON.stringify(debugRaw)}</div>
                 <div><strong>Limpio:</strong> {debugClean} &nbsp;|&nbsp; <strong>Largo:</strong> {debugClean.length}</div>
-                {debugClean.length >= 5 && (
-                  <>
-                    <div><strong>sub(5,7):</strong> {debugClean.substring(5, 7)} &nbsp;→ prod #{parseInt(debugClean.substring(5, 7), 10) || '?'}</div>
-                    <div><strong>sub(7,11):</strong> {debugClean.substring(7, 11)} &nbsp;→ {(parseInt(debugClean.substring(7, 11), 10) / 100).toFixed(3)} kg (÷100)</div>
-                    <div><strong>sub(7,13):</strong> {debugClean.substring(7, 13)} &nbsp;→ {(parseInt(debugClean.substring(7, 13), 10) / 1000).toFixed(3)} kg (÷1000)</div>
-                  </>
-                )}
+                {debugClean.length >= 7 && (() => {
+                  const rp4 = parseInt(debugClean.substring(7, 11), 10) / 1000
+                  const rp6 = parseInt(debugClean.substring(7, 13), 10) / 1000
+                  const usado = rp6 > 50 ? rp4 : (rp4 < 0.1 ? rp6 : rp6)
+                  return (
+                    <>
+                      <div><strong>prod:</strong> sub(5,7) = {debugClean.substring(5, 7)} → #{parseInt(debugClean.substring(5, 7), 10) || '?'}</div>
+                      <div><strong>rawPeso4:</strong> sub(7,11) = {debugClean.substring(7, 11)} → {rp4.toFixed(3)} kg</div>
+                      <div><strong>rawPeso6:</strong> sub(7,13) = {debugClean.substring(7, 13)} → {rp6.toFixed(3)} kg</div>
+                      <div style={{ color: '#16a34a' }}><strong>→ peso usado:</strong> {usado.toFixed(3)} kg {rp6 > 50 ? '(rawPeso6 irreal >50, usó rawPeso4)' : rp4 < 0.1 ? '(rawPeso4 irreal <0.1, usó rawPeso6)' : '(rawPeso6)'}</div>
+                    </>
+                  )
+                })()}
               </div>
             )}
           </div>

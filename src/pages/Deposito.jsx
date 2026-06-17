@@ -29,7 +29,8 @@ const PRESENTACIONES = ['Balde', 'Bolsa', 'Lata', 'Caja', 'Botella', 'Bidón', '
 const UNIDADES     = ['u', 'kg', 'L']
 
 const CATS_MAT_PRIMAS = new Set(['LÁCTEOS', 'AZÚCARES', 'CHOCOLATES', 'PASTAS', 'FRUTAS', 'VARIEGATOS', 'OTROS', 'NUEVO', 'General'])
-const CATS_FILTRO = ['TODOS', 'MAT. PRIMAS', 'BOLSAS', 'CUCURUCHOS', 'LIMPIEZA', 'REVENTA', 'TERMICOS']
+const CATS_FILTRO_BASE = ['TODOS', 'BOLSAS', 'CUCURUCHOS', 'LIMPIEZA', 'REVENTA', 'TERMICOS']
+const TODAS_LAS_CATS = ['BOLSAS', 'CUCURUCHOS', 'LIMPIEZA', 'REVENTA', 'TERMICOS', 'LÁCTEOS', 'AZÚCARES', 'CHOCOLATES', 'PASTAS', 'FRUTAS', 'VARIEGATOS', 'OTROS']
 
 function motivosPorCategoria(categoria) {
   if (categoria === 'REVENTA') return ['Venta a cliente', 'Venta por mayor', 'Muestra', 'Baja por daño']
@@ -117,6 +118,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
     precio_unitario: '',
     nro_remito: '',
     motivo: '',
+    categoria_nueva: 'OTROS',
   })
   const [showResumen, setShowResumen] = useState(false)
   const [showMarcaAC, setShowMarcaAC] = useState(false)
@@ -273,12 +275,19 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
                 <p className="text-xs mt-1 font-medium" style={{ color: colors.success }}>{stockInfo}</p>
               )}
               {mostrarAgregarInsumo && (
-                <div className="flex items-center justify-between gap-2 mt-1.5 px-2.5 py-2 text-xs"
-                  style={{ backgroundColor: colors.warningBg, border: `1px solid ${colors.warning}40`, borderRadius: radius.md, color: colors.warning }}>
-                  <span>"{nombreProducto}" no está en la lista.</span>
-                  <Button variant="ghost" size="sm" loading={creandoInsumo} onClick={() => onCrearInsumo(nombreProducto)}>
-                    + Agregar
-                  </Button>
+                <div className="mt-1.5 p-2.5 space-y-2" style={{ backgroundColor: colors.warningBg, border: `1px solid ${colors.warning}40`, borderRadius: radius.md }}>
+                  <p className="text-xs" style={{ color: colors.warning }}>"{nombreProducto}" no está en la lista. Elegí la categoría:</p>
+                  <div className="flex items-center gap-2">
+                    <select value={form.categoria_nueva} onChange={e => upd('categoria_nueva', e.target.value)}
+                      className="flex-1 rounded-md border text-xs px-2 py-1.5 outline-none"
+                      style={{ borderColor: colors.border, color: colors.textPrimary }}>
+                      {TODAS_LAS_CATS.map(c => <option key={c}>{c}</option>)}
+                    </select>
+                    <Button variant="ghost" size="sm" loading={creandoInsumo}
+                      onClick={() => onCrearInsumo(nombreProducto, form.categoria_nueva)}>
+                      + Agregar insumo
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
@@ -430,6 +439,7 @@ function ModalEditarInsumo({ insumo, onClose, onSubmit, saving, isAdmin }) {
     stock_minimo: insumo.stock_minimo ?? '',
     stock_maximo: insumo.stock_maximo ?? '',
     costo_unitario: insumo.costo_unitario ?? '',
+    categoria: insumo.categoria || 'OTROS',
   })
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -452,6 +462,13 @@ function ModalEditarInsumo({ insumo, onClose, onSubmit, saving, isAdmin }) {
     >
       <div className="space-y-3">
         <Input label="Nombre" value={insumo.nombre} disabled />
+        <div>
+          <label className="block text-sm font-medium text-[#374151] mb-1.5">Categoría</label>
+          <select value={form.categoria} onChange={e => upd('categoria', e.target.value)}
+            className="w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] bg-white outline-none px-3 py-2 focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]">
+            {TODAS_LAS_CATS.map(c => <option key={c}>{c}</option>)}
+          </select>
+        </div>
         <Input label={`Stock actual (${insumo.unidad || 'u'})`} type="number" min="0" step="0.01"
           value={form.stock_actual} onChange={e => upd('stock_actual', e.target.value)} />
         <Input label={`Stock mínimo (${insumo.unidad || 'u'})`} type="number" min="0" step="0.01"
@@ -705,6 +722,10 @@ export default function Deposito() {
   const [modalMovsDet, setModalMovsDet]     = useState(null)
   const [modalEvolCS, setModalEvolCS]       = useState(null)
   const [generandoPDFstock, setGenerandoPDFstock] = useState(false)
+  const [filtroMovDesde, setFiltroMovDesde] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().split('T')[0]
+  })
+  const [filtroMovHasta, setFiltroMovHasta] = useState(() => new Date().toISOString().split('T')[0])
   const [filtroCategoria, setFiltroCategoria] = useState('TODOS')
   const [seccionCS, setSeccionCS]           = useState('deposito')
   const [filtroTablaCS, setFiltroTablaCS]   = useState(null) // null | 'critico' | 'atencion' | 'diferencia'
@@ -717,23 +738,35 @@ export default function Deposito() {
   const { isAdmin, profile } = useUser()
   const showVal = isAdmin
 
-  useEffect(() => { cargar() }, [])
+  useEffect(() => { cargar() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!loading) cargarMovimientosFiltrados(filtroMovDesde, filtroMovHasta)
+  }, [filtroMovDesde, filtroMovHasta]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function cargarMovimientosFiltrados(desde, hasta) {
+    const { data: m } = await supabase.from('movimientos_deposito').select('*')
+      .gte('created_at', desde + 'T00:00:00')
+      .lte('created_at', hasta + 'T23:59:59')
+      .order('created_at', { ascending: false })
+      .limit(1000)
+    setMovimientos(m || [])
+  }
 
   async function cargar() {
-    const [{ data: m }, { data: i }, { data: o }, { data: sc }, { data: ct }, { data: mc }] = await Promise.all([
-      supabase.from('movimientos_deposito').select('*').order('id', { ascending: false }).limit(300),
+    const [{ data: i }, { data: o }, { data: sc }, { data: ct }, { data: mc }] = await Promise.all([
       supabase.from('insumos').select('*').order('nombre'),
       supabase.from('operarios').select('*').order('nombre'),
       supabase.from('stock_camaras').select('*').order('nombre'),
       supabase.from('conteos_stock').select('*').order('fecha', { ascending: false }).limit(500),
       supabase.from('movimientos_camara').select('id,sabor_nombre,producto_nombre,tipo,kg,baldes,lote,operario_nombre,tipo_producto,motivo,created_at,fecha').order('id', { ascending: false }).limit(300),
     ])
-    setMovimientos(m || [])
     setInsumos(i || [])
     setOperarios(o || [])
     setStockCamaras(sc || [])
     setConteos(ct || [])
     setMovsCamara(mc || [])
+    await cargarMovimientosFiltrados(filtroMovDesde, filtroMovHasta)
     setLoading(false)
   }
 
@@ -826,16 +859,16 @@ export default function Deposito() {
     cargar()
   }
 
-  async function crearInsumoNuevo(nombre) {
+  async function crearInsumoNuevo(nombre, categoria = 'OTROS') {
     setCreandoInsumo(true)
     const { data, error } = await supabase.from('insumos')
-      .insert({ nombre, categoria: 'NUEVO', unidad: 'kg', stock_actual: 0 })
+      .insert({ nombre, categoria, unidad: 'kg', stock_actual: 0 })
       .select()
       .single()
     setCreandoInsumo(false)
     if (error) { toast2(error.message, 'error'); return }
     setInsumos(prev => [...prev, data].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '')))
-    toast2(`Insumo "${nombre}" agregado`)
+    toast2(`Insumo "${nombre}" agregado como ${categoria}`)
   }
 
   async function guardarInsumo(form) {
@@ -844,6 +877,7 @@ export default function Deposito() {
       stock_actual: parseFloat(form.stock_actual) || 0,
       stock_minimo: parseFloat(form.stock_minimo) || 0,
       stock_maximo: parseFloat(form.stock_maximo) || 0,
+      categoria: form.categoria || 'OTROS',
     }
     if (isAdmin) payload.costo_unitario = parseFloat(form.costo_unitario) || 0
     setSavingInsumo(true)
@@ -859,17 +893,33 @@ export default function Deposito() {
     filtroTipo === 'Todos' ? movimientos : movimientos.filter(m => m.tipo === filtroTipo)
   ), [movimientos, filtroTipo])
 
+  const pillsCategorias = useMemo(() => {
+    const extra = [...new Set(insumos.map(i => i.categoria).filter(
+      c => c && !new Set(CATS_FILTRO_BASE).has(c) && c !== 'NUEVO' && c !== 'General'
+    ))].sort()
+    return [...CATS_FILTRO_BASE, ...extra]
+  }, [insumos])
+
   const insumosFiltrados = useMemo(() => {
     let result = busqueda
       ? insumos.filter(i => i.nombre?.toLowerCase().includes(busqueda.toLowerCase()))
       : insumos
     if (filtroCategoria !== 'TODOS') {
-      result = filtroCategoria === 'MAT. PRIMAS'
-        ? result.filter(i => CATS_MAT_PRIMAS.has(i.categoria))
-        : result.filter(i => i.categoria === filtroCategoria)
+      result = result.filter(i => i.categoria === filtroCategoria)
     }
     return result
   }, [insumos, busqueda, filtroCategoria])
+
+  const sumatoriaCategoria = useMemo(() => {
+    if (filtroCategoria === 'TODOS') return null
+    const total = insumosFiltrados.length
+    const conStock = insumosFiltrados.filter(i => (i.stock_actual || 0) > 0).length
+    const sinStock = insumosFiltrados.filter(i => (i.stock_actual || 0) === 0).length
+    const totalUnidades = insumosFiltrados.reduce((a, i) => a + (i.stock_actual || 0), 0)
+    const valorTotal = insumosFiltrados.reduce((a, i) => a + (i.stock_actual || 0) * (i.costo_unitario || 0), 0)
+    const unidadesLabel = [...new Set(insumosFiltrados.map(i => i.unidad).filter(Boolean))].join('/')
+    return { total, conStock, sinStock, totalUnidades, valorTotal, unidadesLabel: unidadesLabel || 'u' }
+  }, [insumosFiltrados, filtroCategoria])
 
   const porCategoria = useMemo(() => {
     const m = {}
@@ -1087,9 +1137,7 @@ export default function Deposito() {
   const controlSemanalFiltrado = useMemo(() => {
     let result = controlSemanal
     if (filtroCSCategoria !== 'TODOS') {
-      result = filtroCSCategoria === 'MAT. PRIMAS'
-        ? result.filter(r => CATS_MAT_PRIMAS.has(r.categoria))
-        : result.filter(r => r.categoria === filtroCSCategoria)
+      result = result.filter(r => r.categoria === filtroCSCategoria)
     }
     if (!filtroTablaCS) return result
     if (filtroTablaCS === 'critico')    return result.filter(r => r.estado === 'CRÍTICO')
@@ -1551,6 +1599,7 @@ export default function Deposito() {
         <>
           {tab === 'Movimientos' && (
             <div className="space-y-3">
+              {/* Filtro tipo */}
               <div className="flex gap-1.5 flex-wrap">
                 {['Todos', 'ingreso', 'egreso'].map(t => (
                   <button key={t} onClick={() => setFiltroTipo(t)}
@@ -1563,6 +1612,32 @@ export default function Deposito() {
                     {t === 'Todos' ? 'Todos' : t === 'ingreso' ? '↑ Ingresos' : '↓ Egresos'}
                   </button>
                 ))}
+              </div>
+              {/* Filtro por fecha */}
+              <div className="flex flex-wrap items-center gap-2 p-3 rounded-xl" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+                <div className="flex gap-1.5">
+                  {[
+                    { label: 'Hoy', fn: () => { const h = new Date().toISOString().split('T')[0]; setFiltroMovDesde(h); setFiltroMovHasta(h) } },
+                    { label: 'Esta semana', fn: () => { const h = new Date().toISOString().split('T')[0]; const d = new Date(); d.setDate(d.getDate()-7); setFiltroMovDesde(d.toISOString().split('T')[0]); setFiltroMovHasta(h) } },
+                    { label: 'Este mes', fn: () => { const n = new Date(); const desde = new Date(n.getFullYear(), n.getMonth(), 1).toISOString().split('T')[0]; setFiltroMovDesde(desde); setFiltroMovHasta(n.toISOString().split('T')[0]) } },
+                  ].map(btn => (
+                    <button key={btn.label} onClick={btn.fn}
+                      className="px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border hover:border-brand"
+                      style={{ borderColor: colors.border, color: colors.textSecondary, backgroundColor: colors.surface }}>
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 ml-auto flex-wrap">
+                  <span className="text-xs" style={{ color: colors.textMuted }}>Desde</span>
+                  <input type="date" value={filtroMovDesde} onChange={e => setFiltroMovDesde(e.target.value)}
+                    className="text-xs rounded-lg border px-2 py-1.5 outline-none focus:ring-2 focus:ring-[#D4521A]/30"
+                    style={{ borderColor: colors.border }} />
+                  <span className="text-xs" style={{ color: colors.textMuted }}>Hasta</span>
+                  <input type="date" value={filtroMovHasta} onChange={e => setFiltroMovHasta(e.target.value)}
+                    className="text-xs rounded-lg border px-2 py-1.5 outline-none focus:ring-2 focus:ring-[#D4521A]/30"
+                    style={{ borderColor: colors.border }} />
+                </div>
               </div>
               {movsFiltrados.length === 0 ? (
                 <EmptyState icon={Warehouse} title="Sin movimientos" subtitle="Registrá ingresos o egresos para comenzar" />
@@ -1611,9 +1686,9 @@ export default function Deposito() {
                   <KpiCard label="Valor total depósito" value={`$${pesos(valorTotalDeposito)}`} icon={DollarSign} color={colors.brand} />
                 </div>
               )}
-              {/* Pills de categoría */}
+              {/* Pills de categoría (dinámicas) */}
               <div className="flex gap-1.5 flex-wrap">
-                {CATS_FILTRO.map(cat => (
+                {pillsCategorias.map(cat => (
                   <button key={cat} onClick={() => setFiltroCategoria(cat)}
                     className="px-3 py-1 rounded-full text-xs font-semibold transition-all border"
                     style={{
@@ -1625,6 +1700,37 @@ export default function Deposito() {
                   </button>
                 ))}
               </div>
+
+              {/* Panel sumatoria por categoría */}
+              {sumatoriaCategoria && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 rounded-xl"
+                  style={{ backgroundColor: '#fff7ed', border: '1px solid #fed7aa' }}>
+                  <div className="text-center">
+                    <p className="text-xs" style={{ color: colors.textMuted }}>Total productos</p>
+                    <p className="text-lg font-bold" style={{ color: colors.textPrimary }}>{sumatoriaCategoria.total}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs" style={{ color: colors.textMuted }}>Unidades en stock</p>
+                    <p className="text-lg font-bold" style={{ color: colors.brand }}>
+                      {sumatoriaCategoria.totalUnidades.toLocaleString('es-AR')}
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs" style={{ color: colors.textMuted }}>Sin stock</p>
+                    <p className="text-lg font-bold" style={{ color: colors.danger }}>{sumatoriaCategoria.sinStock}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs" style={{ color: colors.textMuted }}>Con stock</p>
+                    <p className="text-lg font-bold" style={{ color: colors.success }}>{sumatoriaCategoria.conStock}</p>
+                  </div>
+                  {showVal && sumatoriaCategoria.valorTotal > 0 && (
+                    <div className="col-span-2 sm:col-span-4 text-center pt-1" style={{ borderTop: '1px solid #fed7aa' }}>
+                      <p className="text-xs" style={{ color: colors.textMuted }}>Valor total en stock</p>
+                      <p className="text-xl font-bold" style={{ color: colors.brand }}>${pesos(sumatoriaCategoria.valorTotal)}</p>
+                    </div>
+                  )}
+                </div>
+              )}
               <Input type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
                 placeholder="Buscar insumo…" icon={Search} />
               {insumos.length === 0 ? (
@@ -1989,7 +2095,7 @@ export default function Deposito() {
               {/* ── Filtro por categoría ─── */}
               <div className="flex gap-1.5 flex-wrap items-center">
                 <span className="text-xs font-medium" style={{ color: colors.textMuted }}>Categoría:</span>
-                {CATS_FILTRO.map(cat => (
+                {CATS_FILTRO_BASE.map(cat => (
                   <button key={cat} onClick={() => setFiltroCSCategoria(cat)}
                     className="px-3 py-1 rounded-full text-xs font-semibold transition-all border"
                     style={{

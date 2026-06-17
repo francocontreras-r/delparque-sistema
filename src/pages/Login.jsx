@@ -39,14 +39,12 @@ export default function Login() {
         <div className="p-8">
           {/* Logo */}
           <div className="flex flex-col items-center mb-8">
-            <div
-              className="w-16 h-16 rounded-2xl flex items-center justify-center mb-3"
-              style={{ backgroundColor: '#D4521A', boxShadow: '0 8px 20px rgba(212,82,26,0.4)' }}
-            >
-              <span className="text-white text-2xl font-bold tracking-tight">DP</span>
-            </div>
-            <h1 className="text-xl font-bold" style={{ color: '#F1F5F9' }}>Del Parque</h1>
-            <p className="text-sm mt-1" style={{ color: '#64748B' }}>Sistema de gestión industrial</p>
+            <img
+              src="/logo_delparque.png"
+              alt="Del Parque"
+              style={{ height: '60px', objectFit: 'contain', filter: 'brightness(0) invert(1)', marginBottom: '16px' }}
+            />
+            <p className="text-sm" style={{ color: '#64748B' }}>Sistema de gestión industrial</p>
           </div>
 
           {/* Form */}

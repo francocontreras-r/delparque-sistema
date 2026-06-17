@@ -249,7 +249,9 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>{saludo()}, {nombre}</h1>
           <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>{fechaLarga()}</p>
         </div>
-        <img src="/logo_delparque.png" alt="Del Parque" style={{ height: '56px', objectFit: 'contain' }} />
+        <span style={{ fontFamily: 'Georgia, serif', fontSize: '18px', fontWeight: 'bold', color: '#D4521A', letterSpacing: '1px' }}>
+          Del Parque
+        </span>
       </div>
 
       {loading ? (

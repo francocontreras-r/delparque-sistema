@@ -97,7 +97,7 @@ function SidebarContent({ onClose, user, onLogout, navItems }) {
         style={{ borderBottom: `1px solid ${colors.sidebarHover}` }}
       >
         <div className="flex items-center">
-          <img src="/logo_delparque.png" alt="Del Parque" style={{ height: '44px', objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
+          <img src="/logo_delparque.png" alt="Del Parque" style={{ height: '36px', objectFit: 'contain', filter: 'brightness(0) invert(1)', opacity: 0.95 }} />
         </div>
         {onClose && (
           <button
@@ -310,6 +310,9 @@ export default function Layout() {
           </div>
 
           <div className="flex items-center gap-4">
+            <span className="hidden sm:block" style={{ fontFamily: 'Georgia, serif', fontSize: '16px', fontWeight: 'bold', color: '#D4521A', letterSpacing: '1px' }}>
+              Del Parque
+            </span>
             <Clock />
             <StatusDot />
             <div

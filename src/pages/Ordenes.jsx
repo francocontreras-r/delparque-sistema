@@ -566,8 +566,8 @@ export default function Ordenes() {
     const kgBase = item.kg_base_consumida || 0
     const kgSabor = item.kg_producido || 0
     const diferencia = kgBase - kgSabor
+    const hoy = new Date().toISOString().split('T')[0]
     if (diferencia > 0) {
-      const hoy = new Date().toISOString().split('T')[0]
       await supabase.from('mermas').insert({
         fecha: hoy,
         sabor_nombre: item.sabor_nombre,
@@ -576,8 +576,20 @@ export default function Ordenes() {
         kg_reales: kgSabor,
         diferencia,
         porcentaje: (diferencia / kgBase) * 100,
-        causa: 'Elaboración de sabores',
+        causa: 'Diferencia elaboración base→sabor',
         observaciones: `Orden ${item.numero} · Base: ${item.base_nombre}`,
+      })
+    } else if (diferencia < 0) {
+      await supabase.from('mermas').insert({
+        fecha: hoy,
+        sabor_nombre: item.sabor_nombre,
+        operario_nombre: item.operario_nombre,
+        kg_teoricos: kgBase,
+        kg_reales: kgSabor,
+        diferencia,
+        porcentaje: kgBase > 0 ? (diferencia / kgBase) * 100 : 0,
+        causa: 'Exceso de producción',
+        observaciones: `Orden ${item.numero} · Base: ${item.base_nombre} · Produjeron ${Math.abs(diferencia).toFixed(2)} kg más de lo esperado`,
       })
     }
   }

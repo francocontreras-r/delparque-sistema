@@ -314,6 +314,10 @@ export default function Produccion() {
   async function confirmarYRegistrarTodo() {
     if (preCarga.length === 0) return
     setConfirmando(true)
+
+    console.log('Iniciando confirmación, items:', preCarga)
+
+    // 1. Insertar en producciones
     const payload = preCarga.map(({ _id, categoria, ...item }) => ({
       ...item,
       observaciones: item.observaciones?.trim() || null,
@@ -326,55 +330,124 @@ export default function Produccion() {
     }
     const cantidad = preCarga.length
 
-    // Afectar stock de cámaras y registrar movimientos
+    // 2. Agrupar por producto para acumular kg/unidades antes de tocar cámaras
     const sumasPorProducto = {}
     preCarga.forEach(item => {
       const nombre = (item.producto_nombre || '').trim()
       if (!nombre) return
       const key = nombre.toLowerCase()
       const esUnidad = unidadDe(item) === 'u'
-      if (!sumasPorProducto[key]) sumasPorProducto[key] = { nombre, kg: 0, unidades: 0, esUnidad, lote: item.lote, operario: item.operario_nombre }
-      if (esUnidad) {
-        sumasPorProducto[key].unidades += item.peso_kg || 0
-      } else {
-        sumasPorProducto[key].kg += item.peso_kg || 0
+      if (!sumasPorProducto[key]) {
+        sumasPorProducto[key] = {
+          nombre, kg: 0, unidades: 0, esUnidad,
+          lote: item.lote, operario: item.operario_nombre,
+          categoria: item.categoria,
+        }
       }
+      if (esUnidad) sumasPorProducto[key].unidades += item.peso_kg || 0
+      else sumasPorProducto[key].kg += item.peso_kg || 0
     })
+
+    // 3. Actualizar stock_camaras y registrar movimientos (por item)
     let camarasActualizadas = 0
-    for (const prod of Object.values(sumasPorProducto)) {
-      const { nombre, kg: kgProducidos, unidades, esUnidad, lote, operario } = prod
-      const { data: camaras } = await supabase.from('stock_camaras')
-        .select('id,kg,baldes').ilike('nombre', nombre).limit(1)
+    const noEncontrados = []
+
+    for (const item of preCarga) {
+      const nombre = (item.producto_nombre || '').trim()
+      if (!nombre) continue
+      const kgItem = item.peso_kg || 0
+      const esUnidad = unidadDe(item) === 'u'
+
+      // Búsqueda exacta (case-insensitive)
+      let { data: camaras, error: errBusq } = await supabase
+        .from('stock_camaras')
+        .select('id, nombre, kg, baldes')
+        .ilike('nombre', nombre)
+        .limit(1)
+
+      console.log('Búsqueda exacta en cámaras para:', JSON.stringify(nombre),
+        '→ rows:', camaras?.length ?? 0,
+        errBusq ? '| ERROR: ' + errBusq.message : '')
+
+      // Fallback: búsqueda parcial con wildcards
+      if (!camaras || camaras.length === 0) {
+        const { data: camarasFlex, error: errFlex } = await supabase
+          .from('stock_camaras')
+          .select('id, nombre, kg, baldes')
+          .ilike('nombre', `%${nombre}%`)
+          .limit(1)
+        console.log('Búsqueda flexible "%' + nombre + '%" →', camarasFlex, errFlex ? errFlex.message : '')
+        camaras = camarasFlex
+      }
+
       const camara = camaras?.[0]
-      if (!camara) continue
+      console.log('Cámara encontrada:', camara, 'para producto:', nombre)
+
+      if (!camara) {
+        console.log('Producto NO encontrado en cámaras:', nombre, '→ insertando nuevo registro')
+        if (!noEncontrados.includes(nombre)) noEncontrados.push(nombre)
+        const kgNuevo = esUnidad ? 0 : kgItem
+        const baldesNuevo = esUnidad ? 1 : Math.round(kgItem / 7)
+        const { data: nuevo, error: errIns } = await supabase
+          .from('stock_camaras')
+          .insert({ nombre, kg: kgNuevo, baldes: baldesNuevo, operario_nombre: item.operario_nombre || null, ultima_actualizacion: new Date().toISOString() })
+          .select('id, nombre, kg, baldes')
+          .single()
+        console.log('Nuevo registro en cámaras:', nuevo, errIns ? '| ERROR: ' + errIns.message : '')
+        if (!errIns && nuevo) {
+          camarasActualizadas++
+          const { error: errMov } = await supabase.from('movimientos_camara').insert({
+            sabor_nombre: item.producto_nombre || 'Sin nombre',
+            producto_nombre: item.producto_nombre || 'Sin nombre',
+            tipo: 'ingreso',
+            tipo_producto: item.categoria || 'helado',
+            kg: kgItem,
+            baldes: item.categoria === 'helado' ? Math.round(kgItem / 7) : 0,
+            lote: item.lote || null,
+            operario_nombre: item.operario_nombre || null,
+            fecha: new Date().toISOString().split('T')[0],
+            created_at: new Date().toISOString(),
+          })
+          console.log('Movimiento registrado en cámara (nuevo):', errMov ? 'ERROR: ' + errMov.message : 'ok')
+        }
+        continue
+      }
+
       let nuevoKg, nuevosBaldes
       if (esUnidad) {
-        nuevosBaldes = (camara.baldes || 0) + Math.round(unidades)
+        nuevosBaldes = (camara.baldes || 0) + 1
         nuevoKg = camara.kg || 0
       } else {
-        nuevoKg = (camara.kg || 0) + kgProducidos
+        nuevoKg = (camara.kg || 0) + kgItem
         nuevosBaldes = Math.round(nuevoKg / 7)
       }
+      console.log('Stock actualizado:', nuevoKg, 'kg,', nuevosBaldes, 'baldes')
+
       const { error: errCam } = await supabase.from('stock_camaras')
-        .update({ kg: nuevoKg, baldes: nuevosBaldes, updated_at: new Date().toISOString() })
+        .update({ kg: nuevoKg, baldes: nuevosBaldes, operario_nombre: item.operario_nombre, ultima_actualizacion: new Date().toISOString() })
         .eq('id', camara.id)
-      if (!errCam) {
+
+      if (errCam) {
+        console.log('Error al actualizar cámara:', errCam.message)
+      } else {
         camarasActualizadas++
-        await supabase.from('movimientos_camara').insert({
-          producto_nombre: nombre,
+        const { error: errMov } = await supabase.from('movimientos_camara').insert({
+          sabor_nombre: item.producto_nombre || 'Sin nombre',
+          producto_nombre: item.producto_nombre || 'Sin nombre',
           tipo: 'ingreso',
-          tipo_producto: esUnidad ? 'impulsivo' : 'helado',
-          kg: kgProducidos,
-          baldes: esUnidad ? Math.round(unidades) : Math.round(kgProducidos / 7),
-          lote: lote || null,
-          operario_nombre: operario || null,
+          tipo_producto: item.categoria || 'helado',
+          kg: kgItem,
+          baldes: item.categoria === 'helado' ? Math.round(kgItem / 7) : 0,
+          lote: item.lote || null,
+          operario_nombre: item.operario_nombre || null,
           fecha: new Date().toISOString().split('T')[0],
+          created_at: new Date().toISOString(),
         })
+        console.log('Movimiento registrado en cámara:', errMov ? 'ERROR: ' + errMov.message : 'ok')
       }
     }
 
-    // Vincular con órdenes en curso del mismo producto: sumar kg producidos
-    // al avance de la orden y, si llega al 95%, finalizarla automáticamente.
+    // 4. Vincular con órdenes en curso
     const mensajesOrdenes = []
     const mermaErrores = []
     for (const { nombre, kg } of Object.values(sumasPorProducto)) {
@@ -401,13 +474,16 @@ export default function Produccion() {
       .order('created_at', { ascending: false }).limit(50)
     setRegistros(regs || [])
     setConfirmando(false)
-    const sufijoCamaras = camarasActualizadas > 0
-      ? ` · ${camarasActualizadas} producto${camarasActualizadas === 1 ? '' : 's'} actualizado${camarasActualizadas === 1 ? '' : 's'} en cámaras`
-      : ''
-    const sufijoOrdenes = mensajesOrdenes.length > 0 ? ' · ' + mensajesOrdenes.join(' · ') : ''
-    toast2(`${cantidad} registro${cantidad === 1 ? '' : 's'} guardado${cantidad === 1 ? '' : 's'} correctamente${sufijoCamaras}${sufijoOrdenes}`)
+
+    // Toast detallado
+    const partes = [`${cantidad} registro${cantidad === 1 ? '' : 's'} guardado${cantidad === 1 ? '' : 's'}`]
+    if (camarasActualizadas > 0) partes.push(`${camarasActualizadas} stock${camarasActualizadas === 1 ? '' : 's'} de cámara actualizados`)
+    if (noEncontrados.length > 0) partes.push(`Sin match en cámara: ${noEncontrados.join(', ')}`)
+    if (mensajesOrdenes.length > 0) partes.push(...mensajesOrdenes)
+    toast2(partes.join(' · '))
+
     if (mermaErrores.length > 0) {
-      setTimeout(() => toast2(`Error al registrar merma automática: ${mermaErrores.join(' · ')}`, 'error'), 3200)
+      setTimeout(() => toast2(`Error merma: ${mermaErrores.join(' · ')}`, 'error'), 3200)
     }
     setTimeout(() => inputRef.current?.focus(), 100)
   }

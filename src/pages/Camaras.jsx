@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown, FileDown } from 'lucide-react'
+import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown, FileDown, Plus } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -101,7 +101,20 @@ function TarjetaSabor({ item, onClick, showVal }) {
       </p>
       <p className="text-xs mb-2" style={{ color: colors.textMuted }}>{item.kg} kg</p>
       {item.lote && (
-        <p className="text-[10px] font-mono mb-1.5" style={{ color: colors.textMuted }}>Lote: {item.lote}</p>
+        <span className="inline-block text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded mb-1.5"
+          style={{ backgroundColor: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' }}>
+          {item.lote}
+        </span>
+      )}
+      {item.operario_nombre && (
+        <p className="text-[10px] mb-1 truncate" style={{ color: colors.textMuted }}>
+          👤 {item.operario_nombre}
+        </p>
+      )}
+      {item.ultima_actualizacion && (
+        <p className="text-[10px] mb-1.5" style={{ color: colors.textMuted }}>
+          {new Date(item.ultima_actualizacion).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+        </p>
       )}
       {showVal && precioKg && item.kg > 0 && (
         <p className="text-xs font-bold mb-1.5" style={{ color: colors.brand }}>
@@ -138,7 +151,18 @@ function FilaLista({ item, onClick, showVal }) {
           <div>
             <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>{item.nombre}</span>
             {item.lote && (
-              <span className="block text-[10px] font-mono" style={{ color: colors.textMuted }}>Lote: {item.lote}</span>
+              <span className="inline-block text-[10px] font-mono font-semibold px-1 py-px rounded ml-1.5"
+                style={{ backgroundColor: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' }}>
+                {item.lote}
+              </span>
+            )}
+            {item.operario_nombre && (
+              <span className="block text-[10px]" style={{ color: colors.textMuted }}>👤 {item.operario_nombre}</span>
+            )}
+            {item.ultima_actualizacion && (
+              <span className="block text-[10px]" style={{ color: colors.textMuted }}>
+                {new Date(item.ultima_actualizacion).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              </span>
             )}
           </div>
         </div>
@@ -381,6 +405,130 @@ tfoot tr td{border-top:1px solid #cbd5e1;background:#f8fafc}
 </div></body></html>`
 }
 
+// ── Modal detalle producto ────────────────────────────────────────────────────
+
+function ModalDetalleProducto({ item, onClose, onMovimiento }) {
+  const [historial, setHistorial] = useState([])
+  const [loadingH, setLoadingH]   = useState(true)
+  const e  = estadoSabor(item.baldes)
+  const tb = TIPO_BADGE[item.tipo] || { bg: '#f8fafc', color: '#64748b' }
+
+  useEffect(() => {
+    async function cargar() {
+      setLoadingH(true)
+      const { data } = await supabase
+        .from('movimientos_camara')
+        .select('id, tipo, kg, baldes, lote, operario_nombre, created_at, fecha, motivo, sabor_nombre, producto_nombre')
+        .ilike('sabor_nombre', item.nombre)
+        .order('created_at', { ascending: false })
+        .limit(10)
+      setHistorial(data || [])
+      setLoadingH(false)
+    }
+    cargar()
+  }, [item.nombre])
+
+  return (
+    <Modal open onClose={onClose} title={item.nombre} maxWidth="max-w-lg"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} className="flex-1">Cerrar</Button>
+          <Button variant="primary" onClick={() => onMovimiento(item)} className="flex-1">
+            <Plus size={14} /> Registrar movimiento
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {/* Detalle */}
+        <div className="rounded-lg p-4 space-y-3" style={{ backgroundColor: colors.bg }}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-md" style={{ backgroundColor: tb.bg, color: tb.color }}>{item.tipo || '—'}</span>
+            <Badge variant={estadoBadgeVariant(item.baldes)}>{e.label}</Badge>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-xs mb-0.5" style={{ color: colors.textMuted }}>Baldes</p>
+              <p className="text-3xl font-extrabold leading-none" style={{ color: e.dot }}>{item.baldes}</p>
+            </div>
+            <div>
+              <p className="text-xs mb-0.5" style={{ color: colors.textMuted }}>KG</p>
+              <p className="text-xl font-bold" style={{ color: colors.textPrimary }}>{item.kg}</p>
+            </div>
+          </div>
+          {item.lote && (
+            <div>
+              <p className="text-xs mb-0.5" style={{ color: colors.textMuted }}>Lote</p>
+              <span className="inline-block text-xs font-mono font-semibold px-2 py-0.5 rounded"
+                style={{ backgroundColor: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' }}>
+                {item.lote}
+              </span>
+            </div>
+          )}
+          {item.operario_nombre && (
+            <div>
+              <p className="text-xs mb-0.5" style={{ color: colors.textMuted }}>Elaborado por</p>
+              <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>👤 {item.operario_nombre}</p>
+            </div>
+          )}
+          {item.ultima_actualizacion && (
+            <div>
+              <p className="text-xs mb-0.5" style={{ color: colors.textMuted }}>Última actualización</p>
+              <p className="text-xs" style={{ color: colors.textSecondary }}>
+                {new Date(item.ultima_actualizacion).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Historial */}
+        <div>
+          <p className="text-xs font-semibold uppercase mb-2" style={{ color: colors.textMuted }}>Últimos movimientos</p>
+          {loadingH ? (
+            <p className="py-4 text-center text-xs" style={{ color: colors.textMuted }}>Cargando…</p>
+          ) : historial.length === 0 ? (
+            <p className="py-4 text-center text-xs" style={{ color: colors.textMuted }}>Sin movimientos registrados</p>
+          ) : (
+            <div className="overflow-hidden rounded-lg overflow-x-auto" style={{ border: `1px solid ${colors.border}` }}>
+              <table className="w-full min-w-[420px]">
+                <thead>
+                  <tr style={{ backgroundColor: '#fafafa', borderBottom: `1px solid ${colors.border}` }}>
+                    {['Fecha/Hora', 'Tipo', 'KG', 'Baldes', 'Lote', 'Operario'].map(h => (
+                      <th key={h} className="py-2 px-3 text-left font-semibold uppercase"
+                        style={{ fontSize: 9, color: colors.textMuted, letterSpacing: '0.07em' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {historial.map(m => (
+                    <tr key={m.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      <td className="py-2 px-3 text-xs whitespace-nowrap" style={{ color: colors.textMuted }}>
+                        {m.created_at
+                          ? new Date(m.created_at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                          : m.fecha || '—'}
+                      </td>
+                      <td className="py-2 px-3">
+                        <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full"
+                          style={{ backgroundColor: m.tipo === 'ingreso' ? '#dcfce7' : '#fee2e2', color: m.tipo === 'ingreso' ? '#16a34a' : '#dc2626' }}>
+                          {m.tipo === 'ingreso' ? '🟢' : '🔴'} {m.tipo}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 text-xs font-semibold" style={{ color: colors.brand }}>{(m.kg || 0).toFixed(3)}</td>
+                      <td className="py-2 px-3 text-xs">{m.baldes || 0}</td>
+                      <td className="py-2 px-3 text-xs font-mono" style={{ color: colors.textMuted }}>{m.lote || '—'}</td>
+                      <td className="py-2 px-3 text-xs" style={{ color: colors.textSecondary }}>{m.operario_nombre || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 // ── Página principal ──────────────────────────────────────────────────────────
 
 export default function Camaras() {
@@ -395,6 +543,7 @@ export default function Camaras() {
   const [orden, setOrden]               = useState('az')
   const [vista, setVista]               = useState('grilla')
   const [modalItem, setModalItem]       = useState(null)
+  const [modalDetalle, setModalDetalle] = useState(null)
   const [userRole, setUserRole]         = useState('operario')
 
   const [tabCamara, setTabCamara]       = useState('stock')
@@ -426,7 +575,9 @@ export default function Camaras() {
 
   async function cargarMovimientos() {
     setLoadingMovs(true)
-    let q = supabase.from('movimientos_camara').select('*').order('created_at', { ascending: false }).limit(500)
+    let q = supabase.from('movimientos_camara')
+      .select('id, sabor_nombre, producto_nombre, tipo, kg, baldes, lote, operario_nombre, tipo_producto, motivo, created_at, fecha')
+      .order('created_at', { ascending: false }).limit(500)
     if (filtroMovFecha) q = q.eq('fecha', filtroMovFecha)
     if (filtroMovTipo) q = q.eq('tipo_producto', filtroMovTipo)
     const { data } = await q
@@ -445,15 +596,16 @@ export default function Camaras() {
     const kgEgr = movimientos.filter(m => m.tipo === 'egreso').reduce((a, m) => a + (m.kg || 0), 0)
     autoTable(doc, {
       startY: 20,
-      head: [['Hora', 'Producto', 'Tipo', 'KG', 'Baldes', 'Lote', 'Operario']],
+      head: [['Hora', 'Producto', 'Tipo', 'KG', 'Baldes', 'Lote', 'Operario', 'Motivo']],
       body: movimientos.map(m => [
         m.created_at ? new Date(m.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '—',
-        m.producto_nombre || '—',
-        m.tipo === 'ingreso' ? 'Ingreso' : 'Egreso',
+        m.sabor_nombre || m.producto_nombre || '—',
+        m.tipo === 'ingreso' ? '↑ Ingreso' : '↓ Egreso',
         (m.kg || 0).toFixed(1),
         m.baldes || 0,
         m.lote || '—',
         m.operario_nombre || '—',
+        m.motivo || '—',
       ]),
       styles: { fontSize: 8, cellPadding: 1.5 },
       headStyles: { fillColor: [212, 82, 26], textColor: 255 },
@@ -522,7 +674,9 @@ export default function Camaras() {
       .update({ baldes: nuevoBaldes, kg: nuevosKg, lote: nuevoLote, updated_at: new Date().toISOString() })
       .eq('id', id)
     if (error) return error.message
-    setStock(prev => prev.map(s => s.id === id ? { ...s, baldes: nuevoBaldes, kg: nuevosKg, lote: nuevoLote } : s))
+    const updated = { ...sabor, baldes: nuevoBaldes, kg: nuevosKg, lote: nuevoLote }
+    setStock(prev => prev.map(s => s.id === id ? updated : s))
+    setModalDetalle(prev => prev?.id === id ? updated : prev)
     setModalItem(null)
     mostrarToast('Movimiento guardado')
     return null
@@ -630,7 +784,7 @@ export default function Camaras() {
                 <table className="w-full min-w-[680px]">
                   <thead>
                     <tr style={{ backgroundColor: '#fafafa', borderBottom: `1px solid ${colors.border}` }}>
-                      {['Hora', 'Producto', 'Tipo', 'KG', 'Baldes', 'Lote', 'Operario'].map(h => (
+                      {['Hora', 'Producto', 'Tipo', 'KG', 'Baldes', 'Lote', 'Operario', 'Motivo'].map(h => (
                         <th key={h} className="py-2.5 px-4 text-left font-semibold uppercase"
                           style={{ fontSize: 10, color: colors.textMuted, letterSpacing: '0.07em' }}>{h}</th>
                       ))}
@@ -642,7 +796,7 @@ export default function Camaras() {
                         <td className="py-2.5 px-4 text-xs whitespace-nowrap" style={{ color: colors.textMuted }}>
                           {m.created_at ? new Date(m.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '—'}
                         </td>
-                        <td className="py-2.5 px-4 text-sm font-medium" style={{ color: colors.textPrimary }}>{m.producto_nombre}</td>
+                        <td className="py-2.5 px-4 text-sm font-medium" style={{ color: colors.textPrimary }}>{m.sabor_nombre || m.producto_nombre}</td>
                         <td className="py-2.5 px-4">
                           <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
                             style={{
@@ -658,6 +812,7 @@ export default function Camaras() {
                         <td className="py-2.5 px-4 text-sm text-right">{m.baldes || 0}</td>
                         <td className="py-2.5 px-4 text-xs font-mono" style={{ color: colors.textMuted }}>{m.lote || '—'}</td>
                         <td className="py-2.5 px-4 text-xs" style={{ color: colors.textSecondary }}>{m.operario_nombre || '—'}</td>
+                        <td className="py-2.5 px-4 text-xs" style={{ color: colors.textMuted }}>{m.motivo || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -788,7 +943,7 @@ export default function Camaras() {
           {loading
             ? Array.from({ length: 18 }).map((_, i) => <SkeletonCard key={i} />)
             : filtrado.map(item => (
-                <TarjetaSabor key={item.id} item={item} onClick={setModalItem} showVal={showVal} />
+                <TarjetaSabor key={item.id} item={item} onClick={setModalDetalle} showVal={showVal} />
               ))
           }
         </div>
@@ -802,7 +957,7 @@ export default function Camaras() {
             ))}</div>
           : <div>
               {agrupado.map(({ tipo, items }) => (
-                <GrupoLista key={tipo} tipo={tipo} items={items} onSelect={setModalItem} showVal={showVal} />
+                <GrupoLista key={tipo} tipo={tipo} items={items} onSelect={setModalDetalle} showVal={showVal} />
               ))}
             </div>
       )}
@@ -810,6 +965,13 @@ export default function Camaras() {
       </>}
 
       {/* Modal */}
+      {modalDetalle && (
+        <ModalDetalleProducto
+          item={modalDetalle}
+          onClose={() => setModalDetalle(null)}
+          onMovimiento={item => setModalItem(item)}
+        />
+      )}
       {modalItem && (
         <ModalMovimiento item={modalItem} onClose={() => setModalItem(null)} onApply={aplicarMovimiento} />
       )}

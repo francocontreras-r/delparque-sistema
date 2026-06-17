@@ -116,7 +116,7 @@ export default function Dashboard() {
       supabase.from('insumos').select('*'),
       supabase.from('stock_camaras').select('*'),
       supabase.from('movimientos_deposito').select('*').eq('fecha', hoy).order('created_at', { ascending: false }),
-      supabase.from('stock_bases').select('*').gt('kg_disponible', 0).order('fecha', { ascending: false }),
+      supabase.from('stock_bases').select('*').gte('kg_disponible', 0).order('fecha', { ascending: false }),
     ])
 
     setProducciones(prods || [])
@@ -428,26 +428,30 @@ export default function Dashboard() {
               <div className="px-4 pb-4 space-y-3">
                 {stockBases.map(b => {
                   const pct = b.kg_original > 0 ? (b.kg_disponible / b.kg_original) * 100 : 100
-                  const bajo = pct < 20
+                  const agotada = b.kg_disponible === 0
+                  const bajo = !agotada && pct < 20
+                  const barColor = agotada ? colors.danger : bajo ? colors.warning : colors.success
                   return (
                     <div key={b.id}>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>{b.base_nombre}</span>
+                        <span className="text-sm font-medium" style={{ color: agotada ? colors.danger : colors.textPrimary }}>{b.base_nombre}</span>
                         <div className="flex items-center gap-2">
-                          {bajo && <Badge variant="warning">⚠ Poco stock</Badge>}
-                          <span className="text-sm font-bold" style={{ color: bajo ? colors.warning : colors.brand }}>
+                          {agotada && <Badge variant="danger">🔴 Base agotada</Badge>}
+                          {bajo    && <Badge variant="warning">⚠ Poco stock</Badge>}
+                          <span className="text-sm font-bold" style={{ color: agotada ? colors.danger : bajo ? colors.warning : colors.brand }}>
                             {fmtNum(b.kg_disponible)} kg
                           </span>
                         </div>
                       </div>
                       <div className="h-2 w-full rounded-full overflow-hidden" style={{ backgroundColor: colors.border }}>
                         <div className="h-full rounded-full transition-all" style={{
-                          width: `${Math.min(100, pct)}%`,
-                          backgroundColor: bajo ? colors.warning : colors.success,
+                          width: agotada ? '100%' : `${Math.min(100, pct)}%`,
+                          backgroundColor: barColor,
+                          opacity: agotada ? 0.3 : 1,
                         }} />
                       </div>
                       <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
-                        {fmtNum(b.kg_disponible)} / {fmtNum(b.kg_original)} kg · {pct.toFixed(0)}% disponible
+                        {fmtNum(b.kg_disponible)} / {fmtNum(b.kg_original)} kg · {agotada ? '0' : pct.toFixed(0)}% disponible
                         {b.operario_nombre ? ` · ${b.operario_nombre}` : ''}
                       </p>
                     </div>

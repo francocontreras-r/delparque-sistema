@@ -33,12 +33,13 @@ const CATS_FILTRO_BASE = ['TODOS', 'BOLSAS', 'CUCURUCHOS', 'LIMPIEZA', 'REVENTA'
 const TODAS_LAS_CATS = ['BOLSAS', 'CUCURUCHOS', 'LIMPIEZA', 'REVENTA', 'TERMICOS', 'LÁCTEOS', 'AZÚCARES', 'CHOCOLATES', 'PASTAS', 'FRUTAS', 'VARIEGATOS', 'OTROS']
 
 function motivosPorCategoria(categoria) {
-  if (categoria === 'REVENTA') return ['Venta a cliente', 'Venta por mayor', 'Muestra', 'Baja por daño']
-  if (categoria === 'LIMPIEZA') return ['Uso interno', 'Limpieza equipos', 'Limpieza instalaciones', 'Baja']
+  if (categoria === 'REVENTA') return ['Venta a cliente', 'Venta por mayor', 'Muestra', 'Baja por daño', 'Ajuste de inventario']
+  if (categoria === 'LIMPIEZA') return ['Uso interno', 'Limpieza equipos', 'Limpieza instalaciones', 'Baja', 'Ajuste de inventario']
   if (['TERMICOS', 'BOLSAS', 'CUCURUCHOS'].includes(categoria))
-    return ['Uso en producción', 'Entrega a operario', 'Baja por daño']
-  return ['Uso en producción', 'Merma', 'Vencimiento', 'Devolución']
+    return ['Uso en producción', 'Entrega a operario', 'Baja por daño', 'Ajuste de inventario']
+  return ['Uso en producción', 'Merma', 'Vencimiento', 'Devolución', 'Ajuste de inventario']
 }
+const MOTIVOS_INGRESO_DEPOSITO = ['Normal', 'Ajuste de inventario', 'Devolución de proveedor']
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const SEM = { verde: colors.success, amarillo: colors.warning, rojo: colors.danger, gris: colors.textMuted }
 
@@ -226,13 +227,13 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
           <p className="text-sm font-semibold" style={{ color: colors.textSecondary }}>
             Revisá el resumen antes de confirmar:
           </p>
-          <div className="rounded-xl p-4 space-y-2.5" style={{ backgroundColor: '#fff7ed', border: '1px solid #fed7aa' }}>
+          <div className="rounded-xl p-4 space-y-2.5" style={{ backgroundColor: 'rgba(212,82,26,0.1)', border: `1px solid ${colors.brand}40` }}>
             <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>
               {esIngreso ? '↑ Ingreso:' : '↓ Egreso:'} {form.cantidad} {form.presentacion.toLowerCase()}{parseFloat(form.cantidad) !== 1 ? 's' : ''} de <b>{form.producto_nombre}</b>
               {form.marca ? ` (${form.marca})` : ''}
             </p>
             {pesoTotal > 0 && (
-              <p className="text-sm" style={{ color: '#c2410c' }}>
+              <p className="text-sm" style={{ color: colors.brand }}>
                 Peso total: <b>{pesoTotal.toFixed(2)} kg</b>
                 <span className="text-xs ml-1" style={{ color: colors.textMuted }}>({form.cantidad} × {pesoPorUnidad} kg/u)</span>
               </p>
@@ -247,7 +248,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
               {form.controlo && <p>Controló: <b>{form.controlo}</b></p>}
             </div>
             {precioUnitario > 0 && (
-              <p className="text-xs font-semibold pt-1" style={{ borderTop: '1px solid #fed7aa', color: '#92400e' }}>
+              <p className="text-xs font-semibold pt-1" style={{ borderTop: `1px solid ${colors.brand}40`, color: colors.brand }}>
                 Precio: ${pesos(precioUnitario)}/u
                 {cantidad > 0 && ` = $${pesos(precioUnitario * cantidad)} total`}
               </p>
@@ -317,7 +318,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
                   style={{ backgroundColor: colors.surface, borderColor: colors.border }}>
                   {marcasSugeridas.map(b => (
                     <button key={b} onMouseDown={() => { upd('marca', b); setShowMarcaAC(false) }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b last:border-0 transition-colors"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-[#334155] border-b last:border-0 transition-colors"
                       style={{ borderColor: colors.border, color: colors.textPrimary }}>
                       {b}
                     </button>
@@ -341,16 +342,16 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
 
           {/* Peso por unidad — solo cuando unidad='u' */}
           {form.unidad === 'u' && (
-            <div className="rounded-lg p-3 space-y-2" style={{ backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' }}>
+            <div className="rounded-lg p-3 space-y-2" style={{ backgroundColor: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.25)' }}>
               <Input label="Peso por unidad (kg) — opcional" type="number" min="0" step="0.001"
                 value={form.peso_por_unidad}
                 onChange={e => upd('peso_por_unidad', e.target.value)}
                 placeholder="ej: 4.6"
               />
               {pesoTotal > 0 && (
-                <p className="text-sm font-semibold" style={{ color: '#1d4ed8' }}>
+                <p className="text-sm font-semibold" style={{ color: colors.info }}>
                   Peso total: {pesoTotal.toFixed(2)} kg
-                  <span className="text-xs font-normal ml-1.5" style={{ color: '#3b82f6' }}>
+                  <span className="text-xs font-normal ml-1.5" style={{ color: colors.info }}>
                     ({form.cantidad} u × {pesoPorUnidad} kg)
                   </span>
                 </p>
@@ -370,7 +371,13 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
           </Select>
 
           {esIngreso ? (
-            <Input label="Proveedor *" type="text" value={form.proveedor} onChange={e => upd('proveedor', e.target.value)} />
+            <div className="space-y-3">
+              <Input label="Proveedor *" type="text" value={form.proveedor} onChange={e => upd('proveedor', e.target.value)} />
+              <Select label="Tipo de ingreso" value={form.motivo} onChange={e => upd('motivo', e.target.value)}>
+                <option value="">Normal</option>
+                {MOTIVOS_INGRESO_DEPOSITO.slice(1).map(m => <option key={m}>{m}</option>)}
+              </Select>
+            </div>
           ) : (
             <div className="space-y-3">
               {/* Motivo — siempre visible en egreso */}
@@ -1152,7 +1159,32 @@ export default function Deposito() {
     agotados: stockCamaras.filter(c => (c.kg || 0) === 0).length,
     bajos:    stockCamaras.filter(c => (c.kg || 0) > 0 && (c.baldes || 0) <= 3).length,
     totalKg:  stockCamaras.reduce((a, c) => a + (c.kg || 0), 0),
+    totalU:   stockCamaras.filter(c => (c.tipo_producto || '') === 'impulsivo').reduce((a, c) => a + (c.baldes || 0), 0),
+    totalBaldes: stockCamaras.filter(c => (c.tipo_producto || '') !== 'impulsivo').reduce((a, c) => a + (c.baldes || 0), 0),
   }), [stockCamaras])
+
+  // Movimientos de cámara agrupados por producto para el período de CS
+  const statsCamaraCS = useMemo(() => {
+    if (!rangoCS.desde || !rangoCS.hasta) return {}
+    const filtrados = movsCamara.filter(m => {
+      const fecha = (m.created_at || '').slice(0, 10) || m.fecha || ''
+      return fecha >= rangoCS.desde && fecha <= rangoCS.hasta
+    })
+    const byNombre = {}
+    filtrados.forEach(m => {
+      const nom = (m.sabor_nombre || m.producto_nombre || '').trim().toLowerCase()
+      if (!nom) return
+      if (!byNombre[nom]) byNombre[nom] = { ingresosKg: 0, egresosKg: 0, ingresosU: 0, egresosU: 0 }
+      if (m.tipo === 'ingreso') {
+        byNombre[nom].ingresosKg += m.kg || 0
+        byNombre[nom].ingresosU  += m.baldes || 0
+      } else {
+        byNombre[nom].egresosKg  += m.kg || 0
+        byNombre[nom].egresosU   += m.baldes || 0
+      }
+    })
+    return byNombre
+  }, [movsCamara, rangoCS])
 
   function estadoCamara(c) {
     if ((c.kg || 0) === 0) return 'AGOTADO'
@@ -2278,8 +2310,8 @@ export default function Deposito() {
                     <Table className="min-w-[900px]">
                       <Thead>
                         <Tr>
-                          <Th>PRODUCTO</Th><Th>TIPO</Th><Th>STOCK (KG)</Th><Th>BALDES</Th>
-                          <Th>LOTE</Th><Th>ÚLTIMA ELABORACIÓN</Th><Th>OPERARIO</Th><Th>ESTADO</Th>
+                          <Th>PRODUCTO</Th><Th>TIPO</Th><Th>STOCK KG</Th><Th>BALDES/U.</Th>
+                          <Th>ING. PER.</Th><Th>EGR. PER.</Th><Th>LOTE</Th><Th>ESTADO</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
@@ -2289,6 +2321,8 @@ export default function Deposito() {
                         }).map(c => {
                           const est = estadoCamara(c)
                           const rowBg = est === 'AGOTADO' ? 'rgba(239,68,68,0.08)' : est === 'BAJO' ? 'rgba(245,158,11,0.08)' : 'transparent'
+                          const esImpC = (c.tipo_producto || '') === 'impulsivo'
+                          const statsRow = statsCamaraCS[(c.nombre || '').trim().toLowerCase()] || {}
                           const movsProd = movsCamara.filter(m => {
                             const sn = (m.sabor_nombre || m.producto_nombre || '').trim().toLowerCase()
                             return sn === (c.nombre || '').trim().toLowerCase()
@@ -2306,17 +2340,23 @@ export default function Deposito() {
                                   {c.tipo_producto ? c.tipo_producto.charAt(0).toUpperCase() + c.tipo_producto.slice(1) : '—'}
                                 </Badge>
                               </Td>
-                              <Td className="text-right font-semibold">{(c.kg || 0).toFixed(1)} kg</Td>
-                              <Td className="text-right">{c.baldes || 0}</Td>
+                              <Td className="text-right font-semibold">{esImpC ? '—' : `${(c.kg || 0).toFixed(1)} kg`}</Td>
+                              <Td className="text-right">{c.baldes || 0}{esImpC ? ' u.' : ' bal.'}</Td>
+                              <Td className="text-right text-xs" style={{ color: colors.success }}>
+                                {esImpC
+                                  ? (statsRow.ingresosU || 0) > 0 ? `+${statsRow.ingresosU} u.` : '—'
+                                  : (statsRow.ingresosKg || 0) > 0 ? `+${(statsRow.ingresosKg).toFixed(1)} kg` : '—'}
+                              </Td>
+                              <Td className="text-right text-xs" style={{ color: colors.danger }}>
+                                {esImpC
+                                  ? (statsRow.egresosU || 0) > 0 ? `-${statsRow.egresosU} u.` : '—'
+                                  : (statsRow.egresosKg || 0) > 0 ? `-${(statsRow.egresosKg).toFixed(1)} kg` : '—'}
+                              </Td>
                               <Td>
                                 {c.lote
-                                  ? <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: '#fff7ed', color: '#c2410c' }}>{c.lote}</span>
+                                  ? <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: 'rgba(212,82,26,0.15)', color: colors.brand }}>{c.lote}</span>
                                   : <span style={{ color: colors.textMuted }}>—</span>}
                               </Td>
-                              <Td className="text-xs whitespace-nowrap" style={{ color: colors.textMuted }}>
-                                {c.ultima_actualizacion ? fmtFechaHora(c.ultima_actualizacion) : fmtFechaHora(c.updated_at)}
-                              </Td>
-                              <Td className="text-xs" style={{ color: colors.textSecondary }}>{c.operario_nombre || '—'}</Td>
                               <Td>
                                 <Badge variant={est === 'AGOTADO' ? 'danger' : est === 'BAJO' ? 'warning' : 'success'}>
                                   {est === 'AGOTADO' ? '🔴 AGOTADO' : est === 'BAJO' ? '🟡 BAJO' : '🟢 OK'}

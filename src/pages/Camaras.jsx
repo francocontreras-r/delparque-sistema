@@ -21,22 +21,20 @@ const TIPO_PRECIOS = {
 }
 const TIPOS = ['Todos', 'Lisa', 'Con Agregado', 'Agua', 'Especial']
 const TIPO_BADGE = {
-  Lisa:           { bg: '#eff6ff', color: '#1d4ed8' },
-  'Con Agregado': { bg: '#f5f3ff', color: '#6d28d9' },
-  Agua:           { bg: '#ecfeff', color: '#0e7490' },
-  Especial:       { bg: '#fff7ed', color: '#c2410c' },
-  Impulsivo:      { bg: '#fdf4ff', color: '#a21caf' },
-  Postre:         { bg: '#fef9c3', color: '#854d0e' },
+  Lisa:           { bg: 'rgba(96,165,250,0.12)',  color: '#60A5FA' },
+  'Con Agregado': { bg: 'rgba(139,92,246,0.12)',  color: '#A78BFA' },
+  Agua:           { bg: 'rgba(34,211,238,0.12)',  color: '#22D3EE' },
+  Especial:       { bg: 'rgba(212,82,26,0.12)',   color: '#D4521A' },
+  Impulsivo:      { bg: 'rgba(245,158,11,0.12)',  color: '#F59E0B' },
+  Postre:         { bg: 'rgba(250,204,21,0.12)',  color: '#EAB308' },
 }
 const TIPOS_PRODUCTO = [
   { key: 'helado',    label: 'Helados' },
   { key: 'impulsivo', label: 'Impulsivos' },
   { key: 'postre',    label: 'Postres' },
 ]
-const MOTIVOS_EGRESO = [
-  'Venta mostrador', 'Venta mayorista', 'Transferencia',
-  'Degustación', 'Merma', 'Consumo interno',
-]
+const MOTIVOS_INGRESO_CAMARA = ['Producción', 'Ajuste de inventario', 'Transferencia']
+const MOTIVOS_EGRESO_CAMARA  = ['Venta', 'Ajuste de inventario', 'Merma', 'Transferencia', 'Baja']
 const ROLES = ['operario', 'admin']
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -60,9 +58,9 @@ function pesos(n) { return Math.round(n).toLocaleString('es-AR') }
 function SkeletonCard() {
   return (
     <div className="animate-pulse" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, padding: '14px', borderLeft: `4px solid ${colors.border}` }}>
-      <div className="h-2.5 w-3/4 rounded mb-3" style={{ backgroundColor: '#f1f5f9' }} />
-      <div className="h-7 w-1/3 rounded mb-2" style={{ backgroundColor: '#f1f5f9' }} />
-      <div className="h-2 w-1/2 rounded" style={{ backgroundColor: '#f1f5f9' }} />
+      <div className="h-2.5 w-3/4 rounded mb-3" style={{ backgroundColor: colors.border }} />
+      <div className="h-7 w-1/3 rounded mb-2" style={{ backgroundColor: colors.border }} />
+      <div className="h-2 w-1/2 rounded" style={{ backgroundColor: colors.border }} />
     </div>
   )
 }
@@ -70,8 +68,9 @@ function SkeletonCard() {
 // ── Tarjeta grilla ────────────────────────────────────────────────────────────
 
 function TarjetaSabor({ item, onClick, showVal }) {
-  const e  = estadoSabor(item.baldes)
-  const tb = TIPO_BADGE[item.tipo] || { bg: '#f8fafc', color: '#64748b' }
+  const e    = estadoSabor(item.baldes)
+  const tb   = TIPO_BADGE[item.tipo] || { bg: 'rgba(100,116,139,0.12)', color: '#94A3B8' }
+  const esImp = (item.tipo_producto || '') === 'impulsivo'
   const precioKg = item.precio_kg || TIPO_PRECIOS[item.tipo]?.precio_kg
   const [hov, setHov] = useState(false)
 
@@ -99,10 +98,12 @@ function TarjetaSabor({ item, onClick, showVal }) {
       <p className="text-2xl font-extrabold leading-none mb-1" style={{ color: e.dot }}>
         {item.baldes}
       </p>
-      <p className="text-xs mb-2" style={{ color: colors.textMuted }}>{item.kg} kg</p>
+      {esImp
+        ? <p className="text-xs mb-2" style={{ color: colors.textMuted }}>unidades</p>
+        : <p className="text-xs mb-2" style={{ color: colors.textMuted }}>{item.kg} kg</p>}
       {item.lote && (
         <span className="inline-block text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded mb-1.5"
-          style={{ backgroundColor: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' }}>
+          style={{ backgroundColor: 'rgba(212,82,26,0.15)', color: colors.brand, border: '1px solid rgba(212,82,26,0.3)' }}>
           {item.lote}
         </span>
       )}
@@ -116,7 +117,7 @@ function TarjetaSabor({ item, onClick, showVal }) {
           {new Date(item.ultima_actualizacion).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
         </p>
       )}
-      {showVal && precioKg && item.kg > 0 && (
+      {showVal && !esImp && precioKg && item.kg > 0 && (
         <p className="text-xs font-bold mb-1.5" style={{ color: colors.brand }}>
           ${pesos(item.kg * precioKg)}
         </p>
@@ -124,7 +125,7 @@ function TarjetaSabor({ item, onClick, showVal }) {
       <div className="flex items-center gap-1 flex-wrap">
         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md inline-block"
           style={{ backgroundColor: tb.bg, color: tb.color }}>
-          {item.tipo}
+          {item.tipo || item.tipo_producto}
         </span>
         <Badge variant={estadoBadgeVariant(item.baldes)} className="!text-[10px] !px-1.5 !py-0.5">{e.label}</Badge>
       </div>
@@ -134,7 +135,7 @@ function TarjetaSabor({ item, onClick, showVal }) {
 
 // ── Fila tabla lista ──────────────────────────────────────────────────────────
 
-function FilaLista({ item, onClick, showVal }) {
+function FilaLista({ item, onClick, showVal, esImpGrupo }) {
   const e = estadoSabor(item.baldes)
   const precioKg = item.precio_kg || TIPO_PRECIOS[item.tipo]?.precio_kg
   return (
@@ -152,7 +153,7 @@ function FilaLista({ item, onClick, showVal }) {
             <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>{item.nombre}</span>
             {item.lote && (
               <span className="inline-block text-[10px] font-mono font-semibold px-1 py-px rounded ml-1.5"
-                style={{ backgroundColor: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' }}>
+                style={{ backgroundColor: 'rgba(212,82,26,0.15)', color: colors.brand, border: '1px solid rgba(212,82,26,0.3)' }}>
                 {item.lote}
               </span>
             )}
@@ -168,10 +169,14 @@ function FilaLista({ item, onClick, showVal }) {
         </div>
       </td>
       <td className="py-3 px-4">
-        <span className="text-base font-bold" style={{ color: e.dot }}>{item.baldes}</span>
+        <span className="text-base font-bold" style={{ color: e.dot }}>
+          {item.baldes}{esImpGrupo ? ' u.' : ''}
+        </span>
       </td>
-      <td className="py-3 px-4 text-sm" style={{ color: colors.textMuted }}>{item.kg} kg</td>
-      {showVal && (
+      {!esImpGrupo && (
+        <td className="py-3 px-4 text-sm" style={{ color: colors.textMuted }}>{item.kg} kg</td>
+      )}
+      {showVal && !esImpGrupo && (
         <td className="py-3 px-4 text-sm font-semibold" style={{ color: colors.brand }}>
           {precioKg && item.kg > 0 ? `$${pesos(item.kg * precioKg)}` : '—'}
         </td>
@@ -186,19 +191,23 @@ function FilaLista({ item, onClick, showVal }) {
 // ── Grupo lista ───────────────────────────────────────────────────────────────
 
 function GrupoLista({ tipo, items, onSelect, showVal }) {
-  const tb = TIPO_BADGE[tipo] || { bg: '#f8fafc', color: '#64748b' }
+  const tb        = TIPO_BADGE[tipo] || { bg: 'rgba(100,116,139,0.12)', color: '#94A3B8' }
+  const esImpGrupo = items[0]?.tipo_producto === 'impulsivo'
   const totalBaldes = items.reduce((a, s) => a + s.baldes, 0)
   const totalKg     = items.reduce((a, s) => a + s.kg, 0)
+  const cols = ['Sabor', esImpGrupo ? 'Unidades' : 'Baldes', !esImpGrupo && 'KG', showVal && !esImpGrupo && 'Valor venta', 'Estado'].filter(Boolean)
   return (
     <div className="mb-4 overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
       <div className="flex items-center justify-between px-4 py-3" style={{ backgroundColor: tb.bg, borderBottom: `1px solid ${colors.border}` }}>
         <span className="text-xs font-bold uppercase tracking-wider" style={{ color: tb.color }}>{tipo}</span>
-        <span className="text-xs font-semibold" style={{ color: tb.color }}>{totalBaldes} baldes · {totalKg} kg</span>
+        <span className="text-xs font-semibold" style={{ color: tb.color }}>
+          {esImpGrupo ? `${totalBaldes} unidades` : `${totalBaldes} baldes · ${totalKg} kg`}
+        </span>
       </div>
       <table className="w-full">
         <thead>
-          <tr style={{ backgroundColor: '#fafafa', borderBottom: `1px solid ${colors.border}` }}>
-            {['Sabor', 'Baldes', 'KG', showVal && 'Valor venta', 'Estado'].filter(Boolean).map(h => (
+          <tr style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+            {cols.map(h => (
               <th key={h} className="py-2 px-4 text-left font-semibold uppercase"
                 style={{ fontSize: 10, color: colors.textMuted, letterSpacing: '0.07em' }}>
                 {h}
@@ -208,7 +217,7 @@ function GrupoLista({ tipo, items, onSelect, showVal }) {
         </thead>
         <tbody>
           {items.map(item => (
-            <FilaLista key={item.id} item={item} onClick={onSelect} showVal={showVal} />
+            <FilaLista key={item.id} item={item} onClick={onSelect} showVal={showVal} esImpGrupo={esImpGrupo} />
           ))}
         </tbody>
       </table>
@@ -222,12 +231,17 @@ function ModalMovimiento({ item, onClose, onApply }) {
   const [tipoMov, setTipoMov]       = useState('ingreso')
   const [cantBaldes, setCantBaldes] = useState('')
   const [cantKg, setCantKg]         = useState('')
-  const [motivo, setMotivo]         = useState(MOTIVOS_EGRESO[0])
+  const [motivo, setMotivo]         = useState(MOTIVOS_INGRESO_CAMARA[0])
   const [lote, setLote]             = useState(item.lote || '')
   const [saving, setSaving]         = useState(false)
   const [errorMsg, setErrorMsg]     = useState(null)
 
+  const esImp = (item?.tipo_producto || '') === 'impulsivo'
   const e = estadoSabor(item.baldes)
+
+  useEffect(() => {
+    setMotivo(tipoMov === 'ingreso' ? MOTIVOS_INGRESO_CAMARA[0] : MOTIVOS_EGRESO_CAMARA[0])
+  }, [tipoMov])
 
   async function handleApply() {
     const b = parseInt(cantBaldes)
@@ -268,7 +282,9 @@ function ModalMovimiento({ item, onClose, onApply }) {
           <span className="text-sm" style={{ color: colors.textSecondary }}>Stock actual</span>
           <div className="text-right">
             <span className="text-xl font-extrabold" style={{ color: e.dot }}>{item.baldes}</span>
-            <span className="text-xs ml-1.5" style={{ color: colors.textMuted }}>baldes · {item.kg} kg</span>
+            <span className="text-xs ml-1.5" style={{ color: colors.textMuted }}>
+              {esImp ? 'unidades' : `baldes · ${item.kg} kg`}
+            </span>
           </div>
         </div>
 
@@ -293,21 +309,21 @@ function ModalMovimiento({ item, onClose, onApply }) {
         </div>
 
         {/* Inputs */}
-        <div className="flex gap-3">
-          <Input label="Baldes" type="number" min="1" value={cantBaldes} disabled={saving}
+        <div className={esImp ? '' : 'flex gap-3'}>
+          <Input label={esImp ? 'Unidades' : 'Baldes'} type="number" min="1" value={cantBaldes} disabled={saving}
             onChange={ev => setCantBaldes(ev.target.value)} placeholder="0" />
-          <Input label="KG" type="number" min="0" step="0.1" value={cantKg} disabled={saving}
-            onChange={ev => setCantKg(ev.target.value)} placeholder="0" />
+          {!esImp && (
+            <Input label="KG" type="number" min="0" step="0.1" value={cantKg} disabled={saving}
+              onChange={ev => setCantKg(ev.target.value)} placeholder="0" />
+          )}
         </div>
 
         <Input label="Número de lote" type="text" value={lote} disabled={saving}
           onChange={ev => setLote(ev.target.value)} placeholder="Opcional" />
 
-        {tipoMov === 'egreso' && (
-          <Select label="Motivo" value={motivo} onChange={ev => setMotivo(ev.target.value)} disabled={saving}>
-            {MOTIVOS_EGRESO.map(m => <option key={m}>{m}</option>)}
-          </Select>
-        )}
+        <Select label="Motivo" value={motivo} onChange={ev => setMotivo(ev.target.value)} disabled={saving}>
+          {(tipoMov === 'ingreso' ? MOTIVOS_INGRESO_CAMARA : MOTIVOS_EGRESO_CAMARA).map(m => <option key={m}>{m}</option>)}
+        </Select>
 
         {cantBaldes && parseInt(cantBaldes) > 0 && (
           <div className="rounded-lg px-4 py-3 text-sm font-semibold text-center"
@@ -320,7 +336,7 @@ function ModalMovimiento({ item, onClose, onApply }) {
               {tipoMov === 'ingreso'
                 ? item.baldes + parseInt(cantBaldes)
                 : Math.max(0, item.baldes - parseInt(cantBaldes))}
-            </strong> baldes
+            </strong> {esImp ? 'unidades' : 'baldes'}
           </div>
         )}
 
@@ -410,19 +426,30 @@ tfoot tr td{border-top:1px solid #cbd5e1;background:#f8fafc}
 function ModalDetalleProducto({ item, onClose, onMovimiento }) {
   const [historial, setHistorial] = useState([])
   const [loadingH, setLoadingH]   = useState(true)
+  const [lotes, setLotes]         = useState([])
+  const esImp = (item?.tipo_producto || '') === 'impulsivo'
   const e  = estadoSabor(item.baldes)
-  const tb = TIPO_BADGE[item.tipo] || { bg: '#f8fafc', color: '#64748b' }
+  const tb = TIPO_BADGE[item.tipo] || { bg: 'rgba(100,116,139,0.12)', color: '#94A3B8' }
 
   useEffect(() => {
     async function cargar() {
       setLoadingH(true)
-      const { data } = await supabase
-        .from('movimientos_camara')
-        .select('id, tipo, kg, baldes, lote, operario_nombre, created_at, fecha, motivo, sabor_nombre, producto_nombre')
-        .ilike('sabor_nombre', item.nombre)
-        .order('created_at', { ascending: false })
-        .limit(10)
-      setHistorial(data || [])
+      const [{ data: movs }, { data: lotesData }] = await Promise.all([
+        supabase
+          .from('movimientos_camara')
+          .select('id, tipo, kg, baldes, lote, operario_nombre, created_at, fecha, motivo, sabor_nombre, producto_nombre')
+          .ilike('sabor_nombre', item.nombre)
+          .order('created_at', { ascending: false })
+          .limit(10),
+        supabase
+          .from('stock_camaras')
+          .select('id, nombre, lote, kg, baldes, operario_nombre, ultima_actualizacion')
+          .ilike('nombre', item.nombre)
+          .gt('baldes', 0)
+          .order('ultima_actualizacion', { ascending: false }),
+      ])
+      setHistorial(movs || [])
+      setLotes(lotesData || [])
       setLoadingH(false)
     }
     cargar()
@@ -443,24 +470,28 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
         {/* Detalle */}
         <div className="rounded-lg p-4 space-y-3" style={{ backgroundColor: colors.bg }}>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-md" style={{ backgroundColor: tb.bg, color: tb.color }}>{item.tipo || '—'}</span>
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-md" style={{ backgroundColor: tb.bg, color: tb.color }}>{item.tipo || item.tipo_producto || '—'}</span>
             <Badge variant={estadoBadgeVariant(item.baldes)}>{e.label}</Badge>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <p className="text-xs mb-0.5" style={{ color: colors.textMuted }}>Baldes</p>
-              <p className="text-3xl font-extrabold leading-none" style={{ color: e.dot }}>{item.baldes}</p>
+              <p className="text-xs mb-0.5" style={{ color: colors.textMuted }}>{esImp ? 'Unidades' : 'Baldes'}</p>
+              <p className="text-3xl font-extrabold leading-none" style={{ color: e.dot }}>
+                {item.baldes}{esImp ? ' u.' : ''}
+              </p>
             </div>
-            <div>
-              <p className="text-xs mb-0.5" style={{ color: colors.textMuted }}>KG</p>
-              <p className="text-xl font-bold" style={{ color: colors.textPrimary }}>{item.kg}</p>
-            </div>
+            {!esImp && (
+              <div>
+                <p className="text-xs mb-0.5" style={{ color: colors.textMuted }}>KG</p>
+                <p className="text-xl font-bold" style={{ color: colors.textPrimary }}>{item.kg}</p>
+              </div>
+            )}
           </div>
           {item.lote && (
             <div>
               <p className="text-xs mb-0.5" style={{ color: colors.textMuted }}>Lote</p>
               <span className="inline-block text-xs font-mono font-semibold px-2 py-0.5 rounded"
-                style={{ backgroundColor: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' }}>
+                style={{ backgroundColor: 'rgba(212,82,26,0.15)', color: colors.brand, border: '1px solid rgba(212,82,26,0.3)' }}>
                 {item.lote}
               </span>
             </div>
@@ -481,6 +512,71 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
           )}
         </div>
 
+        {/* Lotes en stock */}
+        {lotes.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold uppercase mb-2" style={{ color: colors.textMuted }}>Lotes en stock</p>
+            <div className="overflow-hidden rounded-lg overflow-x-auto" style={{ border: `1px solid ${colors.border}` }}>
+              <table className="w-full min-w-[340px]">
+                <thead>
+                  <tr style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                    {['LOTE', esImp ? 'UNIDADES' : 'KG', !esImp && 'BALDES', 'OPERARIO', 'FECHA ELAB.'].filter(Boolean).map(h => (
+                      <th key={h} className="py-2 px-3 text-left font-semibold uppercase"
+                        style={{ fontSize: 9, color: colors.textMuted, letterSpacing: '0.07em' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {lotes.map(l => (
+                    <tr key={l.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      <td className="py-2 px-3">
+                        <span className="text-xs font-mono font-semibold px-1.5 py-0.5 rounded"
+                          style={{ backgroundColor: 'rgba(212,82,26,0.15)', color: colors.brand, border: '1px solid rgba(212,82,26,0.3)' }}>
+                          {l.lote || '—'}
+                        </span>
+                      </td>
+                      {esImp ? (
+                        <td className="py-2 px-3 text-xs font-semibold" style={{ color: colors.textPrimary }}>{l.baldes || 0} u.</td>
+                      ) : (
+                        <>
+                          <td className="py-2 px-3 text-xs font-semibold" style={{ color: colors.textPrimary }}>{(l.kg || 0).toFixed(1)}</td>
+                          <td className="py-2 px-3 text-xs">{l.baldes || 0}</td>
+                        </>
+                      )}
+                      <td className="py-2 px-3 text-xs" style={{ color: colors.textSecondary }}>{l.operario_nombre || '—'}</td>
+                      <td className="py-2 px-3 text-xs whitespace-nowrap" style={{ color: colors.textMuted }}>
+                        {l.ultima_actualizacion ? new Date(l.ultima_actualizacion).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                {lotes.length > 1 && (
+                  <tfoot>
+                    <tr style={{ borderTop: `1px solid ${colors.border}`, backgroundColor: colors.bg }}>
+                      <td className="py-2 px-3 text-xs font-bold" style={{ color: colors.textMuted }}>Total</td>
+                      {esImp ? (
+                        <td className="py-2 px-3 text-xs font-bold" style={{ color: colors.brand }}>
+                          {lotes.reduce((a, l) => a + (l.baldes || 0), 0)} u.
+                        </td>
+                      ) : (
+                        <>
+                          <td className="py-2 px-3 text-xs font-bold" style={{ color: colors.brand }}>
+                            {lotes.reduce((a, l) => a + (l.kg || 0), 0).toFixed(1)} kg
+                          </td>
+                          <td className="py-2 px-3 text-xs font-bold" style={{ color: colors.brand }}>
+                            {lotes.reduce((a, l) => a + (l.baldes || 0), 0)} bal.
+                          </td>
+                        </>
+                      )}
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Historial */}
         <div>
           <p className="text-xs font-semibold uppercase mb-2" style={{ color: colors.textMuted }}>Últimos movimientos</p>
@@ -492,7 +588,7 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
             <div className="overflow-hidden rounded-lg overflow-x-auto" style={{ border: `1px solid ${colors.border}` }}>
               <table className="w-full min-w-[420px]">
                 <thead>
-                  <tr style={{ backgroundColor: '#fafafa', borderBottom: `1px solid ${colors.border}` }}>
+                  <tr style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
                     {['Fecha/Hora', 'Tipo', 'KG', 'Baldes', 'Lote', 'Operario'].map(h => (
                       <th key={h} className="py-2 px-3 text-left font-semibold uppercase"
                         style={{ fontSize: 9, color: colors.textMuted, letterSpacing: '0.07em' }}>{h}</th>
@@ -783,7 +879,7 @@ export default function Camaras() {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[680px]">
                   <thead>
-                    <tr style={{ backgroundColor: '#fafafa', borderBottom: `1px solid ${colors.border}` }}>
+                    <tr style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
                       {['Hora', 'Producto', 'Tipo', 'KG', 'Baldes', 'Lote', 'Operario', 'Motivo'].map(h => (
                         <th key={h} className="py-2.5 px-4 text-left font-semibold uppercase"
                           style={{ fontSize: 10, color: colors.textMuted, letterSpacing: '0.07em' }}>{h}</th>

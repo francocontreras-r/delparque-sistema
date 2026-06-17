@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
 import jsPDF from 'jspdf'
@@ -407,6 +407,46 @@ function ModalEvolucionCS({ insumo, movimientos: allMovs, onClose }) {
   )
 }
 
+function ModalMovsCamaraDetalle({ producto, movs, onClose }) {
+  const cols = ['FECHA/HORA', 'TIPO', 'KG', 'BALDES', 'LOTE', 'OPERARIO', 'TIPO PROD.', 'MOTIVO']
+  return (
+    <Modal open onClose={onClose} title={`Movimientos en cámara — ${producto}`} maxWidth="max-w-3xl">
+      {movs.length === 0 ? (
+        <p className="text-sm text-center py-6" style={{ color: colors.textMuted }}>Sin movimientos registrados para este producto.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table className="min-w-[700px]">
+            <Thead>
+              <Tr>{cols.map(c => <Th key={c}>{c}</Th>)}</Tr>
+            </Thead>
+            <Tbody>
+              {movs.map(m => (
+                <Tr key={m.id}>
+                  <Td className="text-xs whitespace-nowrap">{fmtFechaHora(m.fecha || m.created_at)}</Td>
+                  <Td>
+                    <Badge variant={m.tipo === 'ingreso' ? 'success' : m.tipo === 'egreso' ? 'danger' : 'neutral'}>
+                      {m.tipo ? m.tipo.charAt(0).toUpperCase() + m.tipo.slice(1) : '—'}
+                    </Badge>
+                  </Td>
+                  <Td className="text-right font-semibold">{m.kg != null ? `${Number(m.kg).toFixed(1)} kg` : '—'}</Td>
+                  <Td className="text-right">{m.baldes ?? '—'}</Td>
+                  <Td>{m.lote
+                    ? <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: '#fff7ed', color: '#c2410c' }}>{m.lote}</span>
+                    : <span style={{ color: colors.textMuted }}>—</span>}
+                  </Td>
+                  <Td className="text-xs">{m.operario_nombre || '—'}</Td>
+                  <Td className="text-xs capitalize">{m.tipo_producto || '—'}</Td>
+                  <Td className="text-xs max-w-[160px] truncate">{m.motivo || '—'}</Td>
+                </Tr>
+              ))}
+            </Tbody>
+          </Table>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
 export default function Deposito() {
   const [tab, setTab]             = useState('Movimientos')
   const [movimientos, setMovimientos] = useState([])
@@ -436,9 +476,15 @@ export default function Deposito() {
   const [periodoCS, setPeriodoCS]           = useState('semana_actual')
   const [periodoCSDesde, setPeriodoCSDesde] = useState('')
   const [periodoCSHasta, setPeriodoCSHasta] = useState('')
-  const [modalMovsDet, setModalMovsDet]     = useState(null) // { tipo, producto, movs }
-  const [modalEvolCS, setModalEvolCS]       = useState(null) // insumo object
+  const [modalMovsDet, setModalMovsDet]     = useState(null)
+  const [modalEvolCS, setModalEvolCS]       = useState(null)
   const [generandoPDFstock, setGenerandoPDFstock] = useState(false)
+  const [seccionCS, setSeccionCS]           = useState('deposito')
+  const [filtroTablaCS, setFiltroTablaCS]   = useState(null) // null | 'critico' | 'atencion' | 'diferencia'
+  const [movsCamara, setMovsCamara]         = useState([])
+  const [modalMovsCamara, setModalMovsCamara] = useState(null) // { producto }
+  const [generandoPDFcamara, setGenerandoPDFcamara] = useState(false)
+  const tablaDepositoRef = useRef(null)
 
   const { isAdmin, profile } = useUser()
   const showVal = isAdmin
@@ -446,18 +492,20 @@ export default function Deposito() {
   useEffect(() => { cargar() }, [])
 
   async function cargar() {
-    const [{ data: m }, { data: i }, { data: o }, { data: sc }, { data: ct }] = await Promise.all([
+    const [{ data: m }, { data: i }, { data: o }, { data: sc }, { data: ct }, { data: mc }] = await Promise.all([
       supabase.from('movimientos_deposito').select('*').order('id', { ascending: false }).limit(300),
       supabase.from('insumos').select('*').order('nombre'),
       supabase.from('operarios').select('*').order('nombre'),
       supabase.from('stock_camaras').select('*').order('nombre'),
       supabase.from('conteos_stock').select('*').order('fecha', { ascending: false }).limit(500),
+      supabase.from('movimientos_camara').select('id,sabor_nombre,producto_nombre,tipo,kg,baldes,lote,operario_nombre,tipo_producto,motivo,created_at,fecha').order('id', { ascending: false }).limit(300),
     ])
     setMovimientos(m || [])
     setInsumos(i || [])
     setOperarios(o || [])
     setStockCamaras(sc || [])
     setConteos(ct || [])
+    setMovsCamara(mc || [])
     setLoading(false)
   }
 
@@ -774,6 +822,107 @@ export default function Deposito() {
     return al
   }, [controlSemanal])
 
+  const controlSemanalFiltrado = useMemo(() => {
+    if (!filtroTablaCS) return controlSemanal
+    if (filtroTablaCS === 'critico')    return controlSemanal.filter(r => r.estado === 'CRÍTICO')
+    if (filtroTablaCS === 'atencion')   return controlSemanal.filter(r => r.estado === 'CRÍTICO' || r.estado === 'ATENCIÓN')
+    if (filtroTablaCS === 'diferencia') return controlSemanal.filter(r => r.pctDiferencia > 3)
+    return controlSemanal
+  }, [controlSemanal, filtroTablaCS])
+
+  // KPIs de cámaras
+  const kpisCamara = useMemo(() => ({
+    total:    stockCamaras.length,
+    agotados: stockCamaras.filter(c => (c.kg || 0) === 0).length,
+    bajos:    stockCamaras.filter(c => (c.kg || 0) > 0 && (c.baldes || 0) <= 3).length,
+    totalKg:  stockCamaras.reduce((a, c) => a + (c.kg || 0), 0),
+  }), [stockCamaras])
+
+  function estadoCamara(c) {
+    if ((c.kg || 0) === 0) return 'AGOTADO'
+    if ((c.baldes || 0) <= 3) return 'BAJO'
+    return 'OK'
+  }
+
+  async function generarPDFCamaras() {
+    setGenerandoPDFcamara(true)
+    try {
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+      const pw = doc.internal.pageSize.getWidth()
+      const HS = { fillColor: [212, 82, 26], textColor: 255 }
+      const ST = { fontSize: 8, cellPadding: 2 }
+      const hoy = new Date().toLocaleString('es-AR')
+
+      // PÁGINA 1 — Portada
+      try { const ld = await toDataURL(logoUrl); doc.addImage(ld, 'PNG', (pw - 50) / 2, 35, 50, 18) } catch {}
+      doc.setFontSize(22); doc.setTextColor(17, 24, 39)
+      doc.text('INFORME DE STOCK DE CÁMARAS', pw / 2, 80, { align: 'center' })
+      doc.setDrawColor(212, 82, 26); doc.setLineWidth(1); doc.line(30, 86, pw - 30, 86)
+      doc.setFontSize(12); doc.setTextColor(100, 100, 100)
+      doc.text(`Fecha de emisión: ${hoy}`, pw / 2, 96, { align: 'center' })
+      doc.setFontSize(7.5); doc.setTextColor(212, 82, 26)
+      doc.text('Confidencial — Del Parque', pw / 2, 106, { align: 'center' })
+
+      // PÁGINA 2 — Tabla completa
+      doc.addPage()
+      doc.setFontSize(14); doc.setTextColor(17, 24, 39)
+      doc.text('Stock de productos en cámara', 14, 16)
+      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
+
+      const sorted = [...stockCamaras].sort((a, b) => {
+        const o = { AGOTADO: 0, BAJO: 1, OK: 2 }
+        return (o[estadoCamara(a)] ?? 2) - (o[estadoCamara(b)] ?? 2) || (a.nombre || '').localeCompare(b.nombre || '')
+      })
+
+      autoTable(doc, {
+        startY: 24,
+        head: [['PRODUCTO', 'TIPO', 'KG', 'BALDES', 'LOTE', 'ÚLTIMA ELABORACIÓN', 'OPERARIO', 'ESTADO']],
+        body: sorted.map(c => [
+          c.nombre || '—',
+          c.tipo_producto || '—',
+          (c.kg || 0).toFixed(1),
+          String(c.baldes || 0),
+          c.lote || '—',
+          c.ultima_actualizacion ? new Date(c.ultima_actualizacion).toLocaleString('es-AR') : '—',
+          c.operario_nombre || '—',
+          estadoCamara(c),
+        ]),
+        styles: { ...ST, fontSize: 7.5 }, headStyles: HS,
+        didParseCell(data) {
+          if (data.section !== 'body') return
+          const c = sorted[data.row.index]
+          if (!c) return
+          const est = estadoCamara(c)
+          if (est === 'AGOTADO') data.cell.styles.fillColor = [254, 226, 226]
+          else if (est === 'BAJO')   data.cell.styles.fillColor = [254, 249, 195]
+        },
+      })
+
+      // Totales al pie
+      const finalY = (doc.lastAutoTable?.finalY || 24) + 8
+      doc.setFontSize(9); doc.setTextColor(70, 70, 70)
+      doc.text(`Total: ${sorted.length} productos · ${kpisCamara.agotados} agotados · ${kpisCamara.bajos} en bajo stock · ${kpisCamara.totalKg.toFixed(1)} kg totales`, 14, finalY)
+
+      // ÚLTIMA PÁGINA — Firmas
+      doc.addPage()
+      doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text('Conformidad y Firmas', 14, 20)
+      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.8); doc.line(14, 24, pw - 14, 24)
+      doc.setFontSize(9); doc.setTextColor(100, 100, 100)
+      doc.text(doc.splitTextToSize(`Informe generado automáticamente el ${hoy}.`, pw - 28), 14, 34)
+      let yF = 60
+      ;['Responsable de Cámaras', 'Supervisor', 'Gerente'].forEach(rol => {
+        doc.setDrawColor(100, 100, 100); doc.setLineWidth(0.3); doc.line(14, yF, 80, yF)
+        doc.setFontSize(8); doc.setTextColor(100, 100, 100)
+        doc.text(rol, 14, yF + 5); doc.text('Nombre: ___________________________', 14, yF + 11)
+        yF += 30
+      })
+
+      doc.save(`stock_camaras_${new Date().toISOString().split('T')[0]}.pdf`)
+    } finally {
+      setGenerandoPDFcamara(false)
+    }
+  }
+
   async function generarPDFStock() {
     setGenerandoPDFstock(true)
     try {
@@ -794,7 +943,7 @@ export default function Deposito() {
       doc.setFontSize(9)
       doc.text(`Fecha de emisión: ${new Date().toLocaleString('es-AR')}`, pw / 2, 104, { align: 'center' })
       doc.setFontSize(7.5); doc.setTextColor(212, 82, 26)
-      doc.text('Confidencial — Del Parque Heladería Artesanal', pw / 2, 114, { align: 'center' })
+      doc.text('Confidencial — Del Parque', pw / 2, 114, { align: 'center' })
 
       // PÁGINA 2 — Resumen ejecutivo
       doc.addPage()
@@ -1456,6 +1605,27 @@ export default function Deposito() {
           {tab === 'Control Semanal' && (
             <div className="space-y-5">
 
+              {/* ── Toggle Depósito / Cámaras ─── */}
+              <div className="flex gap-2 flex-wrap">
+                {[
+                  { key: 'deposito', label: '📦 Depósito (Insumos)' },
+                  { key: 'camara',   label: '🧊 Cámaras (Productos elaborados)' },
+                ].map(s => (
+                  <button key={s.key} onClick={() => setSeccionCS(s.key)}
+                    className="px-4 py-2 rounded-full text-sm font-semibold transition-all border"
+                    style={{
+                      backgroundColor: seccionCS === s.key ? colors.brand : 'transparent',
+                      borderColor: seccionCS === s.key ? colors.brand : colors.border,
+                      color: seccionCS === s.key ? 'white' : colors.textSecondary,
+                    }}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* ══════════════ SECCIÓN DEPÓSITO ══════════════ */}
+              {seccionCS === 'deposito' && (<>
+
               {/* ── Selector de período ─── */}
               <div className="p-3 flex flex-wrap items-center gap-3 justify-between" style={SURFACE}>
                 <div className="flex gap-1.5 flex-wrap">
@@ -1490,15 +1660,19 @@ export default function Deposito() {
                 )}
               </div>
 
-              {/* ── KPIs rápidos ─── */}
+              {/* ── KPIs clickeables ─── */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <KpiCard label="Insumos analizados" value={controlSemanal.length} icon={Warehouse} color={colors.brand} />
+                <KpiCard label="Insumos analizados" value={controlSemanal.length} icon={Warehouse} color={colors.brand}
+                  onClick={() => { setFiltroTablaCS(null); setTimeout(() => tablaDepositoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50) }} />
                 <KpiCard label="Stock crítico" value={controlSemanal.filter(r => r.estado === 'CRÍTICO').length}
-                  icon={AlertTriangle} color={colors.danger} />
+                  icon={AlertTriangle} color={colors.danger}
+                  onClick={() => { setFiltroTablaCS(f => f === 'critico' ? null : 'critico'); setTimeout(() => tablaDepositoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50) }} />
                 <KpiCard label="Requieren atención" value={controlSemanal.filter(r => r.estado === 'ATENCIÓN').length}
-                  icon={TrendingUp} color={colors.warning} />
+                  icon={TrendingUp} color={colors.warning}
+                  onClick={() => { setFiltroTablaCS(f => f === 'atencion' ? null : 'atencion'); setTimeout(() => tablaDepositoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50) }} />
                 <KpiCard label="Diferencias inventario" value={controlSemanal.filter(r => r.pctDiferencia > 3).length}
-                  icon={BarChart2} color={colors.info} />
+                  icon={BarChart2} color={colors.info}
+                  onClick={() => { setFiltroTablaCS(f => f === 'diferencia' ? null : 'diferencia'); setTimeout(() => tablaDepositoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50) }} />
               </div>
 
               {/* ── Panel de alertas ─── */}
@@ -1515,45 +1689,50 @@ export default function Deposito() {
                         {a.tipo === 'critico' ? '🔴' : a.tipo === 'reposicion' ? '🟡' : a.tipo === 'diferencia' ? '⚠️' : '🕐'}
                       </span>
                       <span style={{ color: a.tipo === 'critico' ? colors.danger : a.tipo === 'reposicion' ? '#92400e' : a.tipo === 'diferencia' ? colors.info : colors.textSecondary }}>
-                        {a.tipo === 'critico' && <><strong>STOCK CRÍTICO — {a.producto}:</strong> quedan {a.diasStock.toFixed(1)} días de stock con consumo promedio de {a.consumo.toFixed(1)} {a.unidad}/día.</>}
-                        {a.tipo === 'reposicion' && <><strong>REPOSICIÓN SUGERIDA — {a.producto}:</strong> {a.diasStock.toFixed(1)} días de stock. Cantidad sugerida: {a.cantSugerida.toFixed(1)} {a.unidad} (2 semanas).</>}
-                        {a.tipo === 'diferencia' && <><strong>DIFERENCIA DE INVENTARIO — {a.producto}:</strong> {a.diferencia > 0 ? '+' : ''}{a.diferencia.toFixed(2)} {a.unidad} ({a.pct.toFixed(1)}% de diferencia).</>}
-                        {a.tipo === 'sin_movimiento' && <><strong>SIN MOVIMIENTO — {a.producto}:</strong> hace {a.dias} días sin movimientos registrados.</>}
+                        {a.tipo === 'critico' && <><strong>STOCK CRÍTICO — {a.producto}:</strong> quedan {a.diasStock.toFixed(1)} días con consumo de {a.consumo.toFixed(1)} {a.unidad}/día.</>}
+                        {a.tipo === 'reposicion' && <><strong>REPOSICIÓN SUGERIDA — {a.producto}:</strong> {a.diasStock.toFixed(1)} días de stock. Sugerido: {a.cantSugerida.toFixed(1)} {a.unidad} (2 semanas).</>}
+                        {a.tipo === 'diferencia' && <><strong>DIFERENCIA DE INVENTARIO — {a.producto}:</strong> {a.diferencia > 0 ? '+' : ''}{a.diferencia.toFixed(2)} {a.unidad} ({a.pct.toFixed(1)}%).</>}
+                        {a.tipo === 'sin_movimiento' && <><strong>SIN MOVIMIENTO — {a.producto}:</strong> hace {a.dias} días sin movimientos.</>}
                       </span>
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* ── Tabla principal ─── */}
-              <div className="overflow-hidden" style={SURFACE}>
+              {/* ── Tabla principal (con filtro activo) ─── */}
+              <div ref={tablaDepositoRef} className="overflow-hidden" style={SURFACE}>
                 <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Control de stock — Depósito</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Control de stock — Depósito</span>
+                    {filtroTablaCS && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1"
+                        style={{ backgroundColor: filtroTablaCS === 'critico' ? '#fef2f2' : filtroTablaCS === 'atencion' ? '#fffbeb' : '#eff6ff', color: filtroTablaCS === 'critico' ? colors.danger : filtroTablaCS === 'atencion' ? '#92400e' : colors.info }}>
+                        {filtroTablaCS === 'critico' ? '🔴 Solo críticos' : filtroTablaCS === 'atencion' ? '🟡 Críticos + Atención' : '⚠️ Con diferencias'}
+                        <button onClick={() => setFiltroTablaCS(null)} className="ml-1 font-bold hover:opacity-70">✕</button>
+                      </span>
+                    )}
+                    <span className="text-xs" style={{ color: colors.textMuted }}>
+                      {controlSemanalFiltrado.length} de {controlSemanal.length} insumos
+                    </span>
+                  </div>
                   <Button variant="secondary" size="sm" onClick={() => setModalConteo('deposito')}>
                     <ClipboardCheck size={13} /> Registrar conteo
                   </Button>
                 </div>
-                {controlSemanal.length === 0 ? (
-                  <EmptyState icon={Warehouse} title="Sin insumos cargados" subtitle="Agrega insumos en Supabase para comenzar" />
+                {controlSemanalFiltrado.length === 0 ? (
+                  <EmptyState icon={Warehouse} title={filtroTablaCS ? 'Sin insumos con ese estado' : 'Sin insumos cargados'} />
                 ) : (
                   <div className="overflow-x-auto">
                     <Table className="min-w-[1100px]">
                       <Thead>
                         <Tr>
-                          <Th>PRODUCTO</Th>
-                          <Th>ST. INICIAL</Th>
-                          <Th>INGRESOS</Th>
-                          <Th>EGRESOS</Th>
-                          <Th>BALANCE</Th>
-                          <Th>ST. SISTEMA</Th>
-                          <Th>CONTEO FÍSICO</Th>
-                          <Th>DIFERENCIA</Th>
-                          <Th>DÍAS DE STOCK</Th>
-                          <Th>ESTADO</Th>
+                          <Th>PRODUCTO</Th><Th>ST. INICIAL</Th><Th>INGRESOS</Th><Th>EGRESOS</Th>
+                          <Th>BALANCE</Th><Th>ST. SISTEMA</Th><Th>CONTEO FÍSICO</Th>
+                          <Th>DIFERENCIA</Th><Th>DÍAS DE STOCK</Th><Th>ESTADO</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
-                        {controlSemanal.map(r => {
+                        {controlSemanalFiltrado.map(r => {
                           const rowBg = r.estado === 'CRÍTICO' ? '#fef2f2' : r.estado === 'ATENCIÓN' ? '#fffbeb' : 'transparent'
                           const diffBig = r.conteoFisico !== null && r.pctDiferencia > 3
                           const diasColor = r.diasStock < 3 ? colors.danger : r.diasStock < 7 ? colors.warning : r.diasStock === Infinity ? colors.textMuted : colors.success
@@ -1621,52 +1800,9 @@ export default function Deposito() {
                 )}
               </div>
 
-              {/* ── Cámaras (sin cambios) ─── */}
-              <div className="overflow-hidden" style={SURFACE}>
-                <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Cámaras — conteo semanal</span>
-                  <Button variant="secondary" size="sm" onClick={() => setModalConteo('camara')}>
-                    <ClipboardCheck size={13} /> Registrar conteo
-                  </Button>
-                </div>
-                {stockCamaras.length === 0 ? (
-                  <EmptyState icon={Warehouse} title="Sin productos en cámaras" />
-                ) : (
-                  <Table className="min-w-[760px]">
-                    <Thead>
-                      <Tr>
-                        <Th>Producto</Th><Th>Stock actual (kg)</Th><Th>Stock mínimo (kg)</Th>
-                        <Th>Estado</Th><Th>Última actualización</Th><Th>Conteo físico</Th><Th>Diferencia</Th>
-                      </Tr>
-                    </Thead>
-                    <Tbody>
-                      {stockCamaras.map(c => {
-                        const minimoKg = (c.stock_minimo_baldes || 0) * 7
-                        const niv = semaforo(c.kg || 0, minimoKg, 0)
-                        const conteo = ultimosConteos[`camara::${(c.nombre || '').trim().toLowerCase()}`]
-                        const disc = conteo && esDiscrepancia(conteo.stock_sistema, conteo.stock_fisico)
-                        return (
-                          <Tr key={c.id}>
-                            <Td className="font-medium">{c.nombre}</Td>
-                            <Td className="text-right">{(c.kg || 0).toFixed(1)}</Td>
-                            <Td className="text-right" style={{ color: colors.textMuted }}>{minimoKg.toFixed(1)}</Td>
-                            <Td><Badge variant={niv === 'rojo' ? 'danger' : niv === 'amarillo' ? 'warning' : 'success'}>{niv === 'rojo' ? 'Bajo' : niv === 'amarillo' ? 'Atención' : 'OK'}</Badge></Td>
-                            <Td className="text-xs whitespace-nowrap" style={{ color: colors.textMuted }}>{fmtFechaHora(c.updated_at)}</Td>
-                            <Td className="text-right">{conteo ? `${Number(conteo.stock_fisico).toFixed(1)} kg` : '—'}</Td>
-                            <Td className="text-right font-semibold" style={{ color: disc ? colors.danger : colors.textSecondary }}>
-                              {conteo ? <span className="inline-flex items-center gap-1">{conteo.diferencia > 0 ? '+' : ''}{Number(conteo.diferencia).toFixed(2)} kg{disc && <AlertTriangle size={12} />}</span> : '—'}
-                            </Td>
-                          </Tr>
-                        )
-                      })}
-                    </Tbody>
-                  </Table>
-                )}
-              </div>
-
               {/* ── Comparación semana vs semana ─── */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {[{ key: 'camara', label: 'Cámaras' }, { key: 'deposito', label: 'Depósito' }].map(({ key, label }) => {
+                {[{ key: 'deposito', label: 'Depósito' }, { key: 'camara', label: 'Cámaras' }].map(({ key, label }) => {
                   const comp = comparacionSemanal[key]
                   const actual = comp.actual?.[1] || 0
                   const anterior = comp.anterior?.[1]
@@ -1684,23 +1820,110 @@ export default function Deposito() {
                           <p className="text-xl font-bold" style={{ color: colors.textMuted }}>{anterior.toFixed(2)} {key === 'camara' ? 'kg' : 'u'}</p>
                         </div>}
                       </div>
-                      {mejora !== null && (
-                        <p className="text-xs mt-2 font-semibold" style={{ color: mejora >= 0 ? colors.success : colors.danger }}>
-                          {mejora >= 0 ? `↓ Mejoró ${mejora.toFixed(0)}%` : `↑ Empeoró ${Math.abs(mejora).toFixed(0)}%`} vs. semana anterior
-                        </p>
-                      )}
-                      {!comp.actual && <p className="text-xs mt-2" style={{ color: colors.textMuted }}>Sin conteos registrados aún</p>}
+                      {mejora !== null && <p className="text-xs mt-2 font-semibold" style={{ color: mejora >= 0 ? colors.success : colors.danger }}>{mejora >= 0 ? `↓ Mejoró ${mejora.toFixed(0)}%` : `↑ Empeoró ${Math.abs(mejora).toFixed(0)}%`} vs. semana anterior</p>}
+                      {!comp.actual && <p className="text-xs mt-2" style={{ color: colors.textMuted }}>Sin conteos aún</p>}
                     </div>
                   )
                 })}
               </div>
 
-              {/* ── Botón PDF ─── */}
+              {/* ── Botón PDF depósito ─── */}
               <div className="flex justify-end">
                 <Button variant="primary" onClick={generarPDFStock} loading={generandoPDFstock} disabled={generandoPDFstock || (periodoCS === 'personalizado' && (!periodoCSDesde || !periodoCSHasta))}>
                   <FileDown size={15} /> Generar Informe PDF de Stock
                 </Button>
               </div>
+
+              </>)} {/* fin seccionCS === 'deposito' */}
+
+              {/* ══════════════ SECCIÓN CÁMARAS ══════════════ */}
+              {seccionCS === 'camara' && (<>
+
+              {/* KPIs cámaras */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <KpiCard label="Total en cámara" value={kpisCamara.total} icon={Warehouse} color={colors.brand} />
+                <KpiCard label="Agotados" value={kpisCamara.agotados} icon={AlertTriangle} color={colors.danger} />
+                <KpiCard label="Stock bajo (≤ 3 baldes)" value={kpisCamara.bajos} icon={TrendingUp} color={colors.warning} />
+                <KpiCard label="KG totales en cámara" value={`${kpisCamara.totalKg.toFixed(1)} kg`} icon={BarChart2} color={colors.info} />
+              </div>
+
+              {/* Tabla cámaras */}
+              <div className="overflow-hidden" style={SURFACE}>
+                <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Productos en cámara</span>
+                  <Button variant="secondary" size="sm" onClick={() => setModalConteo('camara')}>
+                    <ClipboardCheck size={13} /> Registrar conteo
+                  </Button>
+                </div>
+                {stockCamaras.length === 0 ? (
+                  <EmptyState icon={Warehouse} title="Sin productos en cámaras" />
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table className="min-w-[900px]">
+                      <Thead>
+                        <Tr>
+                          <Th>PRODUCTO</Th><Th>TIPO</Th><Th>STOCK (KG)</Th><Th>BALDES</Th>
+                          <Th>LOTE</Th><Th>ÚLTIMA ELABORACIÓN</Th><Th>OPERARIO</Th><Th>ESTADO</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {[...stockCamaras].sort((a, b) => {
+                          const o = { AGOTADO: 0, BAJO: 1, OK: 2 }
+                          return (o[estadoCamara(a)] ?? 2) - (o[estadoCamara(b)] ?? 2) || (a.nombre || '').localeCompare(b.nombre || '')
+                        }).map(c => {
+                          const est = estadoCamara(c)
+                          const rowBg = est === 'AGOTADO' ? '#fef2f2' : est === 'BAJO' ? '#fffbeb' : 'transparent'
+                          const movsProd = movsCamara.filter(m => {
+                            const sn = (m.sabor_nombre || m.producto_nombre || '').trim().toLowerCase()
+                            return sn === (c.nombre || '').trim().toLowerCase()
+                          })
+                          return (
+                            <Tr key={c.id} style={{ backgroundColor: rowBg }}>
+                              <Td>
+                                <button className="font-medium text-left hover:underline" style={{ color: colors.brand }}
+                                  onClick={() => setModalMovsCamara({ producto: c.nombre, movs: movsProd })}>
+                                  {c.nombre}
+                                </button>
+                              </Td>
+                              <Td>
+                                <Badge variant={c.tipo_producto === 'helado' ? 'info' : c.tipo_producto === 'impulsivo' ? 'warning' : 'neutral'}>
+                                  {c.tipo_producto ? c.tipo_producto.charAt(0).toUpperCase() + c.tipo_producto.slice(1) : '—'}
+                                </Badge>
+                              </Td>
+                              <Td className="text-right font-semibold">{(c.kg || 0).toFixed(1)} kg</Td>
+                              <Td className="text-right">{c.baldes || 0}</Td>
+                              <Td>
+                                {c.lote
+                                  ? <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: '#fff7ed', color: '#c2410c' }}>{c.lote}</span>
+                                  : <span style={{ color: colors.textMuted }}>—</span>}
+                              </Td>
+                              <Td className="text-xs whitespace-nowrap" style={{ color: colors.textMuted }}>
+                                {c.ultima_actualizacion ? fmtFechaHora(c.ultima_actualizacion) : fmtFechaHora(c.updated_at)}
+                              </Td>
+                              <Td className="text-xs" style={{ color: colors.textSecondary }}>{c.operario_nombre || '—'}</Td>
+                              <Td>
+                                <Badge variant={est === 'AGOTADO' ? 'danger' : est === 'BAJO' ? 'warning' : 'success'}>
+                                  {est === 'AGOTADO' ? '🔴 AGOTADO' : est === 'BAJO' ? '🟡 BAJO' : '🟢 OK'}
+                                </Badge>
+                              </Td>
+                            </Tr>
+                          )
+                        })}
+                      </Tbody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+
+              {/* Botón PDF cámaras */}
+              <div className="flex justify-end">
+                <Button variant="primary" onClick={generarPDFCamaras} loading={generandoPDFcamara} disabled={generandoPDFcamara}>
+                  <FileDown size={15} /> Generar PDF Cámaras
+                </Button>
+              </div>
+
+              </>)} {/* fin seccionCS === 'camara' */}
+
             </div>
           )}
         </>
@@ -1755,6 +1978,14 @@ export default function Deposito() {
           insumo={modalEvolCS}
           movimientos={movimientos}
           onClose={() => setModalEvolCS(null)}
+        />
+      )}
+
+      {modalMovsCamara && (
+        <ModalMovsCamaraDetalle
+          producto={modalMovsCamara.producto}
+          movs={modalMovsCamara.movs}
+          onClose={() => setModalMovsCamara(null)}
         />
       )}
     </div>

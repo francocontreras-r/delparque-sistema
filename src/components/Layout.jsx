@@ -14,7 +14,6 @@ const NAV = [
   { to: '/produccion',   label: 'Producción',   Icon: Factory,       modulo: 'produccion'   },
   { to: '/camaras',      label: 'Cámaras',      Icon: Thermometer,   modulo: 'camaras'      },
   { to: '/deposito',     label: 'Depósito',     Icon: Warehouse,     modulo: 'deposito'     },
-  { to: '/rendimientos', label: 'Rendimientos', Icon: TrendingUp,    modulo: 'rendimientos' },
   { to: '/mermas',       label: 'Mermas',       Icon: TrendingDown,  modulo: 'mermas'       },
   { to: '/ordenes',      label: 'Órdenes',      Icon: ClipboardList, modulo: 'ordenes'      },
   { to: '/recetas',      label: 'Recetas',      Icon: BookOpen,      modulo: 'recetas'      },

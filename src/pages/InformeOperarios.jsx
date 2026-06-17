@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -15,8 +16,9 @@ import {
   TrendingUp, Users, Award, Package, ArrowUp, ArrowDown, Minus, FileDown, Target, Clock,
 } from 'lucide-react'
 import {
-  BarChart, Bar, LineChart, Line, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell,
+  BarChart, Bar, LineChart, Line, AreaChart, Area,
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ReferenceLine,
 } from 'recharts'
 const logoUrl = '/logo_delparque.png'
 
@@ -133,6 +135,7 @@ function agruparPorOperario(ordenes) {
 }
 
 export default function InformeOperarios() {
+  const navigate = useNavigate()
   const [tab, setTab] = useState('Resumen General')
   const [periodo, setPeriodo] = useState('semana')
   const [loading, setLoading] = useState(true)
@@ -154,6 +157,26 @@ export default function InformeOperarios() {
   const [generandoPDF, setGenerandoPDF] = useState(false)
 
   const rango = useMemo(() => calcularRangos(periodo), [periodo])
+
+  const evolucionSemanal = useMemo(() => {
+    const { desde, hasta } = rango
+    const days = []
+    let cur = new Date(desde)
+    const end = new Date(hasta)
+    while (cur <= end) { days.push(cur.toISOString().split('T')[0]); cur.setDate(cur.getDate() + 1) }
+    const byDay = {}
+    ordenesActual.forEach(o => {
+      const d = (o.fecha_fin || '').split('T')[0]
+      if (!byDay[d]) byDay[d] = { kg: 0, ordenes: 0 }
+      byDay[d].kg += o.kg_producido || 0
+      byDay[d].ordenes++
+    })
+    return days.slice(-14).map(d => ({
+      fecha: `${d.split('-')[2]}/${d.split('-')[1]}`,
+      kg: Number((byDay[d]?.kg || 0).toFixed(1)),
+      ordenes: byDay[d]?.ordenes || 0,
+    }))
+  }, [ordenesActual, rango])
 
   useEffect(() => { cargar() }, [periodo])
 
@@ -372,9 +395,20 @@ export default function InformeOperarios() {
       doc.setTextColor(100, 100, 100)
       doc.text(pdfModo === 'individual' ? `Operario: ${pdfOperario}` : 'Equipo completo', pageWidth / 2, 96, { align: 'center' })
       doc.text(`Período: ${periodoLabel}`, pageWidth / 2, 104, { align: 'center' })
+
+      // Línea naranja divisoria
+      doc.setDrawColor(212, 82, 26)
+      doc.setLineWidth(1)
+      doc.line(30, 111, pageWidth - 30, 111)
+
       doc.setFontSize(9)
       doc.setTextColor(140, 140, 140)
-      doc.text(`Emitido: ${new Date().toLocaleString('es-AR')}`, pageWidth / 2, 116, { align: 'center' })
+      doc.text(`Emitido: ${new Date().toLocaleString('es-AR')}`, pageWidth / 2, 119, { align: 'center' })
+
+      // "CONFIDENCIAL"
+      doc.setFontSize(7.5)
+      doc.setTextColor(212, 82, 26)
+      doc.text('CONFIDENCIAL — USO INTERNO', pageWidth / 2, 127, { align: 'center' })
 
       // ── PÁGINA 2 — Resumen ejecutivo ───────────────────────────────────
       doc.addPage()
@@ -484,6 +518,34 @@ export default function InformeOperarios() {
         })
       })
 
+      // ── ÚLTIMA PÁGINA — Firmas ────────────────────────────────────────
+      doc.addPage()
+      doc.setFontSize(14)
+      doc.setTextColor(40, 40, 40)
+      doc.text('Conformidad y Firmas', 14, 20)
+      doc.setDrawColor(212, 82, 26)
+      doc.setLineWidth(0.8)
+      doc.line(14, 24, pageWidth - 14, 24)
+
+      doc.setFontSize(9)
+      doc.setTextColor(100, 100, 100)
+      const firmaTxt = `El presente informe corresponde al período ${periodoLabel} y fue generado automáticamente el ${new Date().toLocaleString('es-AR')}.`
+      const firmaWrapped = doc.splitTextToSize(firmaTxt, pageWidth - 28)
+      doc.text(firmaWrapped, 14, 34)
+
+      const firmantes = ['Responsable de Producción', 'Jefe de Calidad', 'Gerencia General']
+      let yF = 60
+      firmantes.forEach(rol => {
+        doc.setDrawColor(100, 100, 100)
+        doc.setLineWidth(0.3)
+        doc.line(14, yF, 80, yF)
+        doc.setFontSize(8)
+        doc.setTextColor(100, 100, 100)
+        doc.text(rol, 14, yF + 5)
+        doc.text('Nombre y apellido: ___________________________', 14, yF + 11)
+        yF += 30
+      })
+
       const sufijo = pdfModo === 'individual' ? (pdfOperario || 'operario').replace(/\s+/g, '_') : 'equipo'
       doc.save(`informe_rendimiento_${sufijo}_${hoyISO()}.pdf`)
     } finally {
@@ -546,36 +608,69 @@ export default function InformeOperarios() {
           {tab === 'Resumen General' && (
             <>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <KpiCard label="Órdenes completadas" value={kpisGlobales.totalOrdenes} icon={Package} color={colors.brand} />
+                <KpiCard label="Órdenes completadas" value={kpisGlobales.totalOrdenes} icon={Package} color={colors.brand}
+                  onClick={() => navigate('/ordenes?estado=completada')} />
                 <KpiCard label="Rendimiento promedio del equipo" value={`${fmtNum(kpisGlobales.rendProm)}%`}
-                  icon={TrendingUp} color={nivelRendimiento(kpisGlobales.rendProm).color} />
+                  icon={TrendingUp} color={nivelRendimiento(kpisGlobales.rendProm).color}
+                  onClick={() => setTab('Ranking del Equipo')} />
                 <KpiCard label="Operario destacado" value={kpisGlobales.operarioDestacado?.nombre || '—'}
                   sub={kpisGlobales.operarioDestacado ? `${fmtNum(kpisGlobales.operarioDestacado.avgRend)}% de rendimiento` : undefined}
-                  icon={Award} color={colors.success} />
+                  icon={Award} color={colors.success}
+                  onClick={() => { if (kpisGlobales.operarioDestacado) { setTab('Por Operario'); setOperarioSel(kpisGlobales.operarioDestacado.nombre) } }} />
                 <KpiCard label="Producto con más merma" value={kpisGlobales.productoMasMerma?.nombre || '—'}
                   sub={kpisGlobales.productoMasMerma ? `${fmtNum(kpisGlobales.productoMasMerma.kg)} kg de diferencia` : undefined}
-                  icon={Package} color={colors.danger} />
+                  icon={Package} color={colors.danger}
+                  onClick={() => navigate('/mermas')} />
               </div>
 
               {chartResumen.length === 0 ? (
                 <EmptyState icon={TrendingUp} title="Sin órdenes completadas en este período"
                   subtitle="Las órdenes finalizadas aparecerán acá con su rendimiento" />
               ) : (
-                <div className="p-4" style={SURFACE}>
-                  <h3 className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>Rendimiento por operario</h3>
-                  <ResponsiveContainer width="100%" height={340}>
-                    <BarChart data={chartResumen}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={colors.border} />
-                      <XAxis dataKey="nombre" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={70} />
-                      <YAxis tick={{ fontSize: 11 }} />
-                      <Tooltip formatter={(v, name) => [`${v}%`, name]} />
-                      <Legend />
-                      <Bar dataKey="Eficiencia Kg" fill={colors.info} radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Eficiencia Tiempo" fill={colors.brand} radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Rendimiento Final" fill={colors.success} radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                <>
+                  <div className="p-4" style={SURFACE}>
+                    <h3 className="text-sm font-semibold mb-1" style={{ color: colors.textPrimary }}>Rendimiento del equipo</h3>
+                    <p className="text-xs mb-3" style={{ color: colors.textMuted }}>Eficiencia KG · Eficiencia Tiempo · Rendimiento Final por operario</p>
+                    <ResponsiveContainer width="100%" height={340}>
+                      <BarChart data={chartResumen} margin={{ top: 10, right: 24, left: 0, bottom: 60 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={colors.border} />
+                        <XAxis dataKey="nombre" tick={{ fontSize: 10 }} interval={0} angle={-25} textAnchor="end" height={70} />
+                        <YAxis tick={{ fontSize: 11 }} domain={[0, 120]} unit="%" />
+                        <Tooltip formatter={(v, name) => [`${v}%`, name]} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+                        <Legend verticalAlign="top" />
+                        <ReferenceLine y={80} stroke="#ef4444" strokeDasharray="5 5"
+                          label={{ value: 'Meta 80%', position: 'insideTopRight', fill: '#ef4444', fontSize: 10 }} />
+                        <Bar dataKey="Eficiencia Kg" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="Eficiencia Tiempo" fill="#D4521A" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="Rendimiento Final" fill="#10B981" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <div className="p-4" style={SURFACE}>
+                    <h3 className="text-sm font-semibold mb-1" style={{ color: colors.textPrimary }}>Evolución producción</h3>
+                    <p className="text-xs mb-3" style={{ color: colors.textMuted }}>KG producidos por día en el período</p>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <AreaChart data={evolucionSemanal} margin={{ top: 10, right: 24, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="gradKg" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#D4521A" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="#D4521A" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke={colors.border} />
+                        <XAxis dataKey="fecha" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 11 }} unit=" kg" />
+                        <Tooltip
+                          formatter={(v, name) => [name === 'kg' ? `${v} kg` : v, name === 'kg' ? 'KG producidos' : 'Órdenes']}
+                          contentStyle={{ borderRadius: 8, fontSize: 12 }}
+                        />
+                        <Area type="monotone" dataKey="kg" stroke="#D4521A" strokeWidth={2.5}
+                          fill="url(#gradKg)" dot={{ r: 4, fill: '#D4521A' }} activeDot={{ r: 6 }} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </>
               )}
             </>
           )}
@@ -611,17 +706,20 @@ export default function InformeOperarios() {
 
                   {lineChartOperario.length > 0 && (
                     <div className="p-4" style={SURFACE}>
-                      <h3 className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>Evolución histórica</h3>
+                      <h3 className="text-sm font-semibold mb-1" style={{ color: colors.textPrimary }}>Evolución histórica</h3>
+                      <p className="text-xs mb-3" style={{ color: colors.textMuted }}>Rendimiento por orden completada — línea roja = meta 80%</p>
                       <ResponsiveContainer width="100%" height={280}>
-                        <LineChart data={lineChartOperario}>
+                        <LineChart data={lineChartOperario} margin={{ top: 10, right: 24, left: 0, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke={colors.border} />
                           <XAxis dataKey="fecha" tick={{ fontSize: 10 }} />
-                          <YAxis tick={{ fontSize: 11 }} />
-                          <Tooltip formatter={(v, name) => [`${v}%`, name]} />
-                          <Legend />
-                          <Line type="monotone" dataKey="Eficiencia Kg" stroke={colors.info} strokeWidth={2} dot={{ r: 3 }} />
-                          <Line type="monotone" dataKey="Eficiencia Tiempo" stroke={colors.brand} strokeWidth={2} dot={{ r: 3 }} />
-                          <Line type="monotone" dataKey="Rendimiento Final" stroke={colors.success} strokeWidth={2} dot={{ r: 3 }} />
+                          <YAxis tick={{ fontSize: 11 }} domain={[0, 120]} unit="%" />
+                          <Tooltip formatter={(v, name) => [`${v}%`, name]} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+                          <Legend verticalAlign="top" />
+                          <ReferenceLine y={80} stroke="#ef4444" strokeDasharray="5 5"
+                            label={{ value: 'Meta 80%', position: 'insideTopRight', fill: '#ef4444', fontSize: 10 }} />
+                          <Line type="monotone" dataKey="Eficiencia Kg" stroke="#3B82F6" strokeWidth={2} dot={{ r: 3 }} />
+                          <Line type="monotone" dataKey="Eficiencia Tiempo" stroke="#D4521A" strokeWidth={2} dot={{ r: 3 }} />
+                          <Line type="monotone" dataKey="Rendimiento Final" stroke="#10B981" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
@@ -746,17 +844,34 @@ export default function InformeOperarios() {
                         </Tr>
                       </Thead>
                       <Tbody>
-                        {rankingEquipo.map(o => (
-                          <Tr key={o.nombre}>
-                            <Td className="font-semibold">{MEDALLAS[o.pos - 1] || `${o.pos}°`}</Td>
-                            <Td className="font-medium">{o.nombre}</Td>
-                            <Td className="text-right">{o.ordenes}</Td>
-                            <Td className="text-right">{fmtNum(o.avgKg)}%</Td>
-                            <Td className="text-right">{fmtNum(o.avgTiempo)}%</Td>
-                            <Td className="text-right font-semibold">{fmtNum(o.avgRend)}%</Td>
-                            <Td><TendenciaIcon diff={o.diff} /></Td>
-                          </Tr>
-                        ))}
+                        {rankingEquipo.map(o => {
+                          const rowBg = o.pos === 1
+                            ? 'rgba(253,224,71,0.18)'
+                            : o.pos === 2
+                              ? 'rgba(148,163,184,0.18)'
+                              : o.pos === 3
+                                ? 'rgba(249,115,22,0.12)'
+                                : 'transparent'
+                          const nivel = nivelRendimiento(o.avgRend)
+                          return (
+                            <Tr key={o.nombre} style={{ backgroundColor: rowBg }}>
+                              <Td className="font-semibold text-lg">{MEDALLAS[o.pos - 1] || `${o.pos}°`}</Td>
+                              <Td className="font-medium">{o.nombre}</Td>
+                              <Td className="text-right">{o.ordenes}</Td>
+                              <Td className="text-right">{fmtNum(o.avgKg)}%</Td>
+                              <Td className="text-right">{fmtNum(o.avgTiempo)}%</Td>
+                              <Td>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-right font-semibold w-12">{fmtNum(o.avgRend)}%</span>
+                                  <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ backgroundColor: colors.border, minWidth: 60 }}>
+                                    <div className="h-2 rounded-full transition-all" style={{ width: `${Math.min(100, o.avgRend)}%`, backgroundColor: nivel.color }} />
+                                  </div>
+                                </div>
+                              </Td>
+                              <Td><TendenciaIcon diff={o.diff} /></Td>
+                            </Tr>
+                          )
+                        })}
                       </Tbody>
                     </Table>
                   </div>

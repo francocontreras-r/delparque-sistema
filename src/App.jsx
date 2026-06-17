@@ -6,7 +6,6 @@ import Dashboard from './pages/Dashboard'
 import Produccion from './pages/Produccion'
 import Camaras from './pages/Camaras'
 import Deposito from './pages/Deposito'
-import Rendimientos from './pages/Rendimientos'
 import Mermas from './pages/Mermas'
 import Ordenes from './pages/Ordenes'
 import Recetas from './pages/Recetas'
@@ -45,7 +44,6 @@ function AppRoutes() {
           <Route path="produccion"   element={<Produccion />} />
           <Route path="camaras"      element={<Camaras />} />
           <Route path="deposito"     element={<Deposito />} />
-          <Route path="rendimientos" element={<Rendimientos />} />
           <Route path="mermas"       element={<Mermas />} />
           <Route path="ordenes"      element={<Ordenes />} />
           <Route path="recetas"      element={<Recetas />} />

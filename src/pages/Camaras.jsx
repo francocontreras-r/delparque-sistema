@@ -653,14 +653,23 @@ export default function Camaras() {
   useEffect(() => {
     async function cargar() {
       const { data, error } = await supabase.from('stock_camaras').select('*').order('tipo', { ascending: true })
-      if (error) setErrorCarga(error.message)
-      else setStock(data)
+      if (error) { setErrorCarga(error.message); setLoading(false); return }
+      const agrupados = {}
+      ;(data || []).forEach(item => {
+        const key = item.nombre.trim().toUpperCase()
+        if (agrupados[key]) {
+          agrupados[key].kg     += item.kg || 0
+          agrupados[key].baldes += item.baldes || 0
+        } else {
+          agrupados[key] = { ...item }
+        }
+      })
+      setStock(Object.values(agrupados))
       setLoading(false)
     }
     cargar()
     const channel = supabase.channel('stock_camaras_rt')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'stock_camaras' },
-        ({ new: updated }) => setStock(prev => prev.map(s => s.id === updated.id ? { ...s, ...updated } : s)))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'stock_camaras' }, () => cargar())
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [])
@@ -934,7 +943,7 @@ export default function Camaras() {
       {tabCamara === 'stock' && !errorCarga && (
         <div className={`grid gap-3 ${showVal ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-7' : 'grid-cols-2 sm:grid-cols-5'}`}>
           <KpiCard label="Total baldes" value={loading ? '—' : totalBaldes} />
-          <KpiCard label="Total KG"     value={loading ? '—' : `${totalKg} kg`} />
+          <KpiCard label="Total KG"     value={loading ? '—' : `${totalKg.toFixed(1)} kg`} />
           <KpiCard label="Con stock"    value={loading ? '—' : conStock}    color={colors.success} active={filtroEstado === 'ok'}      onClick={() => setFiltroEstado(prev => prev === 'ok' ? null : 'ok')} />
           <KpiCard label="Poco stock"   value={loading ? '—' : pocoStock}   color={colors.warning} active={filtroEstado === 'poco'}    onClick={() => setFiltroEstado(prev => prev === 'poco' ? null : 'poco')} />
           <KpiCard label="Agotados"     value={loading ? '—' : agotados}    color={colors.danger}  active={filtroEstado === 'agotado'} onClick={() => setFiltroEstado(prev => prev === 'agotado' ? null : 'agotado')} />

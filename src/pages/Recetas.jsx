@@ -34,15 +34,17 @@ function fmtFecha(iso) {
 }
 
 // ── Modal de edición ──────────────────────────────────────────────────────────
-function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos }) {
+function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, showToast }) {
   const [ings, setIngs] = useState(() =>
     rawIngs.map((i, idx) => ({
       _key: idx,
+      _id: i.id ?? null,          // id de la DB (null = nuevo)
       nombre: i.insumo_nombre,
       cantidad: i.cantidad,
       unidad: i.unidad || 'kg',
     }))
   )
+  const [deletedIds, setDeletedIds] = useState([])
   const [mano, setMano]     = useState(receta.manoDeObra || 0)
   const [saving, setSaving] = useState(false)
   const [busq, setBusq]     = useState('')
@@ -76,37 +78,92 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos })
   function upd(key, field, val) {
     setIngs(p => p.map(i => i._key === key ? { ...i, [field]: val } : i))
   }
-  function rem(key) { setIngs(p => p.filter(i => i._key !== key)) }
+  function rem(key) {
+    const ing = ings.find(i => i._key === key)
+    if (ing?._id) setDeletedIds(d => [...d, ing._id])
+    setIngs(p => p.filter(i => i._key !== key))
+  }
   function add(ins) {
-    setIngs(p => [...p, { _key: Date.now(), nombre: ins.nombre, cantidad: 1, unidad: ins.unidad || 'kg' }])
+    setIngs(p => [...p, { _key: Date.now(), _id: null, nombre: ins.nombre, cantidad: 1, unidad: ins.unidad || 'kg' }])
     setBusq(''); setShowAC(false)
   }
 
   async function guardar() {
-    setSaving(true)
     const tablaIng = tipo === 'Bases' ? 'base_ingredientes' : tipo === 'Sabores' ? 'sabor_ingredientes' : 'impulsivo_ingredientes'
     const tablaP   = tipo === 'Bases' ? 'bases'             : tipo === 'Sabores' ? 'sabores'             : 'impulsivos'
     const fk       = tipo === 'Bases' ? 'base_id'           : tipo === 'Sabores' ? 'sabor_id'            : 'impulsivo_id'
 
-    await supabase.from(tablaIng).delete().eq(fk, receta.id)
-    if (ingsConCosto.length > 0) {
-      await supabase.from(tablaIng).insert(
-        ingsConCosto.map(i => ({
+    console.log('Guardando ingredientes:', ingsConCosto)
+    setSaving(true)
+
+    // 1. DELETE eliminados
+    for (const id of deletedIds) {
+      const { data, error } = await supabase.from(tablaIng).delete().eq('id', id).select()
+      console.log(`Resultado DELETE id=${id}:`, data, error)
+      if (error) {
+        setSaving(false)
+        showToast(`Error al eliminar ingrediente: ${error.message}`, 'error')
+        return
+      }
+    }
+
+    // 2. UPDATE modificados (tienen _id)
+    for (const ing of ingsConCosto.filter(i => i._id)) {
+      const { data, error } = await supabase.from(tablaIng)
+        .update({ cantidad: Number(ing.cantidad) || 0, unidad: ing.unidad, costo_unitario: ing.costoUnit })
+        .eq('id', ing._id)
+        .select()
+      console.log(`Resultado UPDATE "${ing.nombre}":`, data, error)
+      if (error) {
+        setSaving(false)
+        showToast(`Error al actualizar "${ing.nombre}": ${error.message}`, 'error')
+        return
+      }
+    }
+
+    // 3. INSERT nuevos (sin _id)
+    const nuevos = ingsConCosto.filter(i => !i._id)
+    if (nuevos.length > 0) {
+      const { data, error } = await supabase.from(tablaIng)
+        .insert(nuevos.map(i => ({
           [fk]: receta.id,
           insumo_nombre: i.nombre,
           cantidad: Number(i.cantidad) || 0,
           unidad: i.unidad,
           costo_unitario: i.costoUnit,
-        }))
-      )
+        })))
+        .select()
+      console.log('Resultado INSERT:', data, error)
+      if (error) {
+        setSaving(false)
+        showToast(`Error al agregar ingredientes: ${error.message}`, 'error')
+        return
+      }
     }
-    await supabase.from(tablaP).update({
+
+    // 4. UPDATE tabla padre (costo_total + mano_de_obra)
+    const { error: errP } = await supabase.from(tablaP).update({
       costo_materiales: subtotalMP,
       mano_de_obra: Number(mano) || 0,
       costo_total: costoFinal,
     }).eq('id', receta.id)
+    if (errP) {
+      setSaving(false)
+      showToast(`Error al actualizar costo: ${errP.message}`, 'error')
+      return
+    }
 
+    // 5. Verificar: recargar desde Supabase antes de confirmar
+    const { data: verificados, error: errV } = await supabase
+      .from(tablaIng).select('*').eq(fk, receta.id)
+    console.log('Resultado verificación:', verificados, errV)
     setSaving(false)
+    if (errV) {
+      showToast(`Error al verificar guardado: ${errV.message}`, 'error')
+      return
+    }
+
+    showToast(`"${receta.nombre}" guardada — ${verificados.length} ingrediente${verificados.length !== 1 ? 's' : ''} confirmados en DB`)
     onSaved()
     onClose()
   }
@@ -609,7 +666,8 @@ export default function Recetas() {
           rawIngs={editando.rawIngs}
           insumos={insumos}
           onClose={() => setEditando(null)}
-          onSaved={() => { cargar(); setEditando(null) }}
+          onSaved={() => cargar()}
+          showToast={showToast}
         />
       )}
     </div>

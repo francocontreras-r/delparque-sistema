@@ -27,6 +27,17 @@ const TABS         = ['Movimientos', 'Stock', 'Trazabilidad', 'Informes', 'Contr
 const DESTINOS     = ['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones']
 const PRESENTACIONES = ['Balde', 'Bolsa', 'Lata', 'Caja', 'Botella', 'Bidón', 'Pomo']
 const UNIDADES     = ['u', 'kg', 'L']
+
+const CATS_MAT_PRIMAS = new Set(['LÁCTEOS', 'AZÚCARES', 'CHOCOLATES', 'PASTAS', 'FRUTAS', 'VARIEGATOS', 'OTROS', 'NUEVO', 'General'])
+const CATS_FILTRO = ['TODOS', 'MAT. PRIMAS', 'BOLSAS', 'CUCURUCHOS', 'LIMPIEZA', 'REVENTA', 'TERMICOS']
+
+function motivosPorCategoria(categoria) {
+  if (categoria === 'REVENTA') return ['Venta a cliente', 'Venta por mayor', 'Muestra', 'Baja por daño']
+  if (categoria === 'LIMPIEZA') return ['Uso interno', 'Limpieza equipos', 'Limpieza instalaciones', 'Baja']
+  if (['TERMICOS', 'BOLSAS', 'CUCURUCHOS'].includes(categoria))
+    return ['Uso en producción', 'Entrega a operario', 'Baja por daño']
+  return ['Uso en producción', 'Merma', 'Vencimiento', 'Devolución']
+}
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const SEM = { verde: colors.success, amarillo: colors.warning, rojo: colors.danger, gris: colors.textMuted }
 
@@ -105,6 +116,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
     peso_por_unidad: '',
     precio_unitario: '',
     nro_remito: '',
+    motivo: '',
   })
   const [showResumen, setShowResumen] = useState(false)
   const [showMarcaAC, setShowMarcaAC] = useState(false)
@@ -116,12 +128,26 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
     [form.producto_nombre, insumos]
   )
 
-  // Pre-cargar peso_por_unidad cuando se selecciona un insumo conocido
+  // Pre-cargar peso_por_unidad y ajustar destino/motivo cuando cambia el producto seleccionado
   useEffect(() => {
-    if (insumoSel?.peso_por_unidad > 0 && !form.peso_por_unidad) {
-      setForm(f => ({ ...f, peso_por_unidad: insumoSel.peso_por_unidad }))
-    }
+    if (!insumoSel) return
+    setForm(f => {
+      const esMP = CATS_MAT_PRIMAS.has(insumoSel.categoria)
+      return {
+        ...f,
+        peso_por_unidad: insumoSel.peso_por_unidad > 0 && !f.peso_por_unidad
+          ? insumoSel.peso_por_unidad : f.peso_por_unidad,
+        destino: !esIngreso
+          ? (esMP ? (f.destino === 'N/A' ? 'Bases' : f.destino) : 'N/A')
+          : f.destino,
+        motivo: '',
+      }
+    })
   }, [insumoSel?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const catInsumo = insumoSel?.categoria || ''
+  const esMatPrima = CATS_MAT_PRIMAS.has(catInsumo)
+  const motivosDisponibles = motivosPorCategoria(catInsumo)
 
   const marcasSugeridas = useMemo(() => {
     if (!form.producto_nombre.trim()) return []
@@ -157,6 +183,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
     if (!form.producto_nombre.trim()) { setLocalError('Falta seleccionar el producto'); return }
     if (!(parseFloat(form.cantidad) > 0)) { setLocalError('La cantidad debe ser mayor a 0'); return }
     if (!form.marca.trim()) { setLocalError('Falta la marca'); return }
+    if (!esIngreso && !form.motivo) { setLocalError('Falta seleccionar el motivo'); return }
     setLocalError('')
     setShowResumen(true)
   }
@@ -213,7 +240,8 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
               {form.fecha_vencimiento && <p>Vence: <b>{fmtFecha(form.fecha_vencimiento)}</b></p>}
               {esIngreso && form.proveedor && <p>Proveedor: <b>{form.proveedor}</b></p>}
               {esIngreso && form.nro_remito && <p>Remito N°: <b>{form.nro_remito}</b></p>}
-              {!esIngreso && form.destino && <p>Destino: <b>{form.destino}</b></p>}
+              {!esIngreso && form.destino && form.destino !== 'N/A' && <p>Destino: <b>{form.destino}</b></p>}
+              {!esIngreso && form.motivo && <p>Motivo: <b>{form.motivo}</b></p>}
               {form.controlo && <p>Controló: <b>{form.controlo}</b></p>}
             </div>
             {precioUnitario > 0 && (
@@ -335,14 +363,26 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
           {esIngreso ? (
             <Input label="Proveedor *" type="text" value={form.proveedor} onChange={e => upd('proveedor', e.target.value)} />
           ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <Select label="Destino *" value={form.destino} onChange={e => upd('destino', e.target.value)}>
-                {DESTINOS.map(d => <option key={d}>{d}</option>)}
+            <div className="space-y-3">
+              {/* Motivo — siempre visible en egreso */}
+              <Select label="Motivo *" value={form.motivo} onChange={e => upd('motivo', e.target.value)}>
+                <option value="">— Seleccionar motivo —</option>
+                {motivosDisponibles.map(m => <option key={m}>{m}</option>)}
               </Select>
-              <Select label="Retira / Solicita *" value={form.operario_recibe} onChange={e => upd('operario_recibe', e.target.value)}>
-                <option value="">— Seleccionar —</option>
-                {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
-              </Select>
+              <div className="grid grid-cols-2 gap-3">
+                {/* Destino — solo para Materias Primas */}
+                {esMatPrima ? (
+                  <Select label="Destino *" value={form.destino} onChange={e => upd('destino', e.target.value)}>
+                    {DESTINOS.map(d => <option key={d}>{d}</option>)}
+                  </Select>
+                ) : (
+                  <div />
+                )}
+                <Select label="Retira / Solicita *" value={form.operario_recibe} onChange={e => upd('operario_recibe', e.target.value)}>
+                  <option value="">— Seleccionar —</option>
+                  {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+                </Select>
+              </div>
             </div>
           )}
 
@@ -665,8 +705,10 @@ export default function Deposito() {
   const [modalMovsDet, setModalMovsDet]     = useState(null)
   const [modalEvolCS, setModalEvolCS]       = useState(null)
   const [generandoPDFstock, setGenerandoPDFstock] = useState(false)
+  const [filtroCategoria, setFiltroCategoria] = useState('TODOS')
   const [seccionCS, setSeccionCS]           = useState('deposito')
   const [filtroTablaCS, setFiltroTablaCS]   = useState(null) // null | 'critico' | 'atencion' | 'diferencia'
+  const [filtroCSCategoria, setFiltroCSCategoria] = useState('TODOS')
   const [movsCamara, setMovsCamara]         = useState([])
   const [modalMovsCamara, setModalMovsCamara] = useState(null) // { producto }
   const [generandoPDFcamara, setGenerandoPDFcamara] = useState(false)
@@ -755,6 +797,7 @@ export default function Deposito() {
       peso_por_unidad: pesoPorUnidad || null,
       peso_total: pesoTotal || null,
       nro_remito: form.nro_remito?.trim() || null,
+      motivo: form.motivo || null,
     }
     const { error } = await supabase.from('movimientos_deposito').insert(payload)
     if (error) { setSaving(false); toast2(error.message, 'error'); return }
@@ -816,9 +859,17 @@ export default function Deposito() {
     filtroTipo === 'Todos' ? movimientos : movimientos.filter(m => m.tipo === filtroTipo)
   ), [movimientos, filtroTipo])
 
-  const insumosFiltrados = useMemo(() => (
-    busqueda ? insumos.filter(i => i.nombre?.toLowerCase().includes(busqueda.toLowerCase())) : insumos
-  ), [insumos, busqueda])
+  const insumosFiltrados = useMemo(() => {
+    let result = busqueda
+      ? insumos.filter(i => i.nombre?.toLowerCase().includes(busqueda.toLowerCase()))
+      : insumos
+    if (filtroCategoria !== 'TODOS') {
+      result = filtroCategoria === 'MAT. PRIMAS'
+        ? result.filter(i => CATS_MAT_PRIMAS.has(i.categoria))
+        : result.filter(i => i.categoria === filtroCategoria)
+    }
+    return result
+  }, [insumos, busqueda, filtroCategoria])
 
   const porCategoria = useMemo(() => {
     const m = {}
@@ -1034,11 +1085,17 @@ export default function Deposito() {
   }, [controlSemanal])
 
   const controlSemanalFiltrado = useMemo(() => {
-    if (!filtroTablaCS) return controlSemanal
-    if (filtroTablaCS === 'critico')    return controlSemanal.filter(r => r.estado === 'CRÍTICO')
-    if (filtroTablaCS === 'atencion')   return controlSemanal.filter(r => r.estado === 'CRÍTICO' || r.estado === 'ATENCIÓN')
-    if (filtroTablaCS === 'diferencia') return controlSemanal.filter(r => r.pctDiferencia > 3)
-    return controlSemanal
+    let result = controlSemanal
+    if (filtroCSCategoria !== 'TODOS') {
+      result = filtroCSCategoria === 'MAT. PRIMAS'
+        ? result.filter(r => CATS_MAT_PRIMAS.has(r.categoria))
+        : result.filter(r => r.categoria === filtroCSCategoria)
+    }
+    if (!filtroTablaCS) return result
+    if (filtroTablaCS === 'critico')    return result.filter(r => r.estado === 'CRÍTICO')
+    if (filtroTablaCS === 'atencion')   return result.filter(r => r.estado === 'CRÍTICO' || r.estado === 'ATENCIÓN')
+    if (filtroTablaCS === 'diferencia') return result.filter(r => r.pctDiferencia > 3)
+    return result
   }, [controlSemanal, filtroTablaCS])
 
   // KPIs de cámaras
@@ -1554,6 +1611,20 @@ export default function Deposito() {
                   <KpiCard label="Valor total depósito" value={`$${pesos(valorTotalDeposito)}`} icon={DollarSign} color={colors.brand} />
                 </div>
               )}
+              {/* Pills de categoría */}
+              <div className="flex gap-1.5 flex-wrap">
+                {CATS_FILTRO.map(cat => (
+                  <button key={cat} onClick={() => setFiltroCategoria(cat)}
+                    className="px-3 py-1 rounded-full text-xs font-semibold transition-all border"
+                    style={{
+                      backgroundColor: filtroCategoria === cat ? colors.brand : 'transparent',
+                      borderColor: filtroCategoria === cat ? colors.brand : colors.border,
+                      color: filtroCategoria === cat ? 'white' : colors.textSecondary,
+                    }}>
+                    {cat}
+                  </button>
+                ))}
+              </div>
               <Input type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
                 placeholder="Buscar insumo…" icon={Search} />
               {insumos.length === 0 ? (
@@ -1915,11 +1986,34 @@ export default function Deposito() {
                 </div>
               )}
 
+              {/* ── Filtro por categoría ─── */}
+              <div className="flex gap-1.5 flex-wrap items-center">
+                <span className="text-xs font-medium" style={{ color: colors.textMuted }}>Categoría:</span>
+                {CATS_FILTRO.map(cat => (
+                  <button key={cat} onClick={() => setFiltroCSCategoria(cat)}
+                    className="px-3 py-1 rounded-full text-xs font-semibold transition-all border"
+                    style={{
+                      backgroundColor: filtroCSCategoria === cat ? colors.brand : 'transparent',
+                      borderColor: filtroCSCategoria === cat ? colors.brand : colors.border,
+                      color: filtroCSCategoria === cat ? 'white' : colors.textSecondary,
+                    }}>
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
               {/* ── Tabla principal (con filtro activo) ─── */}
               <div ref={tablaDepositoRef} className="overflow-hidden" style={SURFACE}>
                 <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Control de stock — Depósito</span>
+                    {filtroCSCategoria !== 'TODOS' && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                        style={{ backgroundColor: '#eff6ff', color: colors.info }}>
+                        {filtroCSCategoria}
+                        <button onClick={() => setFiltroCSCategoria('TODOS')} className="ml-1 font-bold hover:opacity-70">✕</button>
+                      </span>
+                    )}
                     {filtroTablaCS && (
                       <span className="text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1"
                         style={{ backgroundColor: filtroTablaCS === 'critico' ? '#fef2f2' : filtroTablaCS === 'atencion' ? '#fffbeb' : '#eff6ff', color: filtroTablaCS === 'critico' ? colors.danger : filtroTablaCS === 'atencion' ? '#92400e' : colors.info }}>

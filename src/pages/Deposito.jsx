@@ -94,7 +94,7 @@ function toDataURL(url) {
     }))
 }
 
-function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, onCrearInsumo, creandoInsumo }) {
+function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, onCrearInsumo, creandoInsumo, movimientos }) {
   const esIngreso = tipo === 'ingreso'
   const [form, setForm] = useState({
     fecha: new Date().toISOString().split('T')[0],
@@ -102,98 +102,284 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
     cantidad: '', unidad: 'u', lote: '', fecha_vencimiento: '',
     proveedor: '', controlo: '', destino: 'Bases', operario_recibe: '',
     observaciones: '',
+    peso_por_unidad: '',
+    precio_unitario: '',
+    nro_remito: '',
   })
+  const [showResumen, setShowResumen] = useState(false)
+  const [showMarcaAC, setShowMarcaAC] = useState(false)
+  const [localError, setLocalError] = useState('')
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const insumoSel = useMemo(() =>
+    insumos.find(i => (i.nombre || '').trim().toLowerCase() === form.producto_nombre.trim().toLowerCase()),
+    [form.producto_nombre, insumos]
+  )
+
+  // Pre-cargar peso_por_unidad cuando se selecciona un insumo conocido
+  useEffect(() => {
+    if (insumoSel?.peso_por_unidad > 0 && !form.peso_por_unidad) {
+      setForm(f => ({ ...f, peso_por_unidad: insumoSel.peso_por_unidad }))
+    }
+  }, [insumoSel?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const marcasSugeridas = useMemo(() => {
+    if (!form.producto_nombre.trim()) return []
+    const norm = form.producto_nombre.trim().toLowerCase()
+    const set = new Set()
+    ;(movimientos || []).forEach(m => {
+      if ((m.producto_nombre || '').trim().toLowerCase() === norm && m.marca) set.add(m.marca)
+    })
+    const q = form.marca.trim().toLowerCase()
+    return Array.from(set).filter(b => !q || b.toLowerCase().includes(q)).slice(0, 5)
+  }, [form.producto_nombre, form.marca, movimientos])
+
+  const cantidad = parseFloat(form.cantidad) || 0
+  const pesoPorUnidad = parseFloat(form.peso_por_unidad) || 0
+  const pesoTotal = form.unidad === 'u' && pesoPorUnidad > 0 ? cantidad * pesoPorUnidad : 0
+  const precioUnitario = parseFloat(form.precio_unitario) || 0
 
   const nombreProducto = form.producto_nombre.trim()
   const existeInsumo = insumos.some(i => (i.nombre || '').trim().toLowerCase() === nombreProducto.toLowerCase())
   const mostrarAgregarInsumo = esIngreso && nombreProducto !== '' && !existeInsumo
 
-  async function agregarInsumo() {
-    await onCrearInsumo(nombreProducto)
+  const stockInfo = insumoSel
+    ? `Stock actual: ${insumoSel.stock_actual ?? 0} ${insumoSel.unidad || 'u'}${
+        insumoSel.unidad === 'u' && (insumoSel.peso_por_unidad || 0) > 0
+          ? ` / ${((insumoSel.stock_actual || 0) * insumoSel.peso_por_unidad).toFixed(1)} kg`
+          : ''
+      }`
+    : null
+
+  const precioAnterior = insumoSel?.costo_unitario > 0 ? insumoSel.costo_unitario : null
+
+  function handleClickRegistrar() {
+    if (!form.producto_nombre.trim()) { setLocalError('Falta seleccionar el producto'); return }
+    if (!(parseFloat(form.cantidad) > 0)) { setLocalError('La cantidad debe ser mayor a 0'); return }
+    if (!form.marca.trim()) { setLocalError('Falta la marca'); return }
+    setLocalError('')
+    setShowResumen(true)
   }
 
+  const footerResumen = (
+    <>
+      <Button variant="secondary" onClick={() => setShowResumen(false)} disabled={saving} className="flex-1">
+        ← Volver
+      </Button>
+      <Button variant={esIngreso ? 'success' : 'danger'}
+        onClick={() => onSubmit({ ...form, _pesoTotal: pesoTotal })}
+        loading={saving} className="flex-1">
+        {saving ? 'Guardando…' : '✓ Confirmar registro'}
+      </Button>
+    </>
+  )
+
+  const footerForm = (
+    <>
+      <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">
+        Cancelar
+      </Button>
+      <Button variant={esIngreso ? 'success' : 'danger'} onClick={handleClickRegistrar} className="flex-1">
+        Revisar y registrar →
+      </Button>
+    </>
+  )
+
   return (
-    <Modal
-      open
-      onClose={onClose}
+    <Modal open onClose={onClose}
       title={esIngreso ? '↑ Registrar Ingreso' : '↓ Registrar Egreso'}
       maxWidth="max-w-md"
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">
-            Cancelar
-          </Button>
-          <Button variant={esIngreso ? 'success' : 'danger'} onClick={() => onSubmit(form)} loading={saving} className="flex-1">
-            {saving ? 'Guardando…' : 'Registrar'}
-          </Button>
-        </>
-      }
+      footer={showResumen ? footerResumen : footerForm}
     >
-      <div className="space-y-3">
-        <Input label="Fecha *" type="date" value={form.fecha} onChange={e => upd('fecha', e.target.value)} />
-        {esIngreso ? (
-          <div>
-            <Input label="Producto *" type="text" list="insumos-datalist" value={form.producto_nombre}
-              onChange={e => upd('producto_nombre', e.target.value)}
-              placeholder="Buscar o escribir un producto nuevo…" />
-            <datalist id="insumos-datalist">
-              {insumos.map(i => <option key={i.id} value={i.nombre} />)}
-            </datalist>
-            {mostrarAgregarInsumo && (
-              <div className="flex items-center justify-between gap-2 mt-1.5 px-2.5 py-2 text-xs" style={{ backgroundColor: colors.warningBg, border: `1px solid ${colors.warning}40`, borderRadius: radius.md, color: colors.warning }}>
-                <span>"{nombreProducto}" no está en la lista de insumos.</span>
-                <Button variant="ghost" size="sm" loading={creandoInsumo} onClick={agregarInsumo}>
-                  + Agregar como nuevo insumo
-                </Button>
-              </div>
+      {showResumen ? (
+        /* ── PANTALLA DE RESUMEN ── */
+        <div className="space-y-4">
+          <p className="text-sm font-semibold" style={{ color: colors.textSecondary }}>
+            Revisá el resumen antes de confirmar:
+          </p>
+          <div className="rounded-xl p-4 space-y-2.5" style={{ backgroundColor: '#fff7ed', border: '1px solid #fed7aa' }}>
+            <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>
+              {esIngreso ? '↑ Ingreso:' : '↓ Egreso:'} {form.cantidad} {form.presentacion.toLowerCase()}{parseFloat(form.cantidad) !== 1 ? 's' : ''} de <b>{form.producto_nombre}</b>
+              {form.marca ? ` (${form.marca})` : ''}
+            </p>
+            {pesoTotal > 0 && (
+              <p className="text-sm" style={{ color: '#c2410c' }}>
+                Peso total: <b>{pesoTotal.toFixed(2)} kg</b>
+                <span className="text-xs ml-1" style={{ color: colors.textMuted }}>({form.cantidad} × {pesoPorUnidad} kg/u)</span>
+              </p>
+            )}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs" style={{ color: colors.textMuted }}>
+              {form.lote && <p>Lote: <b>{form.lote}</b></p>}
+              {form.fecha_vencimiento && <p>Vence: <b>{fmtFecha(form.fecha_vencimiento)}</b></p>}
+              {esIngreso && form.proveedor && <p>Proveedor: <b>{form.proveedor}</b></p>}
+              {esIngreso && form.nro_remito && <p>Remito N°: <b>{form.nro_remito}</b></p>}
+              {!esIngreso && form.destino && <p>Destino: <b>{form.destino}</b></p>}
+              {form.controlo && <p>Controló: <b>{form.controlo}</b></p>}
+            </div>
+            {precioUnitario > 0 && (
+              <p className="text-xs font-semibold pt-1" style={{ borderTop: '1px solid #fed7aa', color: '#92400e' }}>
+                Precio: ${pesos(precioUnitario)}/u
+                {cantidad > 0 && ` = $${pesos(precioUnitario * cantidad)} total`}
+              </p>
             )}
           </div>
-        ) : (
-          <Select label="Producto *" value={form.producto_nombre} onChange={e => upd('producto_nombre', e.target.value)}>
-            <option value="">— Seleccionar insumo —</option>
-            {insumos.map(i => <option key={i.id} value={i.nombre}>{i.nombre}</option>)}
-          </Select>
-        )}
-        <div className="grid grid-cols-2 gap-3">
-          <Input label="Marca *" type="text" value={form.marca} onChange={e => upd('marca', e.target.value)} />
-          <Select label="Presentación *" value={form.presentacion} onChange={e => upd('presentacion', e.target.value)}>
-            {PRESENTACIONES.map(p => <option key={p}>{p}</option>)}
-          </Select>
+          <p className="text-xs text-center" style={{ color: colors.textMuted }}>
+            Al confirmar se registra el movimiento y se actualiza el stock.
+          </p>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Input label="Cantidad *" type="number" min="0.01" step="0.01" value={form.cantidad} onChange={e => upd('cantidad', e.target.value)} />
-          <Select label="Unidad *" value={form.unidad} onChange={e => upd('unidad', e.target.value)}>
-            {UNIDADES.map(u => <option key={u}>{u}</option>)}
-          </Select>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Input label="N° de Lote *" type="text" value={form.lote} onChange={e => upd('lote', e.target.value)} />
-          <Input label="Vencimiento *" type="date" value={form.fecha_vencimiento} onChange={e => upd('fecha_vencimiento', e.target.value)} />
-        </div>
-        <Select label="Controló *" value={form.controlo} onChange={e => upd('controlo', e.target.value)}>
-          <option value="">— Seleccionar —</option>
-          {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
-        </Select>
-        {esIngreso ? (
-          <Input label="Proveedor *" type="text" value={form.proveedor} onChange={e => upd('proveedor', e.target.value)} />
-        ) : (
+      ) : (
+        /* ── FORMULARIO ── */
+        <div className="space-y-3">
+          <Input label="Fecha *" type="date" value={form.fecha} onChange={e => upd('fecha', e.target.value)} />
+
+          {/* Producto */}
+          {esIngreso ? (
+            <div>
+              <Input label="Producto *" type="text" list="insumos-datalist" value={form.producto_nombre}
+                onChange={e => { upd('producto_nombre', e.target.value); upd('peso_por_unidad', '') }}
+                placeholder="Buscar o escribir un producto nuevo…" />
+              <datalist id="insumos-datalist">
+                {insumos.map(i => <option key={i.id} value={i.nombre} />)}
+              </datalist>
+              {stockInfo && (
+                <p className="text-xs mt-1 font-medium" style={{ color: colors.success }}>{stockInfo}</p>
+              )}
+              {mostrarAgregarInsumo && (
+                <div className="flex items-center justify-between gap-2 mt-1.5 px-2.5 py-2 text-xs"
+                  style={{ backgroundColor: colors.warningBg, border: `1px solid ${colors.warning}40`, borderRadius: radius.md, color: colors.warning }}>
+                  <span>"{nombreProducto}" no está en la lista.</span>
+                  <Button variant="ghost" size="sm" loading={creandoInsumo} onClick={() => onCrearInsumo(nombreProducto)}>
+                    + Agregar
+                  </Button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              <Select label="Producto *" value={form.producto_nombre}
+                onChange={e => { upd('producto_nombre', e.target.value); upd('peso_por_unidad', '') }}>
+                <option value="">— Seleccionar insumo —</option>
+                {insumos.map(i => <option key={i.id} value={i.nombre}>{i.nombre}</option>)}
+              </Select>
+              {stockInfo && (
+                <p className="text-xs mt-1 font-medium" style={{ color: colors.success }}>{stockInfo}</p>
+              )}
+            </div>
+          )}
+
+          {/* Marca con autocomplete */}
           <div className="grid grid-cols-2 gap-3">
-            <Select label="Destino *" value={form.destino} onChange={e => upd('destino', e.target.value)}>
-              {DESTINOS.map(d => <option key={d}>{d}</option>)}
-            </Select>
-            <Select label="Retira / Solicita *" value={form.operario_recibe} onChange={e => upd('operario_recibe', e.target.value)}>
-              <option value="">— Seleccionar —</option>
-              {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+            <div className="relative">
+              <Input label="Marca *" type="text" value={form.marca}
+                onChange={e => { upd('marca', e.target.value); setShowMarcaAC(true) }}
+                onFocus={() => setShowMarcaAC(true)}
+                onBlur={() => setTimeout(() => setShowMarcaAC(false), 150)}
+              />
+              {showMarcaAC && marcasSugeridas.length > 0 && (
+                <div className="absolute top-full left-0 right-0 z-20 rounded-lg border shadow-lg overflow-hidden"
+                  style={{ backgroundColor: colors.surface, borderColor: colors.border }}>
+                  {marcasSugeridas.map(b => (
+                    <button key={b} onMouseDown={() => { upd('marca', b); setShowMarcaAC(false) }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b last:border-0 transition-colors"
+                      style={{ borderColor: colors.border, color: colors.textPrimary }}>
+                      {b}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <Select label="Presentación *" value={form.presentacion} onChange={e => upd('presentacion', e.target.value)}>
+              {PRESENTACIONES.map(p => <option key={p}>{p}</option>)}
             </Select>
           </div>
-        )}
-        <div>
-          <label className="block text-sm font-medium text-[#374151] mb-1.5">Observaciones</label>
-          <textarea value={form.observaciones} onChange={e => upd('observaciones', e.target.value)}
-            rows={2} className={textareaClass} />
+
+          {/* Cantidad + Unidad */}
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Cantidad *" type="number" min="0.01" step="0.01"
+              value={form.cantidad} onChange={e => upd('cantidad', e.target.value)} />
+            <Select label="Unidad *" value={form.unidad} onChange={e => upd('unidad', e.target.value)}>
+              {UNIDADES.map(u => <option key={u}>{u}</option>)}
+            </Select>
+          </div>
+
+          {/* Peso por unidad — solo cuando unidad='u' */}
+          {form.unidad === 'u' && (
+            <div className="rounded-lg p-3 space-y-2" style={{ backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' }}>
+              <Input label="Peso por unidad (kg) — opcional" type="number" min="0" step="0.001"
+                value={form.peso_por_unidad}
+                onChange={e => upd('peso_por_unidad', e.target.value)}
+                placeholder="ej: 4.6"
+              />
+              {pesoTotal > 0 && (
+                <p className="text-sm font-semibold" style={{ color: '#1d4ed8' }}>
+                  Peso total: {pesoTotal.toFixed(2)} kg
+                  <span className="text-xs font-normal ml-1.5" style={{ color: '#3b82f6' }}>
+                    ({form.cantidad} u × {pesoPorUnidad} kg)
+                  </span>
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Lote + Vencimiento */}
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="N° de Lote *" type="text" value={form.lote} onChange={e => upd('lote', e.target.value)} />
+            <Input label="Vencimiento *" type="date" value={form.fecha_vencimiento} onChange={e => upd('fecha_vencimiento', e.target.value)} />
+          </div>
+
+          <Select label="Controló *" value={form.controlo} onChange={e => upd('controlo', e.target.value)}>
+            <option value="">— Seleccionar —</option>
+            {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+          </Select>
+
+          {esIngreso ? (
+            <Input label="Proveedor *" type="text" value={form.proveedor} onChange={e => upd('proveedor', e.target.value)} />
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <Select label="Destino *" value={form.destino} onChange={e => upd('destino', e.target.value)}>
+                {DESTINOS.map(d => <option key={d}>{d}</option>)}
+              </Select>
+              <Select label="Retira / Solicita *" value={form.operario_recibe} onChange={e => upd('operario_recibe', e.target.value)}>
+                <option value="">— Seleccionar —</option>
+                {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+              </Select>
+            </div>
+          )}
+
+          {/* Campos opcionales para ingreso */}
+          {esIngreso && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Input label="N° de remito" type="text" value={form.nro_remito}
+                  onChange={e => upd('nro_remito', e.target.value)} placeholder="opcional" />
+              </div>
+              <div>
+                <Input label="Precio unitario ($)" type="number" min="0" step="0.01"
+                  value={form.precio_unitario}
+                  onChange={e => upd('precio_unitario', e.target.value)} placeholder="opcional" />
+                {precioAnterior != null && !form.precio_unitario && (
+                  <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
+                    Precio anterior: ${pesos(precioAnterior)}/u
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-[#374151] mb-1.5">Observaciones</label>
+            <textarea value={form.observaciones} onChange={e => upd('observaciones', e.target.value)}
+              rows={2} className={textareaClass} />
+          </div>
+
+          {localError && (
+            <p className="text-xs font-semibold text-center py-1.5 rounded-lg"
+              style={{ backgroundColor: '#fef2f2', color: colors.danger }}>
+              {localError}
+            </p>
+          )}
         </div>
-      </div>
+      )}
     </Modal>
   )
 }
@@ -548,6 +734,9 @@ export default function Deposito() {
       toast2('La cantidad debe ser mayor a 0', 'error'); return
     }
     setSaving(true)
+    const pesoPorUnidad = parseFloat(form.peso_por_unidad) || 0
+    const pesoTotal = form._pesoTotal || (form.unidad === 'u' && pesoPorUnidad > 0
+      ? parseFloat(form.cantidad) * pesoPorUnidad : 0)
     const payload = {
       tipo: modal,
       fecha: form.fecha,
@@ -563,10 +752,32 @@ export default function Deposito() {
       destino: modal === 'egreso' ? form.destino : null,
       operario_recibe: modal === 'egreso' ? form.operario_recibe : null,
       observaciones: form.observaciones || null,
+      peso_por_unidad: pesoPorUnidad || null,
+      peso_total: pesoTotal || null,
+      nro_remito: form.nro_remito?.trim() || null,
     }
     const { error } = await supabase.from('movimientos_deposito').insert(payload)
+    if (error) { setSaving(false); toast2(error.message, 'error'); return }
+
+    // Actualizaciones secundarias al insumo (solo ingreso)
+    if (modal === 'ingreso') {
+      const insumoMatch = insumos.find(i =>
+        (i.nombre || '').trim().toLowerCase() === form.producto_nombre.trim().toLowerCase()
+      )
+      if (insumoMatch) {
+        const updates = {}
+        const precioUnitario = parseFloat(form.precio_unitario) || 0
+        if (precioUnitario > 0) updates.costo_unitario = precioUnitario
+        if (pesoPorUnidad > 0 && pesoPorUnidad !== (insumoMatch.peso_por_unidad || 0)) {
+          updates.peso_por_unidad = pesoPorUnidad
+        }
+        if (Object.keys(updates).length > 0) {
+          await supabase.from('insumos').update(updates).eq('id', insumoMatch.id)
+        }
+      }
+    }
+
     setSaving(false)
-    if (error) { toast2(error.message, 'error'); return }
     toast2(modal === 'ingreso' ? 'Ingreso registrado' : 'Egreso registrado')
     setModal(null)
     cargar()
@@ -1368,7 +1579,12 @@ export default function Deposito() {
                         >
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{ins.nombre}</p>
-                            <p className="text-xs" style={{ color: colors.textMuted }}>{ins.stock_actual ?? '—'} {ins.unidad}</p>
+                            <p className="text-xs" style={{ color: colors.textMuted }}>
+                              {ins.stock_actual ?? '—'} {ins.unidad}
+                              {ins.unidad === 'u' && (ins.peso_por_unidad || 0) > 0
+                                ? ` / ${((ins.stock_actual || 0) * ins.peso_por_unidad).toFixed(1)} kg`
+                                : ''}
+                            </p>
                           </div>
                           <div className="w-20 flex flex-col gap-1">
                             <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: colors.bg }}>
@@ -1939,6 +2155,7 @@ export default function Deposito() {
           operarios={operariosUnicos}
           onCrearInsumo={crearInsumoNuevo}
           creandoInsumo={creandoInsumo}
+          movimientos={movimientos}
         />
       )}
 

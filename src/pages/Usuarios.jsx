@@ -256,7 +256,7 @@ export default function Usuarios() {
               {ROLES.map(r => <option key={r} value={r} className="capitalize">{r}</option>)}
             </Select>
             <div>
-              <label className="block text-sm font-medium text-[#374151] mb-1.5">Permisos</label>
+              <label className="block text-sm font-medium text-[#94A3B8] mb-1.5">Permisos</label>
               <div className="grid grid-cols-2 gap-2">
                 {MODULOS.map(m => (
                   <label key={m.key} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer"

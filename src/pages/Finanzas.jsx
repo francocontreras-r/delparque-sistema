@@ -43,11 +43,11 @@ function margenPct(costo, precio) {
 }
 
 function nivelMargen(pct) {
-  if (pct < 0)   return { nivel: 'negativo',  emoji: '🔴', label: 'NEGATIVO',  barColor: '#ef4444', rowBg: '#fef2f2', badgeVariant: 'danger',  descCorta: 'Pérdida' }
-  if (pct < 15)  return { nivel: 'critico',   emoji: '🟠', label: 'CRÍTICO',   barColor: '#f97316', rowBg: '#fff7ed', badgeVariant: 'warning', descCorta: 'Crítico' }
-  if (pct < 30)  return { nivel: 'bajo',      emoji: '🟡', label: 'BAJO',      barColor: '#eab308', rowBg: '#fefce8', badgeVariant: 'warning', descCorta: 'Bajo' }
-  if (pct <= 50) return { nivel: 'saludable', emoji: '🟢', label: 'SALUDABLE', barColor: '#22c55e', rowBg: 'transparent', badgeVariant: 'success', descCorta: 'Saludable' }
-  return          { nivel: 'excelente', emoji: '💚', label: 'EXCELENTE', barColor: '#16a34a', rowBg: '#f0fdf4', badgeVariant: 'success', descCorta: 'Excelente' }
+  if (pct < 0)   return { nivel: 'negativo',  emoji: '🔴', label: 'NEGATIVO',  barColor: '#EF4444', rowBg: 'rgba(239,68,68,0.08)',   badgeVariant: 'danger',  descCorta: 'Pérdida' }
+  if (pct < 15)  return { nivel: 'critico',   emoji: '🟠', label: 'CRÍTICO',   barColor: '#f97316', rowBg: 'rgba(249,115,22,0.08)',  badgeVariant: 'warning', descCorta: 'Crítico' }
+  if (pct < 30)  return { nivel: 'bajo',      emoji: '🟡', label: 'BAJO',      barColor: '#eab308', rowBg: 'rgba(245,158,11,0.08)',  badgeVariant: 'warning', descCorta: 'Bajo' }
+  if (pct <= 50) return { nivel: 'saludable', emoji: '🟢', label: 'SALUDABLE', barColor: '#22C55E', rowBg: 'transparent',            badgeVariant: 'success', descCorta: 'Saludable' }
+  return          { nivel: 'excelente', emoji: '💚', label: 'EXCELENTE', barColor: '#16a34a', rowBg: 'rgba(34,197,94,0.08)',   badgeVariant: 'success', descCorta: 'Excelente' }
 }
 
 // ── Sub-componentes ────────────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ function DiffBadge({ actual, anterior }) {
   const sube = delta > 0
   return (
     <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ml-1"
-      style={{ backgroundColor: sube ? '#fef2f2' : '#f0fdf4', color: sube ? colors.danger : colors.success }}>
+      style={{ backgroundColor: sube ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)', color: sube ? colors.danger : colors.success }}>
       {sube ? <TrendingUp size={9} /> : <TrendingDown size={9} />}
       {pct.toFixed(0)}%
     </span>
@@ -597,11 +597,11 @@ export default function Finanzas() {
               <div className="space-y-2">
                 {alertStats.negativos.map(p => (
                   <div key={p.key} className="flex items-start gap-3 px-4 py-3 rounded-xl text-sm"
-                    style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca' }}>
-                    <AlertTriangle size={16} style={{ color: '#ef4444', flexShrink: 0, marginTop: 1 }} />
+                    style={{ backgroundColor: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                    <AlertTriangle size={16} style={{ color: '#EF4444', flexShrink: 0, marginTop: 1 }} />
                     <div>
-                      <p className="font-bold" style={{ color: '#dc2626' }}>MARGEN NEGATIVO — {p.nombre}</p>
-                      <p className="text-xs mt-0.5" style={{ color: '#991b1b' }}>
+                      <p className="font-bold" style={{ color: '#EF4444' }}>MARGEN NEGATIVO — {p.nombre}</p>
+                      <p className="text-xs mt-0.5" style={{ color: '#F87171' }}>
                         Estás vendiendo por debajo del costo. Perdés ${pesos(Math.abs(p.ganancia))} por unidad.
                       </p>
                     </div>
@@ -628,9 +628,9 @@ export default function Finanzas() {
                 {/* Resumen de los niveles positivos */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
-                    { label: 'Margen bajo (15–30%)', count: alertStats.bajos.length, bg: '#fefce8', color: '#ca8a04', border: '#fde047' },
-                    { label: 'Margen saludable (30–50%)', count: alertStats.saludables.length, bg: '#f0fdf4', color: '#16a34a', border: '#86efac' },
-                    { label: 'Margen excelente (>50%)', count: alertStats.excelentes.length, bg: '#dcfce7', color: '#15803d', border: '#4ade80' },
+                    { label: 'Margen bajo (15–30%)', count: alertStats.bajos.length, bg: 'rgba(245,158,11,0.1)', color: '#F59E0B', border: 'rgba(245,158,11,0.25)' },
+                    { label: 'Margen saludable (30–50%)', count: alertStats.saludables.length, bg: 'rgba(34,197,94,0.1)', color: '#22C55E', border: 'rgba(34,197,94,0.25)' },
+                    { label: 'Margen excelente (>50%)', count: alertStats.excelentes.length, bg: 'rgba(34,197,94,0.12)', color: '#4ade80', border: 'rgba(74,222,128,0.3)' },
                     { label: 'Sin precio de venta', count: margenes.filter(p => !p.precio_venta).length, bg: colors.bg, color: colors.textMuted, border: colors.border },
                   ].map(({ label, count, bg, color, border }) => (
                     <div key={label} className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"

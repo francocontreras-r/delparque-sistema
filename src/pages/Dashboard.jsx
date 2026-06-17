@@ -20,10 +20,10 @@ import {
 const REFRESH_MS = 60000
 const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 const TIPO_BADGE = {
-  Lisa:           { bg: '#eff6ff', color: '#1d4ed8' },
-  'Con Agregado': { bg: '#f5f3ff', color: '#6d28d9' },
-  Agua:           { bg: '#ecfeff', color: '#0e7490' },
-  Especial:       { bg: '#fff7ed', color: '#c2410c' },
+  Lisa:           { bg: 'rgba(96,165,250,0.12)',  color: '#60A5FA' },
+  'Con Agregado': { bg: 'rgba(167,139,250,0.12)', color: '#A78BFA' },
+  Agua:           { bg: 'rgba(34,211,238,0.12)',  color: '#22D3EE' },
+  Especial:       { bg: 'rgba(212,82,26,0.12)',   color: '#D4521A' },
 }
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 
@@ -302,7 +302,7 @@ export default function Dashboard() {
                       <div
                         key={o.id}
                         onClick={() => navigate('/ordenes')}
-                        className="p-3 cursor-pointer transition-colors hover:bg-[#f3f4f6]"
+                        className="p-3 cursor-pointer transition-colors hover:bg-[#334155]/50"
                         style={{ backgroundColor: colors.bg, borderRadius: radius.md, border: `1px solid ${colors.border}` }}
                       >
                         <div className="flex items-center justify-between gap-3 mb-1.5">
@@ -349,7 +349,7 @@ export default function Dashboard() {
                     <div
                       key={i}
                       onClick={() => navigate(a.to)}
-                      className="flex items-center gap-3 p-3 cursor-pointer transition-colors hover:bg-[#f3f4f6]"
+                      className="flex items-center gap-3 p-3 cursor-pointer transition-colors hover:bg-[#334155]/50"
                       style={{ backgroundColor: colors.bg, borderRadius: radius.md, border: `1px solid ${colors.border}` }}
                     >
                       <span className="text-lg flex-shrink-0">{a.emoji}</span>

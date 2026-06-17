@@ -45,7 +45,7 @@ const ESTADOS = [
 
 const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 
-const textareaClass = 'w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
+const textareaClass = 'w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] placeholder:text-[#64748B] bg-[#0F172A] outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]'
 
 function estadoInfo(estado) {
   return ESTADOS.find(e => e.key === estado) || ESTADOS[0]
@@ -1271,13 +1271,13 @@ export default function Ordenes() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-[#374151] mb-1.5">Observaciones</label>
+            <label className="block text-sm font-medium text-[#94A3B8] mb-1.5">Observaciones</label>
             <textarea value={form.observaciones} onChange={e => upd('observaciones', e.target.value)}
               rows={2} className={textareaClass} />
           </div>
 
           <div className="pt-2" style={{ borderTop: `1px solid ${colors.border}` }}>
-            <p className="text-sm font-medium text-[#374151] mb-2 mt-3">Agregar producto</p>
+            <p className="text-sm font-medium text-[#94A3B8] mb-2 mt-3">Agregar producto</p>
 
             {opcionesActivas.length === 0 ? (
               <p className="text-sm" style={{ color: colors.textMuted }}>
@@ -1379,7 +1379,7 @@ export default function Ordenes() {
 
           {lineas.length > 0 && (
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-[#374151]">Productos en esta orden</label>
+              <label className="block text-sm font-medium text-[#94A3B8]">Productos en esta orden</label>
               {lineas.map((l, idx) => (
                 <div key={idx} className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: colors.bg, borderRadius: radius.md }}>
                   <div>

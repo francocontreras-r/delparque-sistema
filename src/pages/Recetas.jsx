@@ -216,7 +216,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, s
                 </select>
                 {/* Eliminar */}
                 <button onClick={() => rem(ing._key)}
-                  className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-50 flex-shrink-0"
+                  className="w-6 h-6 flex items-center justify-center rounded hover:bg-[rgba(239,68,68,0.12)] flex-shrink-0"
                   style={{ color: colors.danger }}>
                   <X size={14} />
                 </button>
@@ -540,7 +540,7 @@ export default function Recetas() {
                       <Badge variant={tipoVariant(r.tipo)}>{r.tipo}</Badge>
                       {r.sinPrecio && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                          style={{ backgroundColor: '#fffbeb', color: colors.warning }}>
+                          style={{ backgroundColor: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.2)', color: colors.warning }}>
                           <AlertTriangle size={9} /> Sin precio
                         </span>
                       )}

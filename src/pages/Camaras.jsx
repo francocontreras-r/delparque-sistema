@@ -509,7 +509,7 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
                       </td>
                       <td className="py-2 px-3">
                         <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full"
-                          style={{ backgroundColor: m.tipo === 'ingreso' ? '#dcfce7' : '#fee2e2', color: m.tipo === 'ingreso' ? '#16a34a' : '#dc2626' }}>
+                          style={{ backgroundColor: m.tipo === 'ingreso' ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', color: m.tipo === 'ingreso' ? '#22C55E' : '#EF4444' }}>
                           {m.tipo === 'ingreso' ? '🟢' : '🔴'} {m.tipo}
                         </span>
                       </td>
@@ -800,8 +800,8 @@ export default function Camaras() {
                         <td className="py-2.5 px-4">
                           <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
                             style={{
-                              backgroundColor: m.tipo === 'ingreso' ? '#dcfce7' : '#fee2e2',
-                              color: m.tipo === 'ingreso' ? '#16a34a' : '#dc2626',
+                              backgroundColor: m.tipo === 'ingreso' ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+                              color: m.tipo === 'ingreso' ? '#22C55E' : '#EF4444',
                             }}>
                             {m.tipo === 'ingreso' ? '🟢 Ingreso' : '🔴 Egreso'}
                           </span>

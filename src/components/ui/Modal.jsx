@@ -16,15 +16,15 @@ export default function Modal({ open, onClose, title, children, maxWidth = 'max-
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
-        className={`w-full ${maxWidth} max-h-[90vh] flex flex-col bg-white rounded-2xl shadow-xl`}
-        style={{ animation: 'modal-in 180ms cubic-bezier(0.16,1,0.3,1)' }}
+        className={`w-full ${maxWidth} max-h-[90vh] flex flex-col rounded-2xl shadow-2xl`}
+        style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, animation: 'modal-in 180ms cubic-bezier(0.16,1,0.3,1)' }}
       >
         {title && (
           <div className="flex items-center justify-between px-6 py-4 flex-shrink-0 border-b" style={{ borderColor: colors.border }}>
             <h2 className="text-lg font-semibold" style={{ color: colors.textPrimary }}>{title}</h2>
             <button
               onClick={onClose}
-              className="w-7 h-7 rounded-full flex items-center justify-center transition-colors hover:bg-slate-100"
+              className="w-7 h-7 rounded-full flex items-center justify-center transition-colors hover:bg-[#334155]"
               style={{ color: colors.textMuted }}
             >
               <X size={16} />

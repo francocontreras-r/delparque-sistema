@@ -48,8 +48,8 @@ const PRODUCTOS_SEED = [
   { codigo: 116, nombre: 'TORTA HELADA KG',  categoria: 'IMPULSIVO' },
 ]
 
-const textareaClass = 'w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
-const obsInputClass  = 'w-full min-w-[160px] rounded-md border border-[#d1d5db] text-xs text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-2 py-1.5 focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
+const textareaClass = 'w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] placeholder:text-[#64748B] bg-[#0F172A] outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]'
+const obsInputClass  = 'w-full min-w-[160px] rounded-md border border-[#334155] text-xs text-[#F1F5F9] placeholder:text-[#64748B] bg-[#0F172A] outline-none transition-colors duration-150 px-2 py-1.5 focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]'
 
 function fmtNum(n) {
   return Number((n || 0).toFixed(2)).toString()
@@ -693,7 +693,7 @@ export default function Produccion() {
               <Input label="Lote" value={manualLote} onChange={e => setManualLote(e.target.value)} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-[#374151] mb-1.5">Observaciones</label>
+              <label className="block text-sm font-medium text-[#94A3B8] mb-1.5">Observaciones</label>
               <textarea value={manualObservaciones} onChange={e => setManualObservaciones(e.target.value)}
                 placeholder="Observaciones (opcional)" rows={2} className={textareaClass} />
             </div>
@@ -741,7 +741,7 @@ export default function Produccion() {
                     <button
                       onClick={() => quitarDePreCarga(item._id)}
                       title="Quitar de la lista"
-                      className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-red-50 transition-colors"
+                      className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[rgba(239,68,68,0.12)] transition-colors"
                       style={{ color: colors.danger }}
                     >
                       <X size={14} />
@@ -810,7 +810,7 @@ export default function Produccion() {
                     <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>{o.nombre}</span>
                     <button
                       onClick={() => eliminarOperario(o.id)}
-                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-50 transition-colors flex-shrink-0"
+                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-[rgba(239,68,68,0.12)] transition-colors flex-shrink-0"
                       style={{ color: colors.danger }}
                       title="Eliminar operario"
                     >

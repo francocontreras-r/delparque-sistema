@@ -1,9 +1,9 @@
 const VARIANTS = {
-  success: 'bg-[#f0fdf4] text-[#16a34a] border border-[#bbf7d0]',
-  warning: 'bg-[#fffbeb] text-[#d97706] border border-[#fde68a]',
-  danger:  'bg-[#fef2f2] text-[#dc2626] border border-[#fecaca]',
-  info:    'bg-[#eff6ff] text-[#2563eb] border border-[#bfdbfe]',
-  neutral: 'bg-[#f9fafb] text-[#6b7280] border border-[#e5e7eb]',
+  success: 'bg-[rgba(34,197,94,0.12)]  text-[#22C55E] border border-[rgba(34,197,94,0.25)]',
+  warning: 'bg-[rgba(245,158,11,0.12)] text-[#F59E0B] border border-[rgba(245,158,11,0.25)]',
+  danger:  'bg-[rgba(239,68,68,0.12)]  text-[#EF4444] border border-[rgba(239,68,68,0.25)]',
+  info:    'bg-[rgba(96,165,250,0.12)] text-[#60A5FA] border border-[rgba(96,165,250,0.25)]',
+  neutral: 'bg-[#334155] text-[#94A3B8] border border-[#475569]',
 }
 
 export default function Badge({ variant = 'neutral', children, className = '' }) {

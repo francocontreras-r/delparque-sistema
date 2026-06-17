@@ -102,7 +102,7 @@ function SidebarContent({ onClose, user, onLogout, navItems }) {
         {onClose && (
           <button
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[#1f2937] md:hidden"
+            className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[#334155] md:hidden"
             style={{ color: colors.textMuted }}
           >
             <X size={16} />
@@ -135,7 +135,7 @@ function SidebarContent({ onClose, user, onLogout, navItems }) {
         )}
         <button
           onClick={onLogout}
-          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-[#9ca3af] hover:bg-[#1f2937] hover:text-white"
+          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-[#64748B] hover:bg-[#334155] hover:text-[#F1F5F9]"
         >
           <LogOut size={15} />
           Cerrar sesión
@@ -181,7 +181,7 @@ function InstallBanner() {
   return (
     <div
       className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg"
-      style={{ backgroundColor: '#ffffff', border: `1px solid ${colors.border}` }}
+      style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}` }}
     >
       <div
         className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 text-white font-extrabold text-sm"
@@ -203,7 +203,7 @@ function InstallBanner() {
       </button>
       <button
         onClick={() => setVisible(false)}
-        className="w-7 h-7 flex items-center justify-center rounded-lg flex-shrink-0 hover:bg-slate-100"
+        className="w-7 h-7 flex items-center justify-center rounded-lg flex-shrink-0 hover:bg-[#334155]"
         style={{ color: colors.textMuted }}
       >
         <X size={14} />
@@ -293,13 +293,13 @@ export default function Layout() {
 
         {/* Header */}
         <header
-          className="flex items-center justify-between px-6 flex-shrink-0 bg-white"
-          style={{ height: 56, borderBottom: `1px solid ${colors.border}` }}
+          className="flex items-center justify-between px-6 flex-shrink-0"
+          style={{ height: 48, backgroundColor: colors.surface, borderBottom: `1px solid ${colors.border}` }}
         >
           <div className="flex items-center gap-3">
             <button
               onClick={() => setMobileOpen(true)}
-              className="md:hidden w-8 h-8 flex items-center justify-center rounded-lg transition-colors hover:bg-slate-100"
+              className="md:hidden w-8 h-8 flex items-center justify-center rounded-lg transition-colors hover:bg-[#334155]"
               style={{ color: colors.textSecondary }}
             >
               <Menu size={18} />

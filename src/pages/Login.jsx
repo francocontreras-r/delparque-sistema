@@ -17,67 +17,108 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="bg-white rounded-2xl shadow-lg w-full max-w-sm p-8">
+    <div
+      className="min-h-screen flex items-center justify-center px-4"
+      style={{
+        backgroundColor: '#0F172A',
+        backgroundImage: 'radial-gradient(circle, #334155 1px, transparent 1px)',
+        backgroundSize: '28px 28px',
+      }}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl overflow-hidden"
+        style={{
+          backgroundColor: '#1E293B',
+          border: '1px solid #334155',
+          boxShadow: '0 25px 60px rgba(0,0,0,0.6)',
+        }}
+      >
+        {/* Orange top accent bar */}
+        <div style={{ height: 4, backgroundColor: '#D4521A' }} />
 
-        {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <div
-            className="w-16 h-16 rounded-2xl flex items-center justify-center mb-3"
-            style={{ backgroundColor: '#D4521A' }}
-          >
-            <span className="text-white text-2xl font-bold">DP</span>
+        <div className="p-8">
+          {/* Logo */}
+          <div className="flex flex-col items-center mb-8">
+            <div
+              className="w-16 h-16 rounded-2xl flex items-center justify-center mb-3"
+              style={{ backgroundColor: '#D4521A', boxShadow: '0 8px 20px rgba(212,82,26,0.4)' }}
+            >
+              <span className="text-white text-2xl font-bold tracking-tight">DP</span>
+            </div>
+            <h1 className="text-xl font-bold" style={{ color: '#F1F5F9' }}>Del Parque</h1>
+            <p className="text-sm mt-1" style={{ color: '#64748B' }}>Sistema de gestión industrial</p>
           </div>
-          <h1 className="text-xl font-bold text-gray-800">Del Parque</h1>
-          <p className="text-sm text-gray-400 mt-1">Sistema de gestión</p>
+
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1.5" style={{ color: '#94A3B8' }}>
+                Email
+              </label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="usuario@delparque.com"
+                className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-all duration-150 focus:ring-2"
+                style={{
+                  backgroundColor: '#0F172A',
+                  border: '1px solid #334155',
+                  color: '#F1F5F9',
+                  '--tw-ring-color': 'rgba(212,82,26,0.25)',
+                }}
+                onFocus={e => { e.target.style.borderColor = '#D4521A' }}
+                onBlur={e => { e.target.style.borderColor = '#334155' }}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1.5" style={{ color: '#94A3B8' }}>
+                Contraseña
+              </label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-all duration-150 focus:ring-2"
+                style={{
+                  backgroundColor: '#0F172A',
+                  border: '1px solid #334155',
+                  color: '#F1F5F9',
+                }}
+                onFocus={e => { e.target.style.borderColor = '#D4521A' }}
+                onBlur={e => { e.target.style.borderColor = '#334155' }}
+              />
+            </div>
+
+            {error && (
+              <p
+                className="text-sm rounded-lg px-3 py-2"
+                style={{
+                  color: '#EF4444',
+                  backgroundColor: 'rgba(239,68,68,0.1)',
+                  border: '1px solid rgba(239,68,68,0.2)',
+                }}
+              >
+                {error}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full font-semibold rounded-lg py-2.5 text-sm transition-all duration-150 active:scale-[0.98] disabled:opacity-60"
+              style={{ backgroundColor: '#D4521A', color: '#ffffff' }}
+              onMouseEnter={e => { if (!loading) e.target.style.backgroundColor = '#b84415' }}
+              onMouseLeave={e => { e.target.style.backgroundColor = '#D4521A' }}
+            >
+              {loading ? 'Ingresando…' : 'Ingresar'}
+            </button>
+          </form>
         </div>
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email
-            </label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="usuario@delparque.com"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 transition"
-              style={{ '--tw-ring-color': '#D4521A33' }}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Contraseña
-            </label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 transition"
-            />
-          </div>
-
-          {error && (
-            <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
-              {error}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full text-white font-semibold rounded-lg py-2.5 text-sm transition active:scale-95 disabled:opacity-60"
-            style={{ backgroundColor: '#D4521A' }}
-          >
-            {loading ? 'Ingresando…' : 'Ingresar'}
-          </button>
-        </form>
       </div>
     </div>
   )

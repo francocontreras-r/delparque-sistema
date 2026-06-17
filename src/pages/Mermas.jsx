@@ -28,7 +28,7 @@ const TIPO_PRECIOS = {
   Especial:       { costo_kg: 2000, precio_kg: 4500 },
 }
 
-const textareaClass = 'w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
+const textareaClass = 'w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] placeholder:text-[#64748B] bg-[#0F172A] outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]'
 
 function pctColor(pct) {
   if (pct < 3)  return colors.success
@@ -380,7 +380,7 @@ export default function Mermas() {
             {CAUSAS.map(c => <option key={c}>{c}</option>)}
           </Select>
           <div>
-            <label className="block text-sm font-medium text-[#374151] mb-1.5">Observaciones</label>
+            <label className="block text-sm font-medium text-[#94A3B8] mb-1.5">Observaciones</label>
             <textarea value={form.observaciones} onChange={e => setForm(f => ({ ...f, observaciones: e.target.value }))}
               rows={2} className={textareaClass} />
           </div>

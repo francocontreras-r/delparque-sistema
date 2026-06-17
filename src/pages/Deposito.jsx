@@ -42,7 +42,7 @@ function motivosPorCategoria(categoria) {
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const SEM = { verde: colors.success, amarillo: colors.warning, rojo: colors.danger, gris: colors.textMuted }
 
-const textareaClass = 'w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] placeholder:text-[#9ca3af] bg-white outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
+const textareaClass = 'w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] placeholder:text-[#64748B] bg-[#0F172A] outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]'
 
 function semaforo(actual, minimo, maximo) {
   const a = Number(actual) || 0
@@ -416,14 +416,14 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
           )}
 
           <div>
-            <label className="block text-sm font-medium text-[#374151] mb-1.5">Observaciones</label>
+            <label className="block text-sm font-medium text-[#94A3B8] mb-1.5">Observaciones</label>
             <textarea value={form.observaciones} onChange={e => upd('observaciones', e.target.value)}
               rows={2} className={textareaClass} />
           </div>
 
           {localError && (
             <p className="text-xs font-semibold text-center py-1.5 rounded-lg"
-              style={{ backgroundColor: '#fef2f2', color: colors.danger }}>
+              style={{ backgroundColor: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.2)', color: colors.danger }}>
               {localError}
             </p>
           )}
@@ -463,9 +463,9 @@ function ModalEditarInsumo({ insumo, onClose, onSubmit, saving, isAdmin }) {
       <div className="space-y-3">
         <Input label="Nombre" value={insumo.nombre} disabled />
         <div>
-          <label className="block text-sm font-medium text-[#374151] mb-1.5">Categoría</label>
+          <label className="block text-sm font-medium text-[#94A3B8] mb-1.5">Categoría</label>
           <select value={form.categoria} onChange={e => upd('categoria', e.target.value)}
-            className="w-full rounded-lg border border-[#d1d5db] text-sm text-[#111827] bg-white outline-none px-3 py-2 focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]">
+            className="w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] bg-[#0F172A] outline-none px-3 py-2 focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]">
             {TODAS_LAS_CATS.map(c => <option key={c}>{c}</option>)}
           </select>
         </div>
@@ -529,7 +529,7 @@ function ModalConteo({ tipo, items, onClose, onSubmit, saving }) {
             <input
               type="number" step="0.01" value={valores[it.nombre]}
               onChange={e => upd(it.nombre, e.target.value)}
-              className="w-24 rounded-lg border border-[#d1d5db] text-sm text-right px-2 py-1.5 outline-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]"
+              className="w-24 rounded-lg border border-[#334155] text-sm text-[#F1F5F9] bg-[#0F172A] text-right px-2 py-1.5 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
             />
           </div>
         ))}
@@ -609,7 +609,7 @@ function ModalEvolucionCS({ insumo, movimientos: allMovs, onClose }) {
         <div className="flex items-center gap-3 flex-wrap">
           <p className="text-xs" style={{ color: colors.textMuted }}>Consumo e ingresos por semana — últimas 8 semanas</p>
           {tendenciaBajista && (
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: '#fef2f2', color: colors.danger }}>
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.2)', color: colors.danger }}>
               📉 Tendencia descendente
             </span>
           )}
@@ -2075,13 +2075,13 @@ export default function Deposito() {
                   {alertasCS.map((a, idx) => (
                     <div key={idx} className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs"
                       style={{
-                        backgroundColor: a.tipo === 'critico' ? '#fef2f2' : a.tipo === 'reposicion' ? '#fffbeb' : a.tipo === 'diferencia' ? '#eff6ff' : '#f9fafb',
-                        border: `1px solid ${a.tipo === 'critico' ? '#fecaca' : a.tipo === 'reposicion' ? '#fde68a' : a.tipo === 'diferencia' ? '#bfdbfe' : colors.border}`,
+                        backgroundColor: a.tipo === 'critico' ? 'rgba(239,68,68,0.12)' : a.tipo === 'reposicion' ? 'rgba(245,158,11,0.12)' : a.tipo === 'diferencia' ? 'rgba(96,165,250,0.12)' : colors.surface,
+                        border: `1px solid ${a.tipo === 'critico' ? 'rgba(239,68,68,0.25)' : a.tipo === 'reposicion' ? 'rgba(245,158,11,0.25)' : a.tipo === 'diferencia' ? 'rgba(96,165,250,0.25)' : colors.border}`,
                       }}>
                       <span className="text-base leading-none mt-0.5">
                         {a.tipo === 'critico' ? '🔴' : a.tipo === 'reposicion' ? '🟡' : a.tipo === 'diferencia' ? '⚠️' : '🕐'}
                       </span>
-                      <span style={{ color: a.tipo === 'critico' ? colors.danger : a.tipo === 'reposicion' ? '#92400e' : a.tipo === 'diferencia' ? colors.info : colors.textSecondary }}>
+                      <span style={{ color: a.tipo === 'critico' ? colors.danger : a.tipo === 'reposicion' ? colors.warning : a.tipo === 'diferencia' ? colors.info : colors.textSecondary }}>
                         {a.tipo === 'critico' && <><strong>STOCK CRÍTICO — {a.producto}:</strong> quedan {a.diasStock.toFixed(1)} días con consumo de {a.consumo.toFixed(1)} {a.unidad}/día.</>}
                         {a.tipo === 'reposicion' && <><strong>REPOSICIÓN SUGERIDA — {a.producto}:</strong> {a.diasStock.toFixed(1)} días de stock. Sugerido: {a.cantSugerida.toFixed(1)} {a.unidad} (2 semanas).</>}
                         {a.tipo === 'diferencia' && <><strong>DIFERENCIA DE INVENTARIO — {a.producto}:</strong> {a.diferencia > 0 ? '+' : ''}{a.diferencia.toFixed(2)} {a.unidad} ({a.pct.toFixed(1)}%).</>}
@@ -2122,7 +2122,7 @@ export default function Deposito() {
                     )}
                     {filtroTablaCS && (
                       <span className="text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1"
-                        style={{ backgroundColor: filtroTablaCS === 'critico' ? '#fef2f2' : filtroTablaCS === 'atencion' ? '#fffbeb' : '#eff6ff', color: filtroTablaCS === 'critico' ? colors.danger : filtroTablaCS === 'atencion' ? '#92400e' : colors.info }}>
+                        style={{ backgroundColor: filtroTablaCS === 'critico' ? 'rgba(239,68,68,0.12)' : filtroTablaCS === 'atencion' ? 'rgba(245,158,11,0.12)' : 'rgba(96,165,250,0.12)', color: filtroTablaCS === 'critico' ? colors.danger : filtroTablaCS === 'atencion' ? colors.warning : colors.info }}>
                         {filtroTablaCS === 'critico' ? '🔴 Solo críticos' : filtroTablaCS === 'atencion' ? '🟡 Críticos + Atención' : '⚠️ Con diferencias'}
                         <button onClick={() => setFiltroTablaCS(null)} className="ml-1 font-bold hover:opacity-70">✕</button>
                       </span>
@@ -2149,7 +2149,7 @@ export default function Deposito() {
                       </Thead>
                       <Tbody>
                         {controlSemanalFiltrado.map(r => {
-                          const rowBg = r.estado === 'CRÍTICO' ? '#fef2f2' : r.estado === 'ATENCIÓN' ? '#fffbeb' : 'transparent'
+                          const rowBg = r.estado === 'CRÍTICO' ? 'rgba(239,68,68,0.08)' : r.estado === 'ATENCIÓN' ? 'rgba(245,158,11,0.08)' : 'transparent'
                           const diffBig = r.conteoFisico !== null && r.pctDiferencia > 3
                           const diasColor = r.diasStock < 3 ? colors.danger : r.diasStock < 7 ? colors.warning : r.diasStock === Infinity ? colors.textMuted : colors.success
                           return (
@@ -2288,7 +2288,7 @@ export default function Deposito() {
                           return (o[estadoCamara(a)] ?? 2) - (o[estadoCamara(b)] ?? 2) || (a.nombre || '').localeCompare(b.nombre || '')
                         }).map(c => {
                           const est = estadoCamara(c)
-                          const rowBg = est === 'AGOTADO' ? '#fef2f2' : est === 'BAJO' ? '#fffbeb' : 'transparent'
+                          const rowBg = est === 'AGOTADO' ? 'rgba(239,68,68,0.08)' : est === 'BAJO' ? 'rgba(245,158,11,0.08)' : 'transparent'
                           const movsProd = movsCamara.filter(m => {
                             const sn = (m.sabor_nombre || m.producto_nombre || '').trim().toLowerCase()
                             return sn === (c.nombre || '').trim().toLowerCase()

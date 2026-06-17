@@ -8,7 +8,7 @@ import Button from '../components/ui/Button'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { DollarSign, RefreshCw, Warehouse, Thermometer, Percent, TrendingUp } from 'lucide-react'
+import { DollarSign, RefreshCw, Warehouse, Thermometer, Percent, TrendingUp, TrendingDown, Clock } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -23,6 +23,8 @@ const TIPO_PRECIOS = {
   Agua:           { costo_kg:  900, precio_kg: 2200 },
   Especial:       { costo_kg: 2000, precio_kg: 4500 },
 }
+
+const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 
 const numInputClass = 'w-24 text-right rounded-md border border-[#d1d5db] text-sm px-2 py-1 outline-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
 
@@ -43,6 +45,20 @@ function margenVariant(pct) {
   if (pct > 40) return 'success'
   if (pct >= 20) return 'warning'
   return 'danger'
+}
+
+function DiffBadge({ actual, anterior }) {
+  if (anterior == null || anterior === actual) return null
+  const delta = actual - anterior
+  const pct = anterior > 0 ? Math.abs(delta / anterior) * 100 : 0
+  const sube = delta > 0
+  return (
+    <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ml-1"
+      style={{ backgroundColor: sube ? '#fef2f2' : '#f0fdf4', color: sube ? colors.danger : colors.success }}>
+      {sube ? <TrendingUp size={9} /> : <TrendingDown size={9} />}
+      {pct.toFixed(0)}%
+    </span>
+  )
 }
 
 function EditableNumber({ value, onCommit }) {
@@ -69,6 +85,8 @@ export default function Finanzas() {
   const [loading, setLoading] = useState(true)
   const [recalculando, setRecalculando] = useState(false)
   const [toast, setToast] = useState(null)
+  const [prevSnapshot, setPrevSnapshot] = useState(null)   // { [key]: { costo_total, margen } }
+  const [lastUpdated, setLastUpdated] = useState(null)
 
   useEffect(() => { cargar() }, [])
 
@@ -96,8 +114,14 @@ export default function Finanzas() {
 
   function toast2(msg, type = 'ok') {
     setToast({ msg, type })
-    setTimeout(() => setToast(null), 3000)
+    setTimeout(() => setToast(null), 3500)
   }
+
+  const insumoPorNombre = useMemo(() => {
+    const m = {}
+    insumos.forEach(i => { m[(i.nombre || '').trim().toLowerCase()] = i })
+    return m
+  }, [insumos])
 
   const productos = useMemo(() => {
     const a = sabores.map(s => ({
@@ -130,7 +154,7 @@ export default function Finanzas() {
     }
   }
 
-  function calcCostoIngredientes(ingredientes, insumoPorNombre) {
+  function calcCostoIngredientes(ingredientes) {
     return ingredientes.reduce((acc, ing) => {
       const insumo = insumoPorNombre[(ing.insumo_nombre || '').trim().toLowerCase()]
       const costoUnit = insumo?.costo_unitario ?? ing.costo_unitario ?? 0
@@ -140,24 +164,34 @@ export default function Finanzas() {
 
   async function recalcularTodos() {
     setRecalculando(true)
-    const insumoPorNombre = {}
-    insumos.forEach(i => { insumoPorNombre[(i.nombre || '').trim().toLowerCase()] = i })
+
+    // Snapshot ANTES de recalcular
+    const snap = {}
+    productos.forEach(p => {
+      snap[p.key] = {
+        costo_total: p.costo_total,
+        margen: margenPct(p.costo_total, p.precio_venta),
+      }
+    })
 
     for (const s of sabores) {
       const ingredientes = saborIngredientes.filter(si => si.sabor_id === s.id)
-      const costoMat = calcCostoIngredientes(ingredientes, insumoPorNombre)
+      const costoMat = calcCostoIngredientes(ingredientes)
       const costoTotal = costoMat + (s.mano_de_obra || 0)
       await supabase.from('sabores').update({ costo_materiales: costoMat, costo_total: costoTotal }).eq('id', s.id)
     }
     for (const i of impulsivos) {
       const ingredientes = impulsivoIngredientes.filter(ii => ii.impulsivo_id === i.id)
-      const costoMat = calcCostoIngredientes(ingredientes, insumoPorNombre)
+      const costoMat = calcCostoIngredientes(ingredientes)
       const costoTotal = costoMat + (i.mano_de_obra || 0)
       await supabase.from('impulsivos').update({ costo_materiales: costoMat, costo_total: costoTotal }).eq('id', i.id)
     }
+
     await cargar()
+    setPrevSnapshot(snap)
+    setLastUpdated(new Date())
     setRecalculando(false)
-    toast2('Costos recalculados')
+    toast2('Costos actualizados desde ingredientes × precios del depósito')
   }
 
   const margenes = useMemo(() => productos.map(p => ({
@@ -198,6 +232,8 @@ export default function Finanzas() {
 
   const hayDistribucion = distribucionCostos.some(d => d.value > 0)
 
+  const tieneDiff = prevSnapshot != null
+
   return (
     <div className="space-y-5">
       <Toast toast={toast} />
@@ -206,11 +242,19 @@ export default function Finanzas() {
           <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Finanzas</h1>
           <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Costos, márgenes y resumen financiero</p>
         </div>
-        {tab === 'Costos' && (
-          <Button variant="primary" onClick={recalcularTodos} loading={recalculando}>
-            <RefreshCw size={15} /> Recalcular todos
-          </Button>
-        )}
+        <div className="flex items-center gap-3 flex-wrap">
+          {lastUpdated && (
+            <span className="text-xs flex items-center gap-1.5" style={{ color: colors.textMuted }}>
+              <Clock size={12} />
+              Actualizado: {lastUpdated.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+          {tab !== 'Resumen' && (
+            <Button variant="primary" onClick={recalcularTodos} loading={recalculando}>
+              <RefreshCw size={15} /> Actualizar todos los costos
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-1.5 flex-wrap">
@@ -234,76 +278,124 @@ export default function Finanzas() {
           subtitle="Agregá sabores e impulsivos con sus recetas desde Recetas para ver costos y márgenes" />
       ) : (
         <>
+          {/* ── Tab Costos ── */}
           {tab === 'Costos' && (
-            <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-              <Table className="min-w-[720px]">
-                <Thead>
-                  <Tr>
-                    <Th>Producto</Th>
-                    <Th>Tipo</Th>
-                    <Th>Costo MP ($)</Th>
-                    <Th>Mano de obra ($)</Th>
-                    <Th>Costo total ($)</Th>
-                    <Th>Precio venta ($)</Th>
-                  </Tr>
-                </Thead>
-                <Tbody>
-                  {productos.map(p => (
-                    <Tr key={p.key}>
-                      <Td className="font-medium">{p.nombre}</Td>
-                      <Td><Badge variant="neutral">{p.tipo}</Badge></Td>
-                      <Td className="text-right">${pesos(p.costo_materiales)}</Td>
-                      <Td className="text-right">
-                        <EditableNumber value={p.mano_de_obra} onCommit={v => actualizarCampo(p, 'mano_de_obra', v)} />
-                      </Td>
-                      <Td className="text-right font-semibold">${pesos(p.costo_total)}</Td>
-                      <Td className="text-right">
-                        <EditableNumber value={p.precio_venta} onCommit={v => actualizarCampo(p, 'precio_venta', v)} />
-                      </Td>
-                    </Tr>
-                  ))}
-                </Tbody>
-              </Table>
+            <div>
+              {tieneDiff && (
+                <div className="mb-3 flex items-center gap-2 text-xs px-3 py-2 rounded-lg"
+                  style={{ backgroundColor: '#f0fdf4', border: `1px solid #bbf7d0`, color: colors.success }}>
+                  <RefreshCw size={11} />
+                  Costos recalculados. Los badges <TrendingUp size={11} className="inline" />/<TrendingDown size={11} className="inline" /> muestran variación vs. estado anterior.
+                </div>
+              )}
+              <div className="overflow-hidden" style={SURFACE}>
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[760px]">
+                    <Thead>
+                      <Tr>
+                        <Th>Producto</Th>
+                        <Th>Tipo</Th>
+                        <Th>Costo MP ($)</Th>
+                        <Th>Mano de obra ($)</Th>
+                        <Th>Costo total ($)</Th>
+                        <Th>Precio venta ($)</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {productos.map(p => {
+                        const prev = prevSnapshot?.[p.key]
+                        return (
+                          <Tr key={p.key}>
+                            <Td className="font-medium">{p.nombre}</Td>
+                            <Td><Badge variant="neutral">{p.tipo}</Badge></Td>
+                            <Td className="text-right">
+                              ${pesos(p.costo_materiales)}
+                              {tieneDiff && <DiffBadge actual={p.costo_materiales} anterior={prev?.costo_total != null ? prev.costo_total - (p.mano_de_obra || 0) : null} />}
+                            </Td>
+                            <Td className="text-right">
+                              <EditableNumber value={p.mano_de_obra} onCommit={v => actualizarCampo(p, 'mano_de_obra', v)} />
+                            </Td>
+                            <Td className="text-right font-semibold">
+                              ${pesos(p.costo_total)}
+                              {tieneDiff && <DiffBadge actual={p.costo_total} anterior={prev?.costo_total} />}
+                            </Td>
+                            <Td className="text-right">
+                              <EditableNumber value={p.precio_venta} onCommit={v => actualizarCampo(p, 'precio_venta', v)} />
+                            </Td>
+                          </Tr>
+                        )
+                      })}
+                    </Tbody>
+                  </Table>
+                </div>
+              </div>
             </div>
           )}
 
+          {/* ── Tab Márgenes ── */}
           {tab === 'Márgenes' && (
             <div className="space-y-4">
-              <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-                <Table className="min-w-[640px]">
-                  <Thead>
-                    <Tr>
-                      <Th>Producto</Th>
-                      <Th>Tipo</Th>
-                      <Th>Costo total ($)</Th>
-                      <Th>Precio venta ($)</Th>
-                      <Th>Ganancia ($)</Th>
-                      <Th>Margen %</Th>
-                    </Tr>
-                  </Thead>
-                  <Tbody>
-                    {margenes.map(p => (
-                      <Tr key={p.key}>
-                        <Td className="font-medium">{p.nombre}</Td>
-                        <Td><Badge variant="neutral">{p.tipo}</Badge></Td>
-                        <Td className="text-right">${pesos(p.costo_total)}</Td>
-                        <Td className="text-right">${pesos(p.precio_venta)}</Td>
-                        <Td className="text-right font-semibold" style={{ color: p.ganancia >= 0 ? colors.success : colors.danger }}>
-                          ${pesos(p.ganancia)}
-                        </Td>
-                        <Td>
-                          {p.precio_venta > 0
-                            ? <Badge variant={margenVariant(p.margen)}>{p.margen.toFixed(1)}%</Badge>
-                            : <Badge variant="neutral">—</Badge>}
-                        </Td>
+              {tieneDiff && (
+                <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg"
+                  style={{ backgroundColor: '#fef2f2', border: `1px solid #fecaca`, color: colors.danger }}>
+                  Las filas en rojo indican que el margen bajó más de 5% respecto a la última actualización.
+                </div>
+              )}
+              <div className="overflow-hidden" style={SURFACE}>
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[640px]">
+                    <Thead>
+                      <Tr>
+                        <Th>Producto</Th>
+                        <Th>Tipo</Th>
+                        <Th>Costo total ($)</Th>
+                        <Th>Precio venta ($)</Th>
+                        <Th>Ganancia ($)</Th>
+                        <Th>Margen %</Th>
                       </Tr>
-                    ))}
-                  </Tbody>
-                </Table>
+                    </Thead>
+                    <Tbody>
+                      {margenes.map(p => {
+                        const prevMargen = prevSnapshot?.[p.key]?.margen
+                        const margenDrop = prevMargen != null ? p.margen - prevMargen : 0
+                        const alertaRojo = tieneDiff && margenDrop < -5
+                        return (
+                          <Tr key={p.key} style={{ backgroundColor: alertaRojo ? '#fef2f2' : 'transparent' }}>
+                            <Td className="font-medium">
+                              {alertaRojo && <span className="mr-1.5 text-xs" style={{ color: colors.danger }}>▼</span>}
+                              {p.nombre}
+                            </Td>
+                            <Td><Badge variant="neutral">{p.tipo}</Badge></Td>
+                            <Td className="text-right">
+                              ${pesos(p.costo_total)}
+                              {tieneDiff && <DiffBadge actual={p.costo_total} anterior={prevSnapshot?.[p.key]?.costo_total} />}
+                            </Td>
+                            <Td className="text-right">${pesos(p.precio_venta)}</Td>
+                            <Td className="text-right font-semibold" style={{ color: p.ganancia >= 0 ? colors.success : colors.danger }}>
+                              ${pesos(p.ganancia)}
+                            </Td>
+                            <Td>
+                              <div className="flex items-center gap-1.5">
+                                {p.precio_venta > 0
+                                  ? <Badge variant={margenVariant(p.margen)}>{p.margen.toFixed(1)}%</Badge>
+                                  : <Badge variant="neutral">—</Badge>}
+                                {tieneDiff && prevMargen != null && margenDrop !== 0 && (
+                                  <span className="text-[10px] font-semibold" style={{ color: margenDrop > 0 ? colors.success : colors.danger }}>
+                                    {margenDrop > 0 ? '↑' : '↓'}{Math.abs(margenDrop).toFixed(1)}pp
+                                  </span>
+                                )}
+                              </div>
+                            </Td>
+                          </Tr>
+                        )
+                      })}
+                    </Tbody>
+                  </Table>
+                </div>
               </div>
 
               {top10Margen.length > 0 && (
-                <div className="p-4" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                <div className="p-4" style={SURFACE}>
                   <h3 className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>Top 10 productos por margen</h3>
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={top10Margen}>
@@ -321,6 +413,7 @@ export default function Finanzas() {
             </div>
           )}
 
+          {/* ── Tab Resumen ── */}
           {tab === 'Resumen' && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -330,7 +423,7 @@ export default function Finanzas() {
                   color={margenColor(margenPromedio)} />
               </div>
 
-              <div className="p-4" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+              <div className="p-4" style={SURFACE}>
                 <h3 className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>Distribución de costos (Materia Prima vs. Mano de Obra)</h3>
                 {hayDistribucion ? (
                   <ResponsiveContainer width="100%" height={280}>

@@ -3,6 +3,10 @@ import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend, ResponsiveContainer, ReferenceLine,
+} from 'recharts'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
@@ -14,8 +18,10 @@ import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, ClipboardCheck, AlertTriangle } from 'lucide-react'
+import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, ClipboardCheck, AlertTriangle, TrendingUp, BarChart2, ChevronRight } from 'lucide-react'
 const logoUrl = '/logo_delparque.png'
+
+const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 
 const TABS         = ['Movimientos', 'Stock', 'Trazabilidad', 'Informes', 'Control Semanal']
 const DESTINOS     = ['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones']
@@ -289,6 +295,118 @@ function ModalConteo({ tipo, items, onClose, onSubmit, saving }) {
   )
 }
 
+function ModalMovsDetalle({ tipo, producto, movs, onClose }) {
+  return (
+    <Modal open onClose={onClose} title={`${tipo === 'ingreso' ? '↑ Ingresos' : '↓ Egresos'} — ${producto}`} maxWidth="max-w-4xl">
+      {movs.length === 0 ? (
+        <p className="text-sm text-center py-6" style={{ color: colors.textMuted }}>Sin movimientos en el período</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table className="min-w-[760px]">
+            <Thead>
+              <Tr>
+                <Th>Fecha/Hora</Th><Th>Tipo</Th><Th>Cantidad</Th><Th>Unidad</Th>
+                <Th>Proveedor/Destino</Th><Th>Lote</Th><Th>Vencimiento</Th>
+                <Th>Controló</Th><Th>Operario</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {movs.map(m => (
+                <Tr key={m.id}>
+                  <Td className="text-xs whitespace-nowrap">{fmtFechaHora(m.created_at || m.fecha)}</Td>
+                  <Td><Badge variant={m.tipo === 'ingreso' ? 'success' : 'danger'}>{m.tipo === 'ingreso' ? '↑ Ingreso' : '↓ Egreso'}</Badge></Td>
+                  <Td className="text-right font-bold">{m.cantidad}</Td>
+                  <Td>{m.unidad || '—'}</Td>
+                  <Td className="text-xs">{m.proveedor || m.destino || '—'}</Td>
+                  <Td className="text-xs">{m.lote || '—'}</Td>
+                  <Td className="text-xs whitespace-nowrap">{m.fecha_vencimiento || '—'}</Td>
+                  <Td className="text-xs">{m.controlo || '—'}</Td>
+                  <Td className="text-xs">{m.operario_recibe || '—'}</Td>
+                </Tr>
+              ))}
+            </Tbody>
+          </Table>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+function ModalEvolucionCS({ insumo, movimientos: allMovs, onClose }) {
+  const data = useMemo(() => {
+    const nombre = (insumo.nombre || '').trim().toLowerCase()
+    const movsProducto = allMovs.filter(m => (m.producto_nombre || '').trim().toLowerCase() === nombre)
+    const hoy = new Date()
+    return Array.from({ length: 8 }, (_, i) => {
+      const fin = new Date(hoy)
+      fin.setDate(hoy.getDate() - i * 7)
+      const ini = new Date(fin)
+      ini.setDate(fin.getDate() - 6)
+      const desdeStr = ini.toISOString().split('T')[0]
+      const hastaStr = fin.toISOString().split('T')[0]
+      const movsSem = movsProducto.filter(m => m.fecha >= desdeStr && m.fecha <= hastaStr)
+      return {
+        semana: `S${8 - i}`,
+        consumo: Number(movsSem.filter(m => m.tipo === 'egreso').reduce((a, m) => a + (Number(m.cantidad) || 0), 0).toFixed(1)),
+        ingreso: Number(movsSem.filter(m => m.tipo === 'ingreso').reduce((a, m) => a + (Number(m.cantidad) || 0), 0).toFixed(1)),
+      }
+    }).reverse()
+  }, [insumo, allMovs])
+
+  const stockMin = insumo.stock_minimo || 0
+  const unidad = insumo.unidad || 'kg'
+  const consumos = data.map(d => d.consumo)
+  const tendenciaBajista = consumos.length >= 3 &&
+    consumos[consumos.length - 1] < consumos[consumos.length - 2] &&
+    consumos[consumos.length - 2] < consumos[consumos.length - 3]
+
+  return (
+    <Modal open onClose={onClose} title={`Evolución de consumo — ${insumo.nombre}`} maxWidth="max-w-2xl">
+      <div className="space-y-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <p className="text-xs" style={{ color: colors.textMuted }}>Consumo e ingresos por semana — últimas 8 semanas</p>
+          {tendenciaBajista && (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: '#fef2f2', color: colors.danger }}>
+              📉 Tendencia descendente
+            </span>
+          )}
+        </div>
+        <ResponsiveContainer width="100%" height={280}>
+          <LineChart data={data} margin={{ top: 10, right: 24, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={colors.border} />
+            <XAxis dataKey="semana" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} unit={` ${unidad}`} />
+            <Tooltip formatter={(v, name) => [`${v} ${unidad}`, name]} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+            <Legend verticalAlign="top" />
+            {stockMin > 0 && (
+              <ReferenceLine y={stockMin} stroke="#ef4444" strokeDasharray="5 5"
+                label={{ value: `Mín ${stockMin} ${unidad}`, position: 'insideTopRight', fill: '#ef4444', fontSize: 10 }} />
+            )}
+            <Line type="monotone" dataKey="consumo" stroke="#D4521A" strokeWidth={2.5} name="Consumo semanal"
+              dot={{ r: 4, fill: '#D4521A' }} activeDot={{ r: 6 }} />
+            <Line type="monotone" dataKey="ingreso" stroke="#3B82F6" strokeWidth={2} name="Ingresos"
+              dot={{ r: 4, fill: '#3B82F6' }} strokeDasharray={tendenciaBajista ? undefined : undefined} activeDot={{ r: 6 }} />
+          </LineChart>
+        </ResponsiveContainer>
+        <div className="grid grid-cols-3 gap-3 pt-2">
+          <div className="p-3 rounded-lg text-center" style={{ backgroundColor: colors.bg }}>
+            <p className="text-xs" style={{ color: colors.textMuted }}>Stock actual</p>
+            <p className="text-lg font-bold" style={{ color: colors.textPrimary }}>{(insumo.stock_actual || 0).toFixed(1)} {unidad}</p>
+          </div>
+          <div className="p-3 rounded-lg text-center" style={{ backgroundColor: colors.bg }}>
+            <p className="text-xs" style={{ color: colors.textMuted }}>Stock mínimo</p>
+            <p className="text-lg font-bold" style={{ color: stockMin > 0 ? colors.warning : colors.textMuted }}>{stockMin} {unidad}</p>
+          </div>
+          <div className="p-3 rounded-lg text-center" style={{ backgroundColor: colors.bg }}>
+            <p className="text-xs" style={{ color: colors.textMuted }}>Categoría</p>
+            <p className="text-sm font-semibold truncate" style={{ color: colors.textPrimary }}>{insumo.categoria || '—'}</p>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 export default function Deposito() {
   const [tab, setTab]             = useState('Movimientos')
   const [movimientos, setMovimientos] = useState([])
@@ -313,6 +431,14 @@ export default function Deposito() {
   const [conteos, setConteos]           = useState([])
   const [modalConteo, setModalConteo]   = useState(null)
   const [savingConteo, setSavingConteo] = useState(false)
+
+  // Control Semanal — nuevo
+  const [periodoCS, setPeriodoCS]           = useState('semana_actual')
+  const [periodoCSDesde, setPeriodoCSDesde] = useState('')
+  const [periodoCSHasta, setPeriodoCSHasta] = useState('')
+  const [modalMovsDet, setModalMovsDet]     = useState(null) // { tipo, producto, movs }
+  const [modalEvolCS, setModalEvolCS]       = useState(null) // insumo object
+  const [generandoPDFstock, setGenerandoPDFstock] = useState(false)
 
   const { isAdmin, profile } = useUser()
   const showVal = isAdmin
@@ -558,6 +684,308 @@ export default function Deposito() {
     })
     return Object.values(grupos).sort((a, b) => b.total - a.total)
   }, [movsInforme])
+
+  // ── Control Semanal — cálculos ────────────────────────────────────────────
+  const rangoCS = useMemo(() => {
+    const hoy = new Date()
+    const hoyStr = hoy.toISOString().split('T')[0]
+    if (periodoCS === 'semana_actual') {
+      const lunes = new Date(hoy)
+      lunes.setDate(hoy.getDate() - (hoy.getDay() + 6) % 7)
+      return { desde: lunes.toISOString().split('T')[0], hasta: hoyStr }
+    }
+    if (periodoCS === 'semana_pasada') {
+      const lunesEsta = new Date(hoy)
+      lunesEsta.setDate(hoy.getDate() - (hoy.getDay() + 6) % 7)
+      const lunesAnt = new Date(lunesEsta)
+      lunesAnt.setDate(lunesEsta.getDate() - 7)
+      const domAnt = new Date(lunesAnt)
+      domAnt.setDate(lunesAnt.getDate() + 6)
+      return { desde: lunesAnt.toISOString().split('T')[0], hasta: domAnt.toISOString().split('T')[0] }
+    }
+    if (periodoCS === 'mes_actual') {
+      const primero = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
+      return { desde: primero.toISOString().split('T')[0], hasta: hoyStr }
+    }
+    return { desde: periodoCSDesde || hoyStr, hasta: periodoCSHasta || hoyStr }
+  }, [periodoCS, periodoCSDesde, periodoCSHasta])
+
+  const controlSemanal = useMemo(() => {
+    if (!rangoCS.desde || !rangoCS.hasta) return []
+    const hoy = new Date()
+    const hace28 = new Date(hoy); hace28.setDate(hoy.getDate() - 28)
+    const hace28Str = hace28.toISOString().split('T')[0]
+
+    return insumos.map(ins => {
+      const nombre = (ins.nombre || '').trim().toLowerCase()
+      const movsProducto = movimientos.filter(m =>
+        (m.producto_nombre || '').trim().toLowerCase() === nombre
+      )
+      const movsPeriodo = movsProducto.filter(m =>
+        m.fecha >= rangoCS.desde && m.fecha <= rangoCS.hasta
+      )
+      const ingresosMovs = movsPeriodo.filter(m => m.tipo === 'ingreso')
+      const egresosMovs  = movsPeriodo.filter(m => m.tipo === 'egreso')
+      const ingresosKg = ingresosMovs.reduce((a, m) => a + (Number(m.cantidad) || 0), 0)
+      const egresosKg  = egresosMovs.reduce((a, m) => a + (Number(m.cantidad) || 0), 0)
+      const balance    = ingresosKg - egresosKg
+      const stockSistema  = ins.stock_actual || 0
+      const stockInicial  = stockSistema - balance
+
+      const conteo = ultimosConteos[`deposito::${nombre}`]
+      const conteoFisico = conteo ? Number(conteo.stock_fisico) : null
+      const diferencia   = conteoFisico !== null ? conteoFisico - stockSistema : null
+      const pctDiferencia = conteoFisico !== null && stockSistema > 0
+        ? (Math.abs(diferencia) / stockSistema) * 100 : 0
+
+      const egresoRecientes = movsProducto.filter(m => m.tipo === 'egreso' && m.fecha >= hace28Str)
+      const totalEgresoReciente = egresoRecientes.reduce((a, m) => a + (Number(m.cantidad) || 0), 0)
+      const consumoPromDiario = totalEgresoReciente / 28
+      const diasStock = consumoPromDiario > 0 ? stockSistema / consumoPromDiario : Infinity
+
+      const ultimoMovFecha = [...movsProducto].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))[0]?.fecha || null
+      const diasSinMov = ultimoMovFecha ? Math.floor((hoy - new Date(ultimoMovFecha)) / 86400000) : 999
+
+      const estado = diasStock < 3 ? 'CRÍTICO' : diasStock < 7 ? 'ATENCIÓN' : 'OK'
+
+      return {
+        ...ins, ingresosKg, egresosKg, balance, stockSistema, stockInicial,
+        conteoFisico, diferencia, pctDiferencia, consumoPromDiario,
+        diasStock, diasSinMov, ingresosMovs, egresosMovs, estado,
+      }
+    }).sort((a, b) => {
+      const o = { CRÍTICO: 0, ATENCIÓN: 1, OK: 2 }
+      return (o[a.estado] ?? 2) - (o[b.estado] ?? 2) || (a.nombre || '').localeCompare(b.nombre || '')
+    })
+  }, [insumos, movimientos, ultimosConteos, rangoCS])
+
+  const alertasCS = useMemo(() => {
+    const al = []
+    controlSemanal.forEach(r => {
+      if (r.diasStock < 3 && r.consumoPromDiario > 0)
+        al.push({ tipo: 'critico', producto: r.nombre, diasStock: r.diasStock, consumo: r.consumoPromDiario, unidad: r.unidad || 'kg' })
+      else if (r.diasStock < 7 && r.consumoPromDiario > 0)
+        al.push({ tipo: 'reposicion', producto: r.nombre, diasStock: r.diasStock, cantSugerida: r.consumoPromDiario * 7 * 2, unidad: r.unidad || 'kg' })
+      if (r.conteoFisico !== null && r.pctDiferencia > 3)
+        al.push({ tipo: 'diferencia', producto: r.nombre, diferencia: r.diferencia, pct: r.pctDiferencia, unidad: r.unidad || 'kg' })
+      if (r.diasSinMov > 30)
+        al.push({ tipo: 'sin_movimiento', producto: r.nombre, dias: r.diasSinMov })
+    })
+    return al
+  }, [controlSemanal])
+
+  async function generarPDFStock() {
+    setGenerandoPDFstock(true)
+    try {
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+      const pw = doc.internal.pageSize.getWidth()
+      const HS = { fillColor: [212, 82, 26], textColor: 255 }
+      const ST = { fontSize: 8, cellPadding: 2 }
+      const periodoLabel = `${fmtFecha(rangoCS.desde)} – ${fmtFecha(rangoCS.hasta)}`
+
+      // PÁGINA 1 — Portada
+      try { const ld = await toDataURL(logoUrl); doc.addImage(ld, 'PNG', (pw - 50) / 2, 35, 50, 18) } catch {}
+      doc.setFontSize(22); doc.setTextColor(17, 24, 39)
+      doc.text('INFORME DE CONTROL DE STOCK', pw / 2, 80, { align: 'center' })
+      doc.setDrawColor(212, 82, 26); doc.setLineWidth(1)
+      doc.line(30, 86, pw - 30, 86)
+      doc.setFontSize(12); doc.setTextColor(100, 100, 100)
+      doc.text(`Período: ${periodoLabel}`, pw / 2, 96, { align: 'center' })
+      doc.setFontSize(9)
+      doc.text(`Fecha de emisión: ${new Date().toLocaleString('es-AR')}`, pw / 2, 104, { align: 'center' })
+      doc.setFontSize(7.5); doc.setTextColor(212, 82, 26)
+      doc.text('Confidencial — Del Parque Heladería Artesanal', pw / 2, 114, { align: 'center' })
+
+      // PÁGINA 2 — Resumen ejecutivo
+      doc.addPage()
+      doc.setFontSize(14); doc.setTextColor(17, 24, 39)
+      doc.text('Resumen ejecutivo', 14, 16)
+      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
+
+      const totalInsumos = controlSemanal.length
+      const criticos = controlSemanal.filter(r => r.estado === 'CRÍTICO').length
+      const atencion = controlSemanal.filter(r => r.estado === 'ATENCIÓN').length
+      const conDiff   = controlSemanal.filter(r => r.pctDiferencia > 3).length
+      const totalIng  = controlSemanal.reduce((a, r) => a + r.ingresosKg, 0)
+      const totalEgr  = controlSemanal.reduce((a, r) => a + r.egresosKg, 0)
+
+      autoTable(doc, {
+        startY: 24,
+        body: [
+          ['Total insumos analizados', String(totalInsumos), 'En estado crítico (< 3 días)', String(criticos)],
+          ['En estado de atención (< 7 días)', String(atencion), 'Diferencias de inventario (> 3%)', String(conDiff)],
+        ],
+        styles: { ...ST, fontSize: 9 },
+        columnStyles: { 0: { textColor: [100, 100, 100] }, 1: { fontStyle: 'bold', textColor: [17, 24, 39] }, 2: { textColor: [100, 100, 100] }, 3: { fontStyle: 'bold', textColor: [17, 24, 39] } },
+        theme: 'grid',
+      })
+
+      let y = doc.lastAutoTable.finalY + 10
+      doc.setFontSize(11); doc.setTextColor(17, 24, 39)
+      doc.text('Análisis automático', 14, y); y += 6
+
+      const criticosList = controlSemanal.filter(r => r.estado === 'CRÍTICO').map(r => r.nombre).join(', ')
+      const mayorDiff = [...controlSemanal].filter(r => r.pctDiferencia > 3).sort((a, b) => b.pctDiferencia - a.pctDiferencia)[0]
+      const reposicion = controlSemanal.filter(r => r.diasStock < 7 && r.consumoPromDiario > 0).map(r => r.nombre)
+
+      const parrafos = [
+        `Durante el período ${periodoLabel}, se registraron ingresos por ${totalIng.toFixed(1)} uds/kg y egresos por ${totalEgr.toFixed(1)} uds/kg en el depósito.`,
+        criticos > 0
+          ? `Se detectaron ${criticos} producto${criticos === 1 ? '' : 's'} con stock crítico: ${criticosList}.`
+          : 'No se detectaron productos con stock crítico en este período.',
+        mayorDiff
+          ? `${conDiff} producto${conDiff === 1 ? '' : 's'} presenta${conDiff === 1 ? '' : 'n'} diferencias entre el stock del sistema y el conteo físico. El mayor: ${mayorDiff.nombre} con ${Math.abs(mayorDiff.diferencia).toFixed(2)} ${mayorDiff.unidad} (${mayorDiff.pctDiferencia.toFixed(1)}%).`
+          : 'No se detectaron diferencias significativas de inventario.',
+        reposicion.length > 0 ? `Se recomienda reponer: ${reposicion.join(', ')}.` : null,
+      ].filter(Boolean)
+
+      doc.setFontSize(9); doc.setTextColor(70, 70, 70)
+      parrafos.forEach(p => {
+        const wrapped = doc.splitTextToSize(`• ${p}`, pw - 28)
+        doc.text(wrapped, 14, y)
+        y += wrapped.length * 5 + 2
+      })
+
+      // PÁGINA 3 — Tabla completa de stock
+      doc.addPage()
+      doc.setFontSize(14); doc.setTextColor(17, 24, 39)
+      doc.text('Tabla completa de stock', 14, 16)
+      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
+
+      const bodyTabla = [
+        ...controlSemanal.map(r => [
+          r.nombre,
+          `${r.stockInicial.toFixed(1)} ${r.unidad || ''}`.trim(),
+          r.ingresosKg.toFixed(1), r.egresosKg.toFixed(1), r.stockSistema.toFixed(1),
+          r.conteoFisico !== null ? r.conteoFisico.toFixed(1) : '—',
+          r.diferencia !== null ? `${r.diferencia > 0 ? '+' : ''}${r.diferencia.toFixed(2)}` : '—',
+          r.diasStock === Infinity ? '♾' : r.diasStock.toFixed(0),
+          r.estado,
+        ]),
+        ['TOTAL', '', controlSemanal.reduce((a, r) => a + r.ingresosKg, 0).toFixed(1),
+          controlSemanal.reduce((a, r) => a + r.egresosKg, 0).toFixed(1),
+          controlSemanal.reduce((a, r) => a + r.stockSistema, 0).toFixed(1), '', '', '', ''],
+      ]
+
+      autoTable(doc, {
+        startY: 24,
+        head: [['PRODUCTO', 'ST.INICIAL', 'INGRESOS', 'EGRESOS', 'ST.SISTEMA', 'C.FÍSICO', 'DIFERENCIA', 'DÍAS', 'ESTADO']],
+        body: bodyTabla,
+        styles: { ...ST, fontSize: 7 }, headStyles: HS,
+        didParseCell(data) {
+          if (data.section !== 'body') return
+          const row = controlSemanal[data.row.index]
+          if (!row) return
+          if (row.estado === 'CRÍTICO') data.cell.styles.fillColor = [254, 226, 226]
+          else if (row.estado === 'ATENCIÓN') data.cell.styles.fillColor = [254, 249, 195]
+        },
+      })
+
+      // PÁGINA 4 — Faltantes y sobrantes
+      doc.addPage()
+      doc.setFontSize(14); doc.setTextColor(17, 24, 39)
+      doc.text('Análisis de faltantes y sobrantes', 14, 16)
+      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
+
+      const faltantes = controlSemanal.filter(r => r.diferencia !== null && r.diferencia < 0)
+      const sobrantes = controlSemanal.filter(r => r.diferencia !== null && r.diferencia > 0)
+
+      doc.setFontSize(11); doc.setTextColor(17, 24, 39); doc.text('A — Faltantes', 14, 26)
+      if (faltantes.length === 0) {
+        doc.setFontSize(9); doc.setTextColor(100, 100, 100); doc.text('Sin faltantes detectados.', 14, 33)
+      } else {
+        autoTable(doc, {
+          startY: 30,
+          head: [['PRODUCTO', 'ST. SISTEMA', 'CONTEO FÍS.', 'FALTANTE', '%', 'CAUSA PROBABLE']],
+          body: faltantes.map(r => {
+            const causa = r.pctDiferencia < 3 ? 'Dentro del margen normal (±3%)'
+              : r.pctDiferencia > 10 ? 'Posible error de registro o merma no registrada'
+              : r.egresosKg > r.ingresosKg * 2 ? 'Alto consumo en el período'
+              : r.ingresosKg === 0 ? 'Sin reposición reciente'
+              : 'Consumo normal, requiere revisión'
+            return [r.nombre, `${r.stockSistema.toFixed(2)}`, `${r.conteoFisico.toFixed(2)}`,
+              `${Math.abs(r.diferencia).toFixed(2)}`, `${r.pctDiferencia.toFixed(1)}%`, causa]
+          }),
+          styles: { ...ST, fontSize: 7 },
+          headStyles: { fillColor: [220, 38, 38], textColor: 255 },
+        })
+      }
+
+      const yB = (doc.lastAutoTable?.finalY || 38) + 10
+      doc.setFontSize(11); doc.setTextColor(17, 24, 39); doc.text('B — Sobrantes', 14, yB)
+      if (sobrantes.length === 0) {
+        doc.setFontSize(9); doc.setTextColor(100, 100, 100); doc.text('Sin sobrantes detectados.', 14, yB + 7)
+      } else {
+        autoTable(doc, {
+          startY: yB + 4,
+          head: [['PRODUCTO', 'ST. SISTEMA', 'CONTEO FÍS.', 'SOBRANTE', '%', 'CAUSA PROBABLE']],
+          body: sobrantes.map(r => {
+            const causa = r.pctDiferencia > 20 ? 'Posible ingreso no registrado en el sistema'
+              : r.ingresosKg > 0 && r.egresosKg === 0 ? 'Ingreso reciente sin consumo'
+              : 'Sobrante dentro del margen, verificar'
+            return [r.nombre, `${r.stockSistema.toFixed(2)}`, `${r.conteoFisico.toFixed(2)}`,
+              `${r.diferencia.toFixed(2)}`, `${r.pctDiferencia.toFixed(1)}%`, causa]
+          }),
+          styles: { ...ST, fontSize: 7 },
+          headStyles: { fillColor: [22, 163, 74], textColor: 255 },
+        })
+      }
+
+      // PÁGINA 5 — Recomendaciones de reposición
+      doc.addPage()
+      doc.setFontSize(14); doc.setTextColor(17, 24, 39)
+      doc.text('Recomendaciones de reposición', 14, 16)
+      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
+
+      const recomendaciones = controlSemanal
+        .filter(r => r.consumoPromDiario > 0 && r.diasStock < 14)
+        .sort((a, b) => a.diasStock - b.diasStock)
+
+      if (recomendaciones.length === 0) {
+        doc.setFontSize(9); doc.setTextColor(100, 100, 100)
+        doc.text('No hay productos que requieran reposición inmediata.', 14, 26)
+      } else {
+        autoTable(doc, {
+          startY: 24,
+          head: [['URGENCIA', 'PRODUCTO', 'STOCK ACTUAL', 'CONSUMO/DÍA', 'DÍAS REST.', 'CANT. SUGERIDA']],
+          body: recomendaciones.map(r => [
+            r.diasStock < 3 ? 'URGENTE' : 'PRONTO',
+            r.nombre,
+            `${r.stockSistema.toFixed(1)} ${r.unidad || ''}`.trim(),
+            `${r.consumoPromDiario.toFixed(1)} ${r.unidad || ''}/día`.trim(),
+            r.diasStock === Infinity ? '♾' : `${r.diasStock.toFixed(0)} días`,
+            `${(r.consumoPromDiario * 14).toFixed(1)} ${r.unidad || ''}`.trim(),
+          ]),
+          styles: { ...ST, fontSize: 8 }, headStyles: HS,
+          didParseCell(data) {
+            if (data.section !== 'body') return
+            if (recomendaciones[data.row.index]?.diasStock < 3)
+              data.cell.styles.fillColor = [254, 226, 226]
+          },
+        })
+      }
+
+      // ÚLTIMA PÁGINA — Firmas
+      doc.addPage()
+      doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text('Conformidad y Firmas', 14, 20)
+      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.8); doc.line(14, 24, pw - 14, 24)
+      doc.setFontSize(9); doc.setTextColor(100, 100, 100)
+      const ft = `El presente informe de control de stock corresponde al período ${periodoLabel} y fue generado automáticamente el ${new Date().toLocaleString('es-AR')}.`
+      doc.text(doc.splitTextToSize(ft, pw - 28), 14, 34)
+      let yF = 60
+      ;['Responsable de Depósito', 'Supervisor', 'Gerente'].forEach(rol => {
+        doc.setDrawColor(100, 100, 100); doc.setLineWidth(0.3); doc.line(14, yF, 80, yF)
+        doc.setFontSize(8); doc.setTextColor(100, 100, 100)
+        doc.text(rol, 14, yF + 5)
+        doc.text('Nombre y apellido: ___________________________', 14, yF + 11)
+        yF += 30
+      })
+
+      doc.save(`control_stock_${new Date().toISOString().split('T')[0]}.pdf`)
+    } finally {
+      setGenerandoPDFstock(false)
+    }
+  }
 
   function imprimirTrazabilidad() {
     const w = window.open('', '_blank')
@@ -1027,48 +1455,176 @@ export default function Deposito() {
 
           {tab === 'Control Semanal' && (
             <div className="space-y-5">
-              {/* Comparación semanal */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {[
-                  { key: 'camara', label: 'Cámaras' },
-                  { key: 'deposito', label: 'Depósito' },
-                ].map(({ key, label }) => {
-                  const comp = comparacionSemanal[key]
-                  const actual = comp.actual?.[1] || 0
-                  const anterior = comp.anterior?.[1]
-                  const mejora = anterior > 0 ? ((anterior - actual) / anterior) * 100 : null
-                  return (
-                    <div key={key} className="p-4" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-                      <h3 className="text-sm font-semibold mb-2" style={{ color: colors.textPrimary }}>{label} — comparación semanal</h3>
-                      <div className="flex gap-6">
-                        <div>
-                          <p className="text-xs" style={{ color: colors.textMuted }}>Diferencia esta semana</p>
-                          <p className="text-xl font-bold" style={{ color: colors.textPrimary }}>{actual.toFixed(2)} {key === 'camara' ? 'kg' : 'u'}</p>
-                        </div>
-                        {anterior !== undefined && (
-                          <div>
-                            <p className="text-xs" style={{ color: colors.textMuted }}>Semana anterior</p>
-                            <p className="text-xl font-bold" style={{ color: colors.textMuted }}>{anterior.toFixed(2)} {key === 'camara' ? 'kg' : 'u'}</p>
-                          </div>
-                        )}
-                      </div>
-                      {mejora !== null && (
-                        <p className="text-xs mt-2 font-semibold" style={{ color: mejora >= 0 ? colors.success : colors.danger }}>
-                          {mejora >= 0 ? `↓ Mejoró ${mejora.toFixed(0)}% vs. la semana anterior` : `↑ Empeoró ${Math.abs(mejora).toFixed(0)}% vs. la semana anterior`}
-                        </p>
-                      )}
-                      {!comp.actual && (
-                        <p className="text-xs mt-2" style={{ color: colors.textMuted }}>Todavía no hay conteos registrados</p>
-                      )}
-                    </div>
-                  )
-                })}
+
+              {/* ── Selector de período ─── */}
+              <div className="p-3 flex flex-wrap items-center gap-3 justify-between" style={SURFACE}>
+                <div className="flex gap-1.5 flex-wrap">
+                  {[
+                    { key: 'semana_actual', label: 'Esta semana' },
+                    { key: 'semana_pasada', label: 'Semana pasada' },
+                    { key: 'mes_actual', label: 'Este mes' },
+                    { key: 'personalizado', label: 'Personalizado' },
+                  ].map(p => (
+                    <button key={p.key} onClick={() => setPeriodoCS(p.key)}
+                      className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all border"
+                      style={{
+                        backgroundColor: periodoCS === p.key ? colors.brand : 'transparent',
+                        borderColor: periodoCS === p.key ? colors.brand : colors.border,
+                        color: periodoCS === p.key ? 'white' : colors.textSecondary,
+                      }}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                {periodoCS === 'personalizado' && (
+                  <div className="flex gap-2 items-center">
+                    <Input type="date" value={periodoCSDesde} onChange={e => setPeriodoCSDesde(e.target.value)} />
+                    <span className="text-xs" style={{ color: colors.textMuted }}>–</span>
+                    <Input type="date" value={periodoCSHasta} onChange={e => setPeriodoCSHasta(e.target.value)} />
+                  </div>
+                )}
+                {periodoCS !== 'personalizado' && (
+                  <p className="text-xs" style={{ color: colors.textMuted }}>
+                    {fmtFecha(rangoCS.desde)} – {fmtFecha(rangoCS.hasta)}
+                  </p>
+                )}
               </div>
 
-              {/* Cámaras */}
-              <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+              {/* ── KPIs rápidos ─── */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <KpiCard label="Insumos analizados" value={controlSemanal.length} icon={Warehouse} color={colors.brand} />
+                <KpiCard label="Stock crítico" value={controlSemanal.filter(r => r.estado === 'CRÍTICO').length}
+                  icon={AlertTriangle} color={colors.danger} />
+                <KpiCard label="Requieren atención" value={controlSemanal.filter(r => r.estado === 'ATENCIÓN').length}
+                  icon={TrendingUp} color={colors.warning} />
+                <KpiCard label="Diferencias inventario" value={controlSemanal.filter(r => r.pctDiferencia > 3).length}
+                  icon={BarChart2} color={colors.info} />
+              </div>
+
+              {/* ── Panel de alertas ─── */}
+              {alertasCS.length > 0 && (
+                <div className="p-4 space-y-2" style={SURFACE}>
+                  <h3 className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>Alertas inteligentes</h3>
+                  {alertasCS.map((a, idx) => (
+                    <div key={idx} className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs"
+                      style={{
+                        backgroundColor: a.tipo === 'critico' ? '#fef2f2' : a.tipo === 'reposicion' ? '#fffbeb' : a.tipo === 'diferencia' ? '#eff6ff' : '#f9fafb',
+                        border: `1px solid ${a.tipo === 'critico' ? '#fecaca' : a.tipo === 'reposicion' ? '#fde68a' : a.tipo === 'diferencia' ? '#bfdbfe' : colors.border}`,
+                      }}>
+                      <span className="text-base leading-none mt-0.5">
+                        {a.tipo === 'critico' ? '🔴' : a.tipo === 'reposicion' ? '🟡' : a.tipo === 'diferencia' ? '⚠️' : '🕐'}
+                      </span>
+                      <span style={{ color: a.tipo === 'critico' ? colors.danger : a.tipo === 'reposicion' ? '#92400e' : a.tipo === 'diferencia' ? colors.info : colors.textSecondary }}>
+                        {a.tipo === 'critico' && <><strong>STOCK CRÍTICO — {a.producto}:</strong> quedan {a.diasStock.toFixed(1)} días de stock con consumo promedio de {a.consumo.toFixed(1)} {a.unidad}/día.</>}
+                        {a.tipo === 'reposicion' && <><strong>REPOSICIÓN SUGERIDA — {a.producto}:</strong> {a.diasStock.toFixed(1)} días de stock. Cantidad sugerida: {a.cantSugerida.toFixed(1)} {a.unidad} (2 semanas).</>}
+                        {a.tipo === 'diferencia' && <><strong>DIFERENCIA DE INVENTARIO — {a.producto}:</strong> {a.diferencia > 0 ? '+' : ''}{a.diferencia.toFixed(2)} {a.unidad} ({a.pct.toFixed(1)}% de diferencia).</>}
+                        {a.tipo === 'sin_movimiento' && <><strong>SIN MOVIMIENTO — {a.producto}:</strong> hace {a.dias} días sin movimientos registrados.</>}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ── Tabla principal ─── */}
+              <div className="overflow-hidden" style={SURFACE}>
                 <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Cámaras</span>
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Control de stock — Depósito</span>
+                  <Button variant="secondary" size="sm" onClick={() => setModalConteo('deposito')}>
+                    <ClipboardCheck size={13} /> Registrar conteo
+                  </Button>
+                </div>
+                {controlSemanal.length === 0 ? (
+                  <EmptyState icon={Warehouse} title="Sin insumos cargados" subtitle="Agrega insumos en Supabase para comenzar" />
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table className="min-w-[1100px]">
+                      <Thead>
+                        <Tr>
+                          <Th>PRODUCTO</Th>
+                          <Th>ST. INICIAL</Th>
+                          <Th>INGRESOS</Th>
+                          <Th>EGRESOS</Th>
+                          <Th>BALANCE</Th>
+                          <Th>ST. SISTEMA</Th>
+                          <Th>CONTEO FÍSICO</Th>
+                          <Th>DIFERENCIA</Th>
+                          <Th>DÍAS DE STOCK</Th>
+                          <Th>ESTADO</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {controlSemanal.map(r => {
+                          const rowBg = r.estado === 'CRÍTICO' ? '#fef2f2' : r.estado === 'ATENCIÓN' ? '#fffbeb' : 'transparent'
+                          const diffBig = r.conteoFisico !== null && r.pctDiferencia > 3
+                          const diasColor = r.diasStock < 3 ? colors.danger : r.diasStock < 7 ? colors.warning : r.diasStock === Infinity ? colors.textMuted : colors.success
+                          return (
+                            <Tr key={r.id} style={{ backgroundColor: rowBg }}>
+                              <Td>
+                                <button className="font-medium text-left hover:underline flex items-center gap-1"
+                                  style={{ color: colors.brand }}
+                                  onClick={() => setModalEvolCS(r)}>
+                                  {r.nombre}
+                                  <BarChart2 size={12} style={{ color: colors.textMuted }} />
+                                </button>
+                              </Td>
+                              <Td className="text-right text-xs" style={{ color: colors.textMuted }}>
+                                {r.stockInicial.toFixed(1)} {r.unidad}
+                              </Td>
+                              <Td className="text-right">
+                                {r.ingresosKg > 0 ? (
+                                  <button className="font-semibold hover:underline" style={{ color: colors.success }}
+                                    onClick={() => setModalMovsDet({ tipo: 'ingreso', producto: r.nombre, movs: r.ingresosMovs })}>
+                                    +{r.ingresosKg.toFixed(1)} {r.unidad}
+                                  </button>
+                                ) : <span style={{ color: colors.textMuted }}>—</span>}
+                              </Td>
+                              <Td className="text-right">
+                                {r.egresosKg > 0 ? (
+                                  <button className="font-semibold hover:underline" style={{ color: colors.danger }}
+                                    onClick={() => setModalMovsDet({ tipo: 'egreso', producto: r.nombre, movs: r.egresosMovs })}>
+                                    -{r.egresosKg.toFixed(1)} {r.unidad}
+                                  </button>
+                                ) : <span style={{ color: colors.textMuted }}>—</span>}
+                              </Td>
+                              <Td className="text-right text-xs font-semibold"
+                                style={{ color: r.balance > 0 ? colors.success : r.balance < 0 ? colors.danger : colors.textMuted }}>
+                                {r.balance > 0 ? '+' : ''}{r.balance.toFixed(1)} {r.unidad}
+                              </Td>
+                              <Td className="text-right font-semibold">{r.stockSistema.toFixed(1)} {r.unidad}</Td>
+                              <Td className="text-right text-xs" style={{ color: colors.textSecondary }}>
+                                {r.conteoFisico !== null ? `${r.conteoFisico.toFixed(1)} ${r.unidad}` : '—'}
+                              </Td>
+                              <Td className="text-right font-semibold"
+                                style={{ color: diffBig ? colors.danger : r.diferencia !== null ? colors.textSecondary : colors.textMuted }}>
+                                {r.diferencia !== null ? (
+                                  <span className="inline-flex items-center gap-1">
+                                    {r.diferencia > 0 ? '+' : ''}{r.diferencia.toFixed(2)} {r.unidad}
+                                    {diffBig && <AlertTriangle size={12} />}
+                                    {diffBig && <span className="text-[10px]">({r.pctDiferencia.toFixed(1)}%)</span>}
+                                  </span>
+                                ) : '—'}
+                              </Td>
+                              <Td className="text-right font-bold" style={{ color: diasColor }}>
+                                {r.diasStock === Infinity ? '♾' : `${r.diasStock.toFixed(0)} días`}
+                              </Td>
+                              <Td>
+                                <Badge variant={r.estado === 'CRÍTICO' ? 'danger' : r.estado === 'ATENCIÓN' ? 'warning' : 'success'}>
+                                  {r.estado === 'CRÍTICO' ? '🔴 CRÍTICO' : r.estado === 'ATENCIÓN' ? '🟡 ATENCIÓN' : '🟢 OK'}
+                                </Badge>
+                              </Td>
+                            </Tr>
+                          )
+                        })}
+                      </Tbody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Cámaras (sin cambios) ─── */}
+              <div className="overflow-hidden" style={SURFACE}>
+                <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Cámaras — conteo semanal</span>
                   <Button variant="secondary" size="sm" onClick={() => setModalConteo('camara')}>
                     <ClipboardCheck size={13} /> Registrar conteo
                   </Button>
@@ -1079,13 +1635,8 @@ export default function Deposito() {
                   <Table className="min-w-[760px]">
                     <Thead>
                       <Tr>
-                        <Th>Producto</Th>
-                        <Th>Stock actual (kg)</Th>
-                        <Th>Stock mínimo (kg)</Th>
-                        <Th>Estado</Th>
-                        <Th>Última actualización</Th>
-                        <Th>Conteo físico</Th>
-                        <Th>Diferencia</Th>
+                        <Th>Producto</Th><Th>Stock actual (kg)</Th><Th>Stock mínimo (kg)</Th>
+                        <Th>Estado</Th><Th>Última actualización</Th><Th>Conteo físico</Th><Th>Diferencia</Th>
                       </Tr>
                     </Thead>
                     <Tbody>
@@ -1093,7 +1644,7 @@ export default function Deposito() {
                         const minimoKg = (c.stock_minimo_baldes || 0) * 7
                         const niv = semaforo(c.kg || 0, minimoKg, 0)
                         const conteo = ultimosConteos[`camara::${(c.nombre || '').trim().toLowerCase()}`]
-                        const discrepancia = conteo && esDiscrepancia(conteo.stock_sistema, conteo.stock_fisico)
+                        const disc = conteo && esDiscrepancia(conteo.stock_sistema, conteo.stock_fisico)
                         return (
                           <Tr key={c.id}>
                             <Td className="font-medium">{c.nombre}</Td>
@@ -1102,13 +1653,8 @@ export default function Deposito() {
                             <Td><Badge variant={niv === 'rojo' ? 'danger' : niv === 'amarillo' ? 'warning' : 'success'}>{niv === 'rojo' ? 'Bajo' : niv === 'amarillo' ? 'Atención' : 'OK'}</Badge></Td>
                             <Td className="text-xs whitespace-nowrap" style={{ color: colors.textMuted }}>{fmtFechaHora(c.updated_at)}</Td>
                             <Td className="text-right">{conteo ? `${Number(conteo.stock_fisico).toFixed(1)} kg` : '—'}</Td>
-                            <Td className="text-right font-semibold" style={{ color: discrepancia ? colors.danger : colors.textSecondary }}>
-                              {conteo ? (
-                                <span className="inline-flex items-center gap-1">
-                                  {conteo.diferencia > 0 ? '+' : ''}{Number(conteo.diferencia).toFixed(2)} kg
-                                  {discrepancia && <AlertTriangle size={12} />}
-                                </span>
-                              ) : '—'}
+                            <Td className="text-right font-semibold" style={{ color: disc ? colors.danger : colors.textSecondary }}>
+                              {conteo ? <span className="inline-flex items-center gap-1">{conteo.diferencia > 0 ? '+' : ''}{Number(conteo.diferencia).toFixed(2)} kg{disc && <AlertTriangle size={12} />}</span> : '—'}
                             </Td>
                           </Tr>
                         )
@@ -1118,54 +1664,42 @@ export default function Deposito() {
                 )}
               </div>
 
-              {/* Depósito */}
-              <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-                <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Depósito</span>
-                  <Button variant="secondary" size="sm" onClick={() => setModalConteo('deposito')}>
-                    <ClipboardCheck size={13} /> Registrar conteo semanal
-                  </Button>
-                </div>
-                {insumos.length === 0 ? (
-                  <EmptyState icon={Warehouse} title="Sin insumos cargados" />
-                ) : (
-                  <Table className="min-w-[760px]">
-                    <Thead>
-                      <Tr>
-                        <Th>Producto</Th>
-                        <Th>Categoría</Th>
-                        <Th>Stock sistema</Th>
-                        <Th>Conteo físico</Th>
-                        <Th>Diferencia</Th>
-                        <Th>Estado</Th>
-                      </Tr>
-                    </Thead>
-                    <Tbody>
-                      {insumos.map(i => {
-                        const conteo = ultimosConteos[`deposito::${(i.nombre || '').trim().toLowerCase()}`]
-                        const discrepancia = conteo && esDiscrepancia(conteo.stock_sistema, conteo.stock_fisico)
-                        return (
-                          <Tr key={i.id}>
-                            <Td className="font-medium">{i.nombre}</Td>
-                            <Td className="text-xs" style={{ color: colors.textMuted }}>{i.categoria || '—'}</Td>
-                            <Td className="text-right">{(i.stock_actual || 0).toFixed(2)} {i.unidad}</Td>
-                            <Td className="text-right">{conteo ? `${Number(conteo.stock_fisico).toFixed(2)} ${i.unidad}` : '—'}</Td>
-                            <Td className="text-right font-semibold" style={{ color: discrepancia ? colors.danger : colors.textSecondary }}>
-                              {conteo ? `${conteo.diferencia > 0 ? '+' : ''}${Number(conteo.diferencia).toFixed(2)} ${i.unidad}` : '—'}
-                            </Td>
-                            <Td>
-                              {!conteo
-                                ? <Badge variant="neutral">Sin conteo</Badge>
-                                : discrepancia
-                                  ? <Badge variant="danger"><AlertTriangle size={11} className="inline -mt-0.5 mr-1" />Discrepancia &gt;5%</Badge>
-                                  : <Badge variant="success">OK</Badge>}
-                            </Td>
-                          </Tr>
-                        )
-                      })}
-                    </Tbody>
-                  </Table>
-                )}
+              {/* ── Comparación semana vs semana ─── */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[{ key: 'camara', label: 'Cámaras' }, { key: 'deposito', label: 'Depósito' }].map(({ key, label }) => {
+                  const comp = comparacionSemanal[key]
+                  const actual = comp.actual?.[1] || 0
+                  const anterior = comp.anterior?.[1]
+                  const mejora = anterior > 0 ? ((anterior - actual) / anterior) * 100 : null
+                  return (
+                    <div key={key} className="p-4" style={SURFACE}>
+                      <h3 className="text-sm font-semibold mb-2" style={{ color: colors.textPrimary }}>{label} — diferencia vs. semana anterior</h3>
+                      <div className="flex gap-6">
+                        <div>
+                          <p className="text-xs" style={{ color: colors.textMuted }}>Esta semana</p>
+                          <p className="text-xl font-bold" style={{ color: colors.textPrimary }}>{actual.toFixed(2)} {key === 'camara' ? 'kg' : 'u'}</p>
+                        </div>
+                        {anterior !== undefined && <div>
+                          <p className="text-xs" style={{ color: colors.textMuted }}>Semana anterior</p>
+                          <p className="text-xl font-bold" style={{ color: colors.textMuted }}>{anterior.toFixed(2)} {key === 'camara' ? 'kg' : 'u'}</p>
+                        </div>}
+                      </div>
+                      {mejora !== null && (
+                        <p className="text-xs mt-2 font-semibold" style={{ color: mejora >= 0 ? colors.success : colors.danger }}>
+                          {mejora >= 0 ? `↓ Mejoró ${mejora.toFixed(0)}%` : `↑ Empeoró ${Math.abs(mejora).toFixed(0)}%`} vs. semana anterior
+                        </p>
+                      )}
+                      {!comp.actual && <p className="text-xs mt-2" style={{ color: colors.textMuted }}>Sin conteos registrados aún</p>}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* ── Botón PDF ─── */}
+              <div className="flex justify-end">
+                <Button variant="primary" onClick={generarPDFStock} loading={generandoPDFstock} disabled={generandoPDFstock || (periodoCS === 'personalizado' && (!periodoCSDesde || !periodoCSHasta))}>
+                  <FileDown size={15} /> Generar Informe PDF de Stock
+                </Button>
               </div>
             </div>
           )}
@@ -1204,6 +1738,23 @@ export default function Deposito() {
           onClose={() => setModalConteo(null)}
           onSubmit={filas => guardarConteo(modalConteo, filas)}
           saving={savingConteo}
+        />
+      )}
+
+      {modalMovsDet && (
+        <ModalMovsDetalle
+          tipo={modalMovsDet.tipo}
+          producto={modalMovsDet.producto}
+          movs={modalMovsDet.movs}
+          onClose={() => setModalMovsDet(null)}
+        />
+      )}
+
+      {modalEvolCS && (
+        <ModalEvolucionCS
+          insumo={modalEvolCS}
+          movimientos={movimientos}
+          onClose={() => setModalEvolCS(null)}
         />
       )}
     </div>

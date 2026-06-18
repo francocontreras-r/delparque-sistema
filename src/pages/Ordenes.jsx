@@ -423,6 +423,11 @@ export default function Ordenes() {
     cargar()
   }
 
+  function handleCloseOrden() {
+    if (lineas.length > 0 && !window.confirm('¿Seguro que querés cancelar? Se perderán los productos cargados.')) return
+    setModal(false)
+  }
+
   async function cambiarEstado(item, estado) {
     if (estado === ESTADO_COMPLETADA) {
       const { error, mermaError } = await finalizarOrdenManual(item)
@@ -1243,12 +1248,13 @@ export default function Ordenes() {
 
       <Modal
         open={modal}
-        onClose={() => setModal(false)}
+        onClose={handleCloseOrden}
         title="Nueva Orden de Producción"
         maxWidth="max-w-lg"
+        disableBackdropClose
         footer={
           <>
-            <Button variant="secondary" onClick={() => setModal(false)} disabled={saving} className="flex-1">
+            <Button variant="secondary" onClick={handleCloseOrden} disabled={saving} className="flex-1">
               Cancelar
             </Button>
             <Button variant="primary" onClick={crearOrden} loading={saving} className="flex-1">

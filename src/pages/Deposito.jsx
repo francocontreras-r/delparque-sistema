@@ -126,6 +126,12 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
   const [localError, setLocalError] = useState('')
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
+  function handleClose() {
+    const dirty = form.producto_nombre.trim() !== '' || form.cantidad !== ''
+    if (dirty && !window.confirm('¿Seguro que querés cancelar? Se perderán los datos cargados.')) return
+    onClose()
+  }
+
   const insumoSel = useMemo(() =>
     insumos.find(i => (i.nombre || '').trim().toLowerCase() === form.producto_nombre.trim().toLowerCase()),
     [form.producto_nombre, insumos]
@@ -206,7 +212,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
 
   const footerForm = (
     <>
-      <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">
+      <Button variant="secondary" onClick={handleClose} disabled={saving} className="flex-1">
         Cancelar
       </Button>
       <Button variant={esIngreso ? 'success' : 'danger'} onClick={handleClickRegistrar} className="flex-1">
@@ -216,9 +222,10 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
   )
 
   return (
-    <Modal open onClose={onClose}
+    <Modal open onClose={handleClose}
       title={esIngreso ? '↑ Registrar Ingreso' : '↓ Registrar Egreso'}
       maxWidth="max-w-md"
+      disableBackdropClose
       footer={showResumen ? footerResumen : footerForm}
     >
       {showResumen ? (

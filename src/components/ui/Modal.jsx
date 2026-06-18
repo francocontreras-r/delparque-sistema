@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { X } from 'lucide-react'
 import { colors } from '../../styles/design-system'
 
-export default function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg', footer }) {
+export default function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg', footer, disableBackdropClose = false }) {
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : ''
     return () => { document.body.style.overflow = '' }
@@ -13,7 +13,7 @@ export default function Modal({ open, onClose, title, children, maxWidth = 'max-
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+      onClick={disableBackdropClose ? undefined : (e => { if (e.target === e.currentTarget) onClose() })}
     >
       <div
         className={`w-full ${maxWidth} max-h-[90vh] flex flex-col rounded-2xl shadow-2xl`}

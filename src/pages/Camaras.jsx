@@ -243,6 +243,12 @@ function ModalMovimiento({ item, onClose, onApply }) {
     setMotivo(tipoMov === 'ingreso' ? MOTIVOS_INGRESO_CAMARA[0] : MOTIVOS_EGRESO_CAMARA[0])
   }, [tipoMov])
 
+  function handleClose() {
+    const dirty = cantBaldes !== '' || cantKg !== '' || lote !== (item.lote || '')
+    if (dirty && !window.confirm('¿Seguro que querés cancelar? Se perderán los datos cargados.')) return
+    onClose()
+  }
+
   async function handleApply() {
     const b = parseInt(cantBaldes)
     const k = parseFloat(cantKg)
@@ -256,12 +262,13 @@ function ModalMovimiento({ item, onClose, onApply }) {
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={handleClose}
       title={item.nombre}
       maxWidth="max-w-sm"
+      disableBackdropClose
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">
+          <Button variant="secondary" onClick={handleClose} disabled={saving} className="flex-1">
             Cancelar
           </Button>
           <Button

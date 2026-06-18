@@ -48,6 +48,11 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, s
   const [mano, setMano]     = useState(receta.manoDeObra || 0)
   const [saving, setSaving] = useState(false)
   const [busq, setBusq]     = useState('')
+
+  function handleClose() {
+    if (!window.confirm('¿Seguro que querés cancelar? Se perderán los cambios no guardados.')) return
+    onClose()
+  }
   const [showAC, setShowAC] = useState(false)
 
   const insumoPorNombre = useMemo(() => {
@@ -169,10 +174,11 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, s
   }
 
   return (
-    <Modal open onClose={onClose} title={`Editar receta — ${receta.nombre}`} maxWidth="max-w-2xl"
+    <Modal open onClose={handleClose} title={`Editar receta — ${receta.nombre}`} maxWidth="max-w-2xl"
+      disableBackdropClose
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+          <Button variant="secondary" onClick={handleClose}>Cancelar</Button>
           <Button variant="primary" onClick={guardar} loading={saving}>Guardar cambios</Button>
         </>
       }

@@ -111,15 +111,17 @@ function computeMateriasPrimas(item, ctx) {
   if (!receta) return []
   const insumoPorNombre = {}
   ctx.insumosStock.forEach(i => { insumoPorNombre[(i.nombre || '').trim().toLowerCase()] = i })
+  const batches = item.batches || 0
   return receta.ingredientes.map(ing => {
-    const necesario = (ing.cantidad || 0) * (item.batches || 0)
+    const cantidadPorBatch = ing.cantidad || 0
+    const necesario = cantidadPorBatch * batches
     if ((ing.insumo_nombre || '').toLowerCase().includes('agua')) {
-      return { nombre: ing.insumo_nombre, necesario, unidad: ing.unidad, disponible: null, estado: 'sinlimite' }
+      return { nombre: ing.insumo_nombre, cantidadPorBatch, batches, necesario, unidad: ing.unidad, disponible: null, estado: 'sinlimite' }
     }
     const insumo = insumoPorNombre[(ing.insumo_nombre || '').trim().toLowerCase()]
-    if (!insumo) return { nombre: ing.insumo_nombre, necesario, unidad: ing.unidad, disponible: null, estado: 'sinlimite' }
+    if (!insumo) return { nombre: ing.insumo_nombre, cantidadPorBatch, batches, necesario, unidad: ing.unidad, disponible: null, estado: 'sinlimite' }
     const disponible = insumo.stock_actual || 0
-    return { nombre: ing.insumo_nombre, necesario, unidad: ing.unidad, disponible, estado: disponible >= necesario ? 'ok' : 'insuficiente' }
+    return { nombre: ing.insumo_nombre, cantidadPorBatch, batches, necesario, unidad: ing.unidad, disponible, estado: disponible >= necesario ? 'ok' : 'insuficiente' }
   })
 }
 
@@ -701,8 +703,10 @@ export default function Ordenes() {
       const filasMP = mp.map(m => `
         <tr>
           <td>${m.nombre}</td>
-          <td style="text-align:right">${fmtNum(m.necesario)}</td>
-          <td>${m.unidad}</td>
+          <td style="text-align:right">
+            <strong>${fmtNum(m.necesario)} ${m.unidad}</strong>
+            ${m.batches > 0 ? `<br><span style="font-size:9px;color:#6b7280">(${fmtNum(m.cantidadPorBatch)} ${m.unidad} × ${m.batches} batch${m.batches !== 1 ? 'es' : ''})</span>` : ''}
+          </td>
           <td style="text-align:right">${m.estado === 'sinlimite' ? '♾️' : `${fmtNum(m.disponible)} ${m.unidad}`}</td>
           <td>${m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</td>
           <td style="text-align:center"><div class="checkbox"></div></td>
@@ -712,7 +716,7 @@ export default function Ordenes() {
           MP — ${it.sabor_nombre} (${it.batches} batch${it.batches !== 1 ? 'es' : ''})
         </h3>
         <table>
-          <thead><tr><th>Ingrediente</th><th>Cantidad</th><th>Unidad</th><th>Stock</th><th>Estado</th><th>Entregado ✓</th></tr></thead>
+          <thead><tr><th>Ingrediente</th><th>Necesario (× batches)</th><th>Stock</th><th>Estado</th><th>Entregado ✓</th></tr></thead>
           <tbody>${filasMP}</tbody>
         </table>`
     }).join('')
@@ -790,8 +794,10 @@ export default function Ordenes() {
     const filas = mp.map(m => `
       <tr>
         <td>${m.nombre}</td>
-        <td style="text-align:right">${fmtNum(m.necesario)}</td>
-        <td>${m.unidad}</td>
+        <td style="text-align:right">
+          <strong>${fmtNum(m.necesario)} ${m.unidad}</strong>
+          ${m.batches > 0 ? `<br><span style="font-size:9px;color:#6b7280">(${fmtNum(m.cantidadPorBatch)} ${m.unidad} × ${m.batches} batch${m.batches !== 1 ? 'es' : ''})</span>` : ''}
+        </td>
         <td style="text-align:right">${m.estado === 'sinlimite' ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`}</td>
         <td>${m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</td>
         <td style="text-align:center"><div class="checkbox"></div></td>
@@ -830,7 +836,7 @@ export default function Ordenes() {
       <div class="campo"><div class="campo-label">Batches</div><div class="campo-val">${item.batches}</div></div>
     </div>
     <table>
-      <thead><tr><th>Ingrediente</th><th>Cantidad necesaria</th><th>Unidad</th><th>Stock actual</th><th>Estado</th><th>Entregado ✓</th></tr></thead>
+      <thead><tr><th>Ingrediente</th><th>Necesario (× batches)</th><th>Stock actual</th><th>Estado</th><th>Entregado ✓</th></tr></thead>
       <tbody>${filas}</tbody>
     </table>
     <div class="firma-area">
@@ -927,13 +933,13 @@ export default function Ordenes() {
       finalY += 4
       autoTable(doc, {
         startY: finalY,
-        head: [['Ingrediente', 'Cantidad', 'Unidad', 'Stock', 'Estado', 'Entregado ✓']],
+        head: [['Ingrediente', 'Necesario', 'Desglose', 'Stock', 'Estado', 'Entregado ✓']],
         body: mp.map(m => [
           m.nombre,
-          fmtNum(m.necesario),
-          m.unidad,
+          `${fmtNum(m.necesario)} ${m.unidad}`,
+          m.batches > 0 ? `${fmtNum(m.cantidadPorBatch)} ${m.unidad} × ${m.batches} btch` : '',
           m.estado === 'sinlimite' ? '♾️' : `${fmtNum(m.disponible)} ${m.unidad}`,
-          m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE',
+          m.estado === 'sinlimite' ? 'Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUF.',
           '',
         ]),
         styles: { fontSize: 8, cellPadding: 1.5 },
@@ -1197,7 +1203,10 @@ export default function Ordenes() {
                                   {materiasPrimas.map((m, i) => (
                                     <Tr key={i}>
                                       <Td className="font-medium">{m.nombre}</Td>
-                                      <Td className="text-right">{fmtNum(m.necesario)} {m.unidad}</Td>
+                                      <Td className="text-right">
+                                        <span className="font-semibold">{fmtNum(m.necesario)} {m.unidad}</span>
+                                        {m.batches > 0 && <span className="block text-xs" style={{ color: colors.textMuted }}>({fmtNum(m.cantidadPorBatch)} {m.unidad} × {m.batches} batch{m.batches !== 1 ? 'es' : ''})</span>}
+                                      </Td>
                                       <Td className="text-right">{m.estado === 'sinlimite' ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`}</Td>
                                       <Td>{m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</Td>
                                     </Tr>
@@ -1609,7 +1618,10 @@ export default function Ordenes() {
                       {materiasPrimasDe(ordenDetalle).map((m, i) => (
                         <Tr key={i}>
                           <Td className="font-medium">{m.nombre}</Td>
-                          <Td className="text-right">{fmtNum(m.necesario)}</Td>
+                          <Td className="text-right">
+                            <span className="font-semibold">{fmtNum(m.necesario)}</span>
+                            {m.batches > 0 && <span className="block text-xs" style={{ color: colors.textMuted }}>({fmtNum(m.cantidadPorBatch)} × {m.batches} btch)</span>}
+                          </Td>
                           <Td>{m.unidad}</Td>
                           <Td className="text-right">{m.estado === 'sinlimite' ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`}</Td>
                           <Td>{m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</Td>

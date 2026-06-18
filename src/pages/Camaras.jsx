@@ -360,71 +360,144 @@ function ModalMovimiento({ item, onClose, onApply }) {
 
 // ── Informe para imprimir ─────────────────────────────────────────────────────
 
+const CSS_PRINT = (brand) => `
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;font-size:11px;color:#111827;padding:24px;max-width:900px;margin:0 auto}
+.header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid ${brand};padding-bottom:10px;margin-bottom:14px}
+.header-left{display:flex;flex-direction:column;gap:3px}
+.logo-img{height:30px;display:block}
+.sub{font-size:9px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-top:3px}
+.fecha{font-size:10px;color:#374151;text-align:right;line-height:1.5}
+.kpis{display:flex;gap:8px;margin-bottom:16px;flex-wrap:nowrap}
+.kpi{border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;flex:1;min-width:70px;text-align:center}
+.kpi .val{font-size:22px;font-weight:800;line-height:1.1;color:#111827}
+.kpi .lbl{font-size:8px;color:#6b7280;text-transform:uppercase;letter-spacing:.6px;margin-top:3px}
+.grupo{margin-bottom:16px;break-inside:avoid;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden}
+.grupo-header{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;background:#f1f5f9;padding:6px 10px;color:#374151;border-bottom:1px solid #e2e8f0}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+col.c-sabor{width:45%}col.c-baldes{width:12%}col.c-kg{width:13%}col.c-val{width:15%}col.c-estado{width:15%}
+th{background:#f8fafc;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:6px 8px;color:#64748b;border-bottom:1px solid #e2e8f0}
+th.r{text-align:right}th.c{text-align:center}
+td{padding:5px 8px;border-bottom:1px solid #f1f5f9;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+td.r{text-align:right;font-weight:600}td.c{text-align:center}
+tr.agotado td{color:#dc2626;background:#fef2f2}
+tr.bajo td{color:#d97706;background:#fffbeb}
+tfoot tr td{border-top:2px solid #cbd5e1;background:#f8fafc;font-weight:700;font-size:10px}
+.firmas{display:flex;gap:40px;margin-top:40px;padding-top:12px;border-top:1px solid #e2e8f0}
+.firma{flex:1;border-top:1px solid #374151;margin-top:28px;padding-top:6px;font-size:9px;color:#6b7280}
+@media print{body{padding:0}@page{margin:15mm}}
+`
+
 function generarInforme(stock, showVal) {
   const ahora = new Date().toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-  const totalBaldes = stock.reduce((a, s) => a + s.baldes, 0)
-  const totalKg     = stock.reduce((a, s) => a + s.kg, 0)
-  const costoTotal  = stock.reduce((a, s) => a + s.kg * (s.costo_kg || TIPO_PRECIOS[s.tipo]?.costo_kg || 0), 0)
-  const valorVenta  = stock.reduce((a, s) => a + s.kg * (s.precio_kg || TIPO_PRECIOS[s.tipo]?.precio_kg || 0), 0)
+  const totalBaldes = stock.reduce((a, s) => a + (s.baldes || 0), 0)
+  const totalKg     = stock.reduce((a, s) => a + (s.kg || 0), 0)
+  const costoTotal  = stock.reduce((a, s) => a + (s.kg || 0) * (s.costo_kg || TIPO_PRECIOS[s.tipo]?.costo_kg || 0), 0)
+  const valorVenta  = stock.reduce((a, s) => a + (s.kg || 0) * (s.precio_kg || TIPO_PRECIOS[s.tipo]?.precio_kg || 0), 0)
 
   let tablas = ''
   ;['Lisa', 'Con Agregado', 'Agua', 'Especial'].forEach(tipo => {
     const items = stock.filter(s => s.tipo === tipo).sort((a, b) => a.nombre.localeCompare(b.nombre))
     if (!items.length) return
-    const stB = items.reduce((a, s) => a + s.baldes, 0)
-    const stK = items.reduce((a, s) => a + s.kg, 0)
-    const stC = items.reduce((a, s) => a + s.kg * (s.costo_kg || TIPO_PRECIOS[s.tipo]?.costo_kg || 0), 0)
-    const stP = items.reduce((a, s) => a + s.kg * (s.precio_kg || TIPO_PRECIOS[s.tipo]?.precio_kg || 0), 0)
-    const valHead = showVal ? '<th>Costo</th><th>Valor venta</th>' : ''
-    const valFoot = showVal ? `<td class="num"><strong>$${pesos(stC)}</strong></td><td class="num"><strong>$${pesos(stP)}</strong></td>` : ''
+    const stB = items.reduce((a, s) => a + (s.baldes || 0), 0)
+    const stK = items.reduce((a, s) => a + (s.kg || 0), 0)
+    const stC = items.reduce((a, s) => a + (s.kg || 0) * (s.costo_kg || TIPO_PRECIOS[s.tipo]?.costo_kg || 0), 0)
+    const stP = items.reduce((a, s) => a + (s.kg || 0) * (s.precio_kg || TIPO_PRECIOS[s.tipo]?.precio_kg || 0), 0)
+    const valHead = showVal ? '<th class="r">Costo</th><th class="r">Valor venta</th>' : ''
+    const valFoot = showVal ? `<td class="r">$${pesos(stC)}</td><td class="r">$${pesos(stP)}</td>` : ''
     const rows = items.map(s => {
       const ck = s.costo_kg || TIPO_PRECIOS[s.tipo]?.costo_kg
       const pk = s.precio_kg || TIPO_PRECIOS[s.tipo]?.precio_kg
-      const vc = showVal ? `<td class="num">${ck ? '$' + pesos(s.kg * ck) : '-'}</td><td class="num">${pk ? '$' + pesos(s.kg * pk) : '-'}</td>` : ''
-      return `<tr class="${s.baldes === 0 ? 'agotado' : s.baldes <= 3 ? 'bajo' : ''}">
-        <td>${s.nombre}</td><td class="num">${s.baldes}</td><td class="num">${Number(s.kg).toFixed(1)}</td>${vc}
-        <td class="estado">${s.baldes === 0 ? 'AGOTADO' : s.baldes <= 3 ? 'Bajo' : 'OK'}</td></tr>`
+      const vc = showVal ? `<td class="r">${ck ? '$' + pesos((s.kg || 0) * ck) : '—'}</td><td class="r">${pk ? '$' + pesos((s.kg || 0) * pk) : '—'}</td>` : ''
+      const cls = s.baldes === 0 ? 'agotado' : s.baldes <= 3 ? 'bajo' : ''
+      return `<tr class="${cls}"><td>${s.nombre}</td><td class="r">${s.baldes}</td><td class="r">${Number(s.kg || 0).toFixed(1)}</td>${vc}<td class="c">${s.baldes === 0 ? 'AGOTADO' : s.baldes <= 3 ? 'Bajo' : 'OK'}</td></tr>`
     }).join('')
-    tablas += `<div class="grupo"><div class="grupo-header">${tipo}</div>
-      <table><thead><tr><th>Sabor</th><th>Baldes</th><th>KG</th>${valHead}<th>Estado</th></tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot><tr><td><strong>Subtotal</strong></td><td class="num"><strong>${stB}</strong></td><td class="num"><strong>${Number(stK).toFixed(1)}</strong></td>${valFoot}<td></td></tr></tfoot></table></div>`
+    const colVal = showVal ? '<col class="c-val"/><col class="c-val"/>' : ''
+    tablas += `
+    <div class="grupo">
+      <div class="grupo-header">${tipo} — ${stB} baldes · ${Number(stK).toFixed(1)} kg</div>
+      <table><colgroup><col class="c-sabor"/><col class="c-baldes"/><col class="c-kg"/>${colVal}<col class="c-estado"/></colgroup>
+        <thead><tr><th>Sabor</th><th class="r">Baldes</th><th class="r">KG</th>${valHead}<th class="c">Estado</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr><td>Subtotal</td><td class="r">${stB}</td><td class="r">${Number(stK).toFixed(1)}</td>${valFoot}<td></td></tr></tfoot>
+      </table>
+    </div>`
   })
 
-  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Informe Cámaras - Del Parque</title>
-<style>*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:24px}
-.header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid ${colors.brand};padding-bottom:12px;margin-bottom:16px}
-.logo-img{height:32px;display:block}
-.sub{font-size:10px;color:#666;margin-top:4px}.fecha{font-size:10px;color:#444;text-align:right}
-.kpis{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}
-.kpi{border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;flex:1;min-width:80px}
-.kpi .val{font-size:20px;font-weight:700}.kpi .lbl{font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:.6px}
-.grupo{margin-bottom:18px;break-inside:avoid}
-.grupo-header{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;background:#f8fafc;padding:6px 10px;border-radius:4px 4px 0 0;color:#374151;border-bottom:1px solid #e2e8f0}
-table{width:100%;border-collapse:collapse}
-th{background:#f8fafc;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:6px 10px;text-align:left;color:#64748b;border-bottom:1px solid #e2e8f0}
-td{padding:5px 10px;border-bottom:1px solid #f1f5f9}td.num{text-align:right;font-weight:600}
-tr.agotado td{color:#dc2626;background:#fef2f2}tr.bajo td{color:#d97706;background:#fffbeb}
-tfoot tr td{border-top:1px solid #cbd5e1;background:#f8fafc}
-.firmas{display:flex;gap:48px;margin-top:40px;padding-top:16px;border-top:1px solid #e2e8f0}
-.firma{flex:1;border-top:1px solid #374151;margin-top:32px;padding-top:6px;font-size:9px;color:#64748b}
-@media print{body{padding:0}}</style></head><body>
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Informe Cámaras — Del Parque</title>
+<style>${CSS_PRINT(colors.brand)}</style></head><body>
 <div class="header">
-  <div><img src="${logoUrl}" class="logo-img" alt="Del Parque" /><div class="sub">Informe de Stock — Cámaras</div></div>
+  <div class="header-left">
+    <img src="${logoUrl}" class="logo-img" alt="Del Parque" />
+    <div class="sub">Informe de Stock — Cámaras</div>
+  </div>
   <div class="fecha"><strong>Fecha:</strong> ${ahora}</div>
 </div>
 <div class="kpis">
   <div class="kpi"><div class="val">${totalBaldes}</div><div class="lbl">Total baldes</div></div>
   <div class="kpi"><div class="val">${Number(totalKg).toFixed(1)}</div><div class="lbl">Total KG</div></div>
-  <div class="kpi"><div class="val">${stock.filter(s => s.baldes > 3).length}</div><div class="lbl">Con stock</div></div>
+  <div class="kpi"><div class="val" style="color:#16a34a">${stock.filter(s => s.baldes > 3).length}</div><div class="lbl">Con stock</div></div>
+  <div class="kpi"><div class="val" style="color:#d97706">${stock.filter(s => s.baldes >= 1 && s.baldes <= 3).length}</div><div class="lbl">Poco stock</div></div>
   <div class="kpi"><div class="val" style="color:#dc2626">${stock.filter(s => s.baldes === 0).length}</div><div class="lbl">Agotados</div></div>
-  ${showVal ? `<div class="kpi"><div class="val" style="color:#64748b">$${pesos(costoTotal / 1000)}k</div><div class="lbl">Costo total</div></div><div class="kpi"><div class="val" style="color:${colors.brand}">$${pesos(valorVenta / 1000)}k</div><div class="lbl">Valor venta</div></div>` : ''}
-</div>${tablas}
+  ${showVal ? `<div class="kpi"><div class="val" style="color:#64748b;font-size:16px">$${pesos(costoTotal / 1000)}k</div><div class="lbl">Costo total</div></div><div class="kpi"><div class="val" style="color:${colors.brand};font-size:16px">$${pesos(valorVenta / 1000)}k</div><div class="lbl">Valor venta</div></div>` : ''}
+</div>
+${tablas}
 <div class="firmas">
   <div class="firma">Responsable de Cámaras</div>
   <div class="firma">Jefe de Producción</div>
   <div class="firma">Gerencia</div>
+</div></body></html>`
+}
+
+function generarStockActual(stock) {
+  const ahora = new Date().toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const soloHelados = stock.filter(s => (s.tipo_producto || 'helado') === 'helado').sort((a, b) => a.nombre.localeCompare(b.nombre))
+  const totalBaldes = soloHelados.reduce((a, s) => a + (s.baldes || 0), 0)
+  const totalKg     = soloHelados.reduce((a, s) => a + (s.kg || 0), 0)
+
+  const rows = soloHelados.map(s => {
+    const cls = s.baldes === 0 ? 'agotado' : s.baldes <= 3 ? 'bajo' : ''
+    const estado = s.baldes === 0 ? 'AGOTADO' : s.baldes <= 3 ? 'Bajo' : 'OK'
+    return `<tr class="${cls}">
+      <td>${s.nombre}</td>
+      <td class="c">${s.tipo || '—'}</td>
+      <td class="r">${s.baldes}</td>
+      <td class="r">${Number(s.kg || 0).toFixed(1)}</td>
+      <td class="c">${s.lote || '—'}</td>
+      <td class="c">${estado}</td>
+    </tr>`
+  }).join('')
+
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Stock Actual — Del Parque</title>
+<style>${CSS_PRINT(colors.brand)}
+col.c1{width:35%}col.c2{width:14%}col.c3{width:11%}col.c4{width:12%}col.c5{width:14%}col.c6{width:14%}
+</style></head><body>
+<div class="header">
+  <div class="header-left">
+    <img src="${logoUrl}" class="logo-img" alt="Del Parque" />
+    <div class="sub">Stock Actual — Cámaras Frías</div>
+  </div>
+  <div class="fecha"><strong>Fecha:</strong> ${ahora}</div>
+</div>
+<div class="kpis">
+  <div class="kpi"><div class="val">${soloHelados.length}</div><div class="lbl">Sabores</div></div>
+  <div class="kpi"><div class="val">${totalBaldes}</div><div class="lbl">Total baldes</div></div>
+  <div class="kpi"><div class="val">${Number(totalKg).toFixed(1)}</div><div class="lbl">Total KG</div></div>
+  <div class="kpi"><div class="val" style="color:#16a34a">${soloHelados.filter(s => s.baldes > 3).length}</div><div class="lbl">Con stock</div></div>
+  <div class="kpi"><div class="val" style="color:#d97706">${soloHelados.filter(s => s.baldes >= 1 && s.baldes <= 3).length}</div><div class="lbl">Poco stock</div></div>
+  <div class="kpi"><div class="val" style="color:#dc2626">${soloHelados.filter(s => s.baldes === 0).length}</div><div class="lbl">Agotados</div></div>
+</div>
+<div class="grupo">
+  <div class="grupo-header">Helados — Stock completo</div>
+  <table><colgroup><col class="c1"/><col class="c2"/><col class="c3"/><col class="c4"/><col class="c5"/><col class="c6"/></colgroup>
+    <thead><tr><th>Sabor</th><th class="c">Tipo</th><th class="r">Baldes</th><th class="r">KG</th><th class="c">Lote</th><th class="c">Estado</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr><td>TOTAL</td><td></td><td class="r">${totalBaldes}</td><td class="r">${Number(totalKg).toFixed(1)}</td><td></td><td></td></tr></tfoot>
+  </table>
+</div>
+<div class="firmas">
+  <div class="firma">Responsable de Cámaras · Firma y fecha</div>
+  <div class="firma">Control de Stock · Firma y fecha</div>
 </div></body></html>`
 }
 
@@ -801,6 +874,13 @@ export default function Camaras() {
     w.onload = () => w.print()
   }
 
+  function imprimirStockActual() {
+    const w = window.open('', '_blank')
+    w.document.write(generarStockActual(stock))
+    w.document.close()
+    w.onload = () => w.print()
+  }
+
   const PILL_BASE = 'px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border'
   const pillStyle = (active, activeColor) => ({
     backgroundColor: active ? activeColor : 'transparent',
@@ -822,6 +902,11 @@ export default function Camaras() {
           <Button variant="secondary" onClick={imprimir} disabled={loading || !!errorCarga}>
             <Printer size={15} /> Imprimir
           </Button>
+          {userRole === 'admin' && (
+            <Button variant="secondary" onClick={imprimirStockActual} disabled={loading || !!errorCarga}>
+              <FileDown size={15} /> Stock Actual
+            </Button>
+          )}
           <div className="flex items-center rounded-lg overflow-hidden" style={{ border: `1px dashed ${colors.border}` }} title="Vista dev">
             {ROLES.map(r => (
               <button key={r} onClick={() => setUserRole(r)}

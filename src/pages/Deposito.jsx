@@ -107,7 +107,7 @@ function toDataURL(url) {
     }))
 }
 
-function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, onCrearInsumo, creandoInsumo, movimientos }) {
+function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, onCrearInsumo, creandoInsumo, movimientos, categorias = TODAS_LAS_CATS }) {
   const esIngreso = tipo === 'ingreso'
   const [form, setForm] = useState({
     fecha: new Date().toISOString().split('T')[0],
@@ -289,7 +289,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
                     <select value={form.categoria_nueva} onChange={e => upd('categoria_nueva', e.target.value)}
                       className="flex-1 rounded-md border text-xs px-2 py-1.5 outline-none"
                       style={{ borderColor: colors.border, color: colors.textPrimary }}>
-                      {TODAS_LAS_CATS.map(c => <option key={c}>{c}</option>)}
+                      {categorias.map(c => <option key={c}>{c}</option>)}
                     </select>
                     <Button variant="ghost" size="sm" loading={creandoInsumo}
                       onClick={() => onCrearInsumo(nombreProducto, form.categoria_nueva)}>
@@ -447,7 +447,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
   )
 }
 
-function ModalEditarInsumo({ insumo, onClose, onSubmit, saving, isAdmin }) {
+function ModalEditarInsumo({ insumo, onClose, onSubmit, saving, isAdmin, categorias = TODAS_LAS_CATS }) {
   const [form, setForm] = useState({
     stock_actual: insumo.stock_actual ?? '',
     stock_minimo: insumo.stock_minimo ?? '',
@@ -480,7 +480,7 @@ function ModalEditarInsumo({ insumo, onClose, onSubmit, saving, isAdmin }) {
           <label className="block text-sm font-medium text-[#94A3B8] mb-1.5">Categoría</label>
           <select value={form.categoria} onChange={e => upd('categoria', e.target.value)}
             className="w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] bg-[#0F172A] outline-none px-3 py-2 focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]">
-            {TODAS_LAS_CATS.map(c => <option key={c}>{c}</option>)}
+            {categorias.map(c => <option key={c}>{c}</option>)}
           </select>
         </div>
         <Input label={`Stock actual (${insumo.unidad || 'u'})`} type="number" min="0" step="0.01"
@@ -913,14 +913,13 @@ export default function Deposito() {
 
   async function crearInsumoNuevo(nombre, categoria = 'OTROS') {
     setCreandoInsumo(true)
-    const { data, error } = await supabase.from('insumos')
-      .insert({ nombre, categoria, unidad: 'kg', stock_actual: 0 })
-      .select()
-      .single()
+    const { error } = await supabase.from('insumos')
+      .insert({ nombre, categoria, unidad: 'u', stock_actual: 0, stock_minimo: 0, costo_unitario: 0 })
     setCreandoInsumo(false)
     if (error) { toast2(error.message, 'error'); return }
-    setInsumos(prev => [...prev, data].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '')))
-    toast2(`Insumo "${nombre}" agregado como ${categoria}`)
+    const { data: todos } = await supabase.from('insumos').select('*').order('nombre')
+    if (todos) setInsumos(todos)
+    toast2(`Producto "${nombre}" agregado al stock`)
   }
 
   async function guardarInsumo(form) {
@@ -950,6 +949,14 @@ export default function Deposito() {
       c => c && !new Set(CATS_FILTRO_BASE).has(c) && c !== 'NUEVO' && c !== 'General'
     ))].sort()
     return [...CATS_FILTRO_BASE, ...extra]
+  }, [insumos])
+
+  const categoriasSelect = useMemo(() => {
+    const fijasSet = new Set(TODAS_LAS_CATS)
+    const extras = [...new Set(insumos.map(i => i.categoria).filter(
+      c => c && !fijasSet.has(c) && c !== 'NUEVO' && c !== 'General'
+    ))].sort()
+    return [...TODAS_LAS_CATS, ...extras]
   }, [insumos])
 
   const insumosFiltrados = useMemo(() => {
@@ -2441,6 +2448,7 @@ export default function Deposito() {
           onCrearInsumo={crearInsumoNuevo}
           creandoInsumo={creandoInsumo}
           movimientos={movimientos}
+          categorias={categoriasSelect}
         />
       )}
 
@@ -2451,6 +2459,7 @@ export default function Deposito() {
           onSubmit={guardarInsumo}
           saving={savingInsumo}
           isAdmin={isAdmin}
+          categorias={categoriasSelect}
         />
       )}
 

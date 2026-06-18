@@ -866,7 +866,7 @@ export default function Deposito() {
       const { data: found } = await supabase
         .from('insumos')
         .select('id, stock_actual, nombre, peso_por_unidad')
-        .ilike('nombre', nombreProducto)
+        .eq('nombre', nombreProducto)
         .maybeSingle()
       console.log('Insumo encontrado (exacto):', found)
       insumoMatch = found
@@ -912,9 +912,13 @@ export default function Deposito() {
   }
 
   async function crearInsumoNuevo(nombre, categoria = 'OTROS') {
+    console.log('Creando insumo:', { nombre, categoria })
     setCreandoInsumo(true)
-    const { error } = await supabase.from('insumos')
+    const { data, error } = await supabase.from('insumos')
       .insert({ nombre, categoria, unidad: 'u', stock_actual: 0, stock_minimo: 0, costo_unitario: 0 })
+      .select()
+      .single()
+    console.log('Resultado INSERT:', data, error)
     setCreandoInsumo(false)
     if (error) { toast2(error.message, 'error'); return }
     const { data: todos } = await supabase.from('insumos').select('*').order('nombre')
@@ -935,7 +939,8 @@ export default function Deposito() {
     const { error } = await supabase.from('insumos').update(payload).eq('id', editInsumo.id)
     setSavingInsumo(false)
     if (error) { toast2(error.message, 'error'); return }
-    setInsumos(prev => prev.map(i => i.id === editInsumo.id ? { ...i, ...payload } : i))
+    const { data: todos } = await supabase.from('insumos').select('*').order('nombre')
+    if (todos) setInsumos(todos)
     toast2('Insumo actualizado')
     setEditInsumo(null)
   }
@@ -1830,10 +1835,10 @@ export default function Deposito() {
                       const pct = pctNivel(ins.stock_actual || 0, ins.stock_minimo || 0, ins.stock_maximo || 0)
                       return (
                         <div key={ins.id} className="px-4 py-3 flex items-center gap-3"
-                          onClick={isAdmin ? () => setEditInsumo(ins) : undefined}
+                          onClick={() => setEditInsumo(ins)}
                           style={{
                             borderBottom: idx === items.length - 1 ? 'none' : `1px solid ${colors.border}`,
-                            cursor: isAdmin ? 'pointer' : 'default',
+                            cursor: 'pointer',
                           }}
                           onMouseEnter={isAdmin ? e => e.currentTarget.style.backgroundColor = colors.bg : undefined}
                           onMouseLeave={isAdmin ? e => e.currentTarget.style.backgroundColor = 'transparent' : undefined}

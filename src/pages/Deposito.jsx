@@ -849,26 +849,64 @@ export default function Deposito() {
     const { error } = await supabase.from('movimientos_deposito').insert(payload)
     if (error) { setSaving(false); toast2(error.message, 'error'); return }
 
-    // Actualizaciones secundarias al insumo (solo ingreso)
-    if (modal === 'ingreso') {
-      const insumoMatch = insumos.find(i =>
-        (i.nombre || '').trim().toLowerCase() === form.producto_nombre.trim().toLowerCase()
-      )
-      if (insumoMatch) {
-        const updates = {}
+    // ── Actualizar stock_actual del insumo (ingreso y egreso) ──────────────────
+    const nombreProducto = form.producto_nombre.trim()
+    const delta = pesoTotal > 0 ? pesoTotal : parseFloat(form.cantidad)
+    const signo = modal === 'ingreso' ? 1 : -1
+
+    console.log('Actualizando stock insumo:', nombreProducto, 'cantidad:', delta, 'tipo:', modal)
+
+    // 1. Búsqueda exacta en caché local
+    let insumoMatch = insumos.find(i =>
+      (i.nombre || '').trim().toLowerCase() === nombreProducto.toLowerCase()
+    )
+
+    // 2. Si no está en caché: búsqueda exacta en Supabase (case-insensitive)
+    if (!insumoMatch) {
+      const { data: found } = await supabase
+        .from('insumos')
+        .select('id, stock_actual, nombre, peso_por_unidad')
+        .ilike('nombre', nombreProducto)
+        .maybeSingle()
+      console.log('Insumo encontrado (exacto):', found)
+      insumoMatch = found
+    }
+
+    // 3. Si sigue sin encontrarse: búsqueda parcial
+    if (!insumoMatch) {
+      const { data: found } = await supabase
+        .from('insumos')
+        .select('id, stock_actual, nombre, peso_por_unidad')
+        .ilike('nombre', `%${nombreProducto}%`)
+        .limit(1)
+        .maybeSingle()
+      console.log('Insumo encontrado (parcial):', found)
+      insumoMatch = found
+    }
+
+    if (insumoMatch) {
+      const nuevoStock = Math.max(0, (insumoMatch.stock_actual || 0) + signo * delta)
+      const updates = { stock_actual: nuevoStock }
+      if (modal === 'ingreso') {
         const precioUnitario = parseFloat(form.precio_unitario) || 0
         if (precioUnitario > 0) updates.costo_unitario = precioUnitario
         if (pesoPorUnidad > 0 && pesoPorUnidad !== (insumoMatch.peso_por_unidad || 0)) {
           updates.peso_por_unidad = pesoPorUnidad
         }
-        if (Object.keys(updates).length > 0) {
-          await supabase.from('insumos').update(updates).eq('id', insumoMatch.id)
-        }
       }
+      const { error: stockErr } = await supabase.from('insumos').update(updates).eq('id', insumoMatch.id)
+      if (stockErr) {
+        console.error('Error actualizando stock:', stockErr)
+      } else {
+        setInsumos(prev => prev.map(i => i.id === insumoMatch.id ? { ...i, ...updates } : i))
+      }
+    } else {
+      console.warn('Insumo no encontrado para actualizar stock:', nombreProducto)
+      toast2(`Movimiento registrado. No se encontró "${nombreProducto}" en insumos para actualizar el stock.`, 'warn')
     }
 
     setSaving(false)
-    toast2(modal === 'ingreso' ? 'Ingreso registrado' : 'Egreso registrado')
+    if (insumoMatch) toast2(modal === 'ingreso' ? 'Ingreso registrado' : 'Egreso registrado')
     setModal(null)
     cargar()
   }

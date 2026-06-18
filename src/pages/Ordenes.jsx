@@ -16,7 +16,7 @@ import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { finalizarOrdenManual, progresoColor, ESTADO_EN_PROCESO, ESTADO_COMPLETADA } from '../lib/ordenes'
 import { POSTRES } from '../lib/postres'
-import { ClipboardList, Plus, Printer, FileDown, AlertTriangle, CheckCircle2, Warehouse, X, ChevronDown, ChevronUp, Package, Clock } from 'lucide-react'
+import { ClipboardList, Plus, Printer, FileDown, CheckCircle2, Warehouse, X, ChevronDown, ChevronUp, Package, Clock } from 'lucide-react'
 const logoUrl = '/logo_delparque.png'
 
 function toDataURL(url) {
@@ -196,7 +196,7 @@ export default function Ordenes() {
       supabase.from('stock_camaras').select('id,nombre,tipo,baldes').order('nombre'),
       supabase.from('impulsivos').select('id,nombre').order('nombre'),
       supabase.from('operarios').select('*').order('nombre'),
-      supabase.from('sabores').select('id,nombre,litros_base').order('nombre'),
+      supabase.from('sabores').select('id,nombre,litros_base,base_nombre').order('nombre'),
       supabase.from('sabor_ingredientes').select('*'),
       supabase.from('insumos').select('nombre,stock_actual,unidad'),
       supabase.from('bases').select('id,nombre,litros_batch').order('nombre'),
@@ -206,7 +206,8 @@ export default function Ordenes() {
     setOrdenes(ord || [])
     setSaboresCamara(sab || [])
     setImpulsivos(imp || [])
-    setOperarios(ops || [])
+    const unicos = [...new Map((ops || []).map(o => [o.nombre, o])).values()]
+    setOperarios(unicos)
     setSabores(recetas || [])
     setSaborIngredientes(ingredientes || [])
     setInsumosStock(insumosData || [])
@@ -216,14 +217,14 @@ export default function Ordenes() {
 
     const opciones = [
       ...(basesData || []).map(b => ({ _key: `base-${b.id}`, _grupo: 'BASES' })),
-      ...(sab || []).map(s => ({ _key: `sabor-${s.id}`, _grupo: 'SABORES' })),
+      ...(recetas || []).map(s => ({ _key: `sabor-${s.id}`, _grupo: 'SABORES' })),
       ...(imp || []).map(p => ({ _key: `imp-${p.id}`, _grupo: 'IMPULSIVOS' })),
       ...POSTRES.map((p, idx) => ({ _key: `postre-${idx}`, _grupo: 'POSTRES' })),
     ]
     const primero = GRUPOS_PRODUCTO.map(g => opciones.find(o => o._grupo === g)).find(Boolean)
     if (primero) { setTabProducto(primero._grupo); setLineaSel(primero._key) }
 
-    if (ops && ops.length > 0) setForm(f => ({ ...f, operario_id: String(ops[0].id), operario_nombre: ops[0].nombre }))
+    if (unicos.length > 0) setForm(f => ({ ...f, operario_id: String(unicos[0].id), operario_nombre: unicos[0].nombre }))
     setLoading(false)
   }
 
@@ -236,15 +237,13 @@ export default function Ordenes() {
 
   const opcionesActivas = [
     ...bases.map(b => ({ ...b, _key: `base-${b.id}`, _tipo: 'base', _grupo: 'BASES' })),
-    ...saboresCamara.map(s => ({ ...s, _key: `sabor-${s.id}`, _tipo: 'sabor', _grupo: 'SABORES' })),
+    ...sabores.map(s => ({ ...s, _key: `sabor-${s.id}`, _tipo: 'sabor', _grupo: 'SABORES' })),
     ...impulsivos.map(p => ({ ...p, _key: `imp-${p.id}`, _tipo: 'impulsivo', _grupo: 'IMPULSIVOS' })),
     ...POSTRES.map((p, idx) => ({ ...p, _key: `postre-${idx}`, _tipo: 'postre', _grupo: 'POSTRES', id: null })),
   ]
   const opcionesDelTab = opcionesActivas.filter(p => p._grupo === tabProducto)
   const productoSel = opcionesActivas.find(p => p._key === lineaSel)
   const productoSelEsHelado = productoSel?._tipo === 'sabor' || productoSel?._tipo === 'base'
-  const stockActualSel = productoSel?._tipo === 'sabor' ? (productoSel.baldes || 0) : null
-  const faltaStockSel  = productoSel?._tipo === 'sabor' && stockActualSel < 2
 
   function cambiarTabProducto(grupo) {
     setTabProducto(grupo)
@@ -357,6 +356,21 @@ export default function Ordenes() {
   function materiasPrimasDe(item) {
     return computeMateriasPrimas(item, { sabores, bases, saborIngredientes, baseIngredientes, insumosStock })
   }
+
+  const basesNecesarias = useMemo(() => {
+    const map = {}
+    lineas.forEach(l => {
+      if (l.tipo !== 'helado') return
+      const saborRecord = sabores.find(s => (s.nombre || '').toLowerCase() === (l.producto_nombre || '').toLowerCase())
+      if (!saborRecord?.base_nombre) return
+      const baseNombre = saborRecord.base_nombre
+      const litrosPorBatch = saborRecord.litros_base || LITROS_BATCH
+      if (!map[baseNombre]) map[baseNombre] = { base: baseNombre, litros: 0, batches: 0 }
+      map[baseNombre].litros += litrosPorBatch * l.cantidad
+      map[baseNombre].batches += l.cantidad
+    })
+    return Object.values(map)
+  }, [lineas, sabores])
 
   async function crearOrden() {
     if (lineas.length === 0) { toast2('Agregá al menos un producto', 'error'); return }
@@ -1384,12 +1398,6 @@ export default function Ordenes() {
               </>
             )}
 
-            {faltaStockSel && (
-              <div className="flex items-start gap-2 px-3 py-2.5 mt-2 text-xs" style={{ backgroundColor: colors.warningBg, border: `1px solid ${colors.warning}40`, borderRadius: radius.md, color: colors.warning }}>
-                <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
-                <span>Stock bajo para este sabor ({stockActualSel} baldes). Se puede agregar igual — verificá disponibilidad.</span>
-              </div>
-            )}
           </div>
 
           {lineas.length > 0 && (
@@ -1425,6 +1433,47 @@ export default function Ordenes() {
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+
+          {basesNecesarias.length > 0 && (
+            <div className="pt-3" style={{ borderTop: `1px solid ${colors.border}` }}>
+              <p className="text-sm font-semibold mb-2" style={{ color: colors.textPrimary }}>Bases necesarias para esta orden</p>
+              <div className="overflow-hidden" style={{ border: `1px solid ${colors.border}`, borderRadius: radius.md }}>
+                <Table>
+                  <Thead>
+                    <Tr>
+                      <Th>Base</Th>
+                      <Th className="text-right">Litros</Th>
+                      <Th className="text-right">Batches</Th>
+                      <Th>Stock disponible</Th>
+                    </Tr>
+                  </Thead>
+                  <Tbody>
+                    {basesNecesarias.map((b, i) => {
+                      const kgDisponible = stockBases
+                        .filter(s => (s.base_nombre || '').toLowerCase() === b.base.toLowerCase())
+                        .reduce((sum, s) => sum + (s.kg_disponible || 0), 0)
+                      const hayStock = kgDisponible >= b.litros
+                      return (
+                        <Tr key={i}>
+                          <Td className="font-medium">{b.base}</Td>
+                          <Td className="text-right">{fmtNum(b.litros)} L</Td>
+                          <Td className="text-right">{b.batches} batch{b.batches !== 1 ? 'es' : ''}</Td>
+                          <Td>
+                            {kgDisponible > 0
+                              ? <span style={{ color: hayStock ? colors.success : colors.warning }}>
+                                  {hayStock ? '✅' : '⚠️'} {fmtNum(kgDisponible)} kg disponibles
+                                </span>
+                              : <span style={{ color: colors.textMuted }}>— Sin stock cargado</span>
+                            }
+                          </Td>
+                        </Tr>
+                      )
+                    })}
+                  </Tbody>
+                </Table>
+              </div>
             </div>
           )}
         </div>

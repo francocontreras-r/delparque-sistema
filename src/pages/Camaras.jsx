@@ -100,7 +100,7 @@ function TarjetaSabor({ item, onClick, showVal }) {
       </p>
       {esImp
         ? <p className="text-xs mb-2" style={{ color: colors.textMuted }}>unidades</p>
-        : <p className="text-xs mb-2" style={{ color: colors.textMuted }}>{item.kg} kg</p>}
+        : <p className="text-xs mb-2" style={{ color: colors.textMuted }}>{Number(item.kg).toFixed(1)} kg</p>}
       {item.lote && (
         <span className="inline-block text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded mb-1.5"
           style={{ backgroundColor: 'rgba(212,82,26,0.15)', color: colors.brand, border: '1px solid rgba(212,82,26,0.3)' }}>
@@ -174,7 +174,7 @@ function FilaLista({ item, onClick, showVal, esImpGrupo }) {
         </span>
       </td>
       {!esImpGrupo && (
-        <td className="py-3 px-4 text-sm" style={{ color: colors.textMuted }}>{item.kg} kg</td>
+        <td className="py-3 px-4 text-sm" style={{ color: colors.textMuted }}>{Number(item.kg).toFixed(1)} kg</td>
       )}
       {showVal && !esImpGrupo && (
         <td className="py-3 px-4 text-sm font-semibold" style={{ color: colors.brand }}>
@@ -201,7 +201,7 @@ function GrupoLista({ tipo, items, onSelect, showVal }) {
       <div className="flex items-center justify-between px-4 py-3" style={{ backgroundColor: tb.bg, borderBottom: `1px solid ${colors.border}` }}>
         <span className="text-xs font-bold uppercase tracking-wider" style={{ color: tb.color }}>{tipo}</span>
         <span className="text-xs font-semibold" style={{ color: tb.color }}>
-          {esImpGrupo ? `${totalBaldes} unidades` : `${totalBaldes} baldes · ${totalKg} kg`}
+          {esImpGrupo ? `${totalBaldes} unidades` : `${totalBaldes} baldes · ${Number(totalKg).toFixed(1)} kg`}
         </span>
       </div>
       <table className="w-full">
@@ -290,7 +290,7 @@ function ModalMovimiento({ item, onClose, onApply }) {
           <div className="text-right">
             <span className="text-xl font-extrabold" style={{ color: e.dot }}>{item.baldes}</span>
             <span className="text-xs ml-1.5" style={{ color: colors.textMuted }}>
-              {esImp ? 'unidades' : `baldes · ${item.kg} kg`}
+              {esImp ? 'unidades' : `baldes · ${Number(item.kg).toFixed(1)} kg`}
             </span>
           </div>
         </div>
@@ -382,13 +382,13 @@ function generarInforme(stock, showVal) {
       const pk = s.precio_kg || TIPO_PRECIOS[s.tipo]?.precio_kg
       const vc = showVal ? `<td class="num">${ck ? '$' + pesos(s.kg * ck) : '-'}</td><td class="num">${pk ? '$' + pesos(s.kg * pk) : '-'}</td>` : ''
       return `<tr class="${s.baldes === 0 ? 'agotado' : s.baldes <= 3 ? 'bajo' : ''}">
-        <td>${s.nombre}</td><td class="num">${s.baldes}</td><td class="num">${s.kg}</td>${vc}
+        <td>${s.nombre}</td><td class="num">${s.baldes}</td><td class="num">${Number(s.kg).toFixed(1)}</td>${vc}
         <td class="estado">${s.baldes === 0 ? 'AGOTADO' : s.baldes <= 3 ? 'Bajo' : 'OK'}</td></tr>`
     }).join('')
     tablas += `<div class="grupo"><div class="grupo-header">${tipo}</div>
       <table><thead><tr><th>Sabor</th><th>Baldes</th><th>KG</th>${valHead}<th>Estado</th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr><td><strong>Subtotal</strong></td><td class="num"><strong>${stB}</strong></td><td class="num"><strong>${stK}</strong></td>${valFoot}<td></td></tr></tfoot></table></div>`
+      <tfoot><tr><td><strong>Subtotal</strong></td><td class="num"><strong>${stB}</strong></td><td class="num"><strong>${Number(stK).toFixed(1)}</strong></td>${valFoot}<td></td></tr></tfoot></table></div>`
   })
 
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Informe Cámaras - Del Parque</title>
@@ -416,7 +416,7 @@ tfoot tr td{border-top:1px solid #cbd5e1;background:#f8fafc}
 </div>
 <div class="kpis">
   <div class="kpi"><div class="val">${totalBaldes}</div><div class="lbl">Total baldes</div></div>
-  <div class="kpi"><div class="val">${totalKg}</div><div class="lbl">Total KG</div></div>
+  <div class="kpi"><div class="val">${Number(totalKg).toFixed(1)}</div><div class="lbl">Total KG</div></div>
   <div class="kpi"><div class="val">${stock.filter(s => s.baldes > 3).length}</div><div class="lbl">Con stock</div></div>
   <div class="kpi"><div class="val" style="color:#dc2626">${stock.filter(s => s.baldes === 0).length}</div><div class="lbl">Agotados</div></div>
   ${showVal ? `<div class="kpi"><div class="val" style="color:#64748b">$${pesos(costoTotal / 1000)}k</div><div class="lbl">Costo total</div></div><div class="kpi"><div class="val" style="color:${colors.brand}">$${pesos(valorVenta / 1000)}k</div><div class="lbl">Valor venta</div></div>` : ''}
@@ -490,7 +490,7 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
             {!esImp && (
               <div>
                 <p className="text-xs mb-0.5" style={{ color: colors.textMuted }}>KG</p>
-                <p className="text-xl font-bold" style={{ color: colors.textPrimary }}>{item.kg}</p>
+                <p className="text-xl font-bold" style={{ color: colors.textPrimary }}>{Number(item.kg).toFixed(1)}</p>
               </div>
             )}
           </div>
@@ -974,7 +974,7 @@ export default function Camaras() {
             {Object.entries(porTipo).map(([tipo, { baldes, kg }]) => (
               <div key={tipo} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textSecondary }}>
                 <span className="text-[10px] uppercase tracking-wide">{tipo}</span>
-                <span style={{ color: colors.brand }}>{baldes} baldes · {kg} kg</span>
+                <span style={{ color: colors.brand }}>{baldes} baldes · {Number(kg).toFixed(1)} kg</span>
               </div>
             ))}
           </div>

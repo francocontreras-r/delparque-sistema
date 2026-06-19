@@ -361,58 +361,119 @@ function ModalMovimiento({ item, onClose, onApply }) {
 // ── Informe para imprimir ─────────────────────────────────────────────────────
 
 function generarInforme(stock, showVal) {
-  const grupos = {}
-  stock.forEach(s => {
-    const tipo = s.tipo || 'Lisa'
-    if (!grupos[tipo]) grupos[tipo] = []
-    grupos[tipo].push(s)
-  })
+  const sorted = items => items.slice().sort((a, b) => a.nombre.localeCompare(b.nombre))
 
-  const totalBaldes = stock.reduce((a, s) => a + (Number(s.baldes) || 0), 0)
-  const totalKg     = stock.reduce((a, s) => a + (Number(s.kg) || 0), 0)
-  const conStock    = stock.filter(s => (Number(s.baldes) || 0) > 0).length
-  const agotados    = stock.filter(s => (Number(s.baldes) || 0) === 0).length
+  const helados    = stock.filter(s => !s.tipo_producto || s.tipo_producto === 'helado')
+  const impulsivos = stock.filter(s => s.tipo_producto === 'impulsivo')
+  const postres    = stock.filter(s => s.tipo_producto === 'postre')
 
-  const filaGrupo = (items) => items
-    .slice()
-    .sort((a, b) => a.nombre.localeCompare(b.nombre))
-    .map(s => {
-      const baldes = Number(s.baldes) || 0
-      const kg     = Number(s.kg) || 0
-      const estado = baldes === 0 ? 'AGOTADO' : baldes <= 3 ? 'BAJO' : 'OK'
-      const color  = baldes === 0 ? '#dc2626'  : baldes <= 3 ? '#d97706' : '#16a34a'
-      return `
-      <tr style="border-bottom:1px solid #e5e7eb;">
-        <td style="padding:8px 12px;color:${color};font-weight:${baldes === 0 ? '600' : '400'}">${s.nombre}</td>
-        <td style="padding:8px 12px;text-align:right;font-weight:600">${baldes}</td>
+  const totalBaldесHelado  = helados.reduce((a, s) => a + (Number(s.baldes) || 0), 0)
+  const totalKgHelado      = helados.reduce((a, s) => a + (Number(s.kg) || 0), 0)
+  const totalImpUnidades   = impulsivos.reduce((a, s) => a + (Number(s.baldes) || 0), 0)
+  const totalPostreUnidades = postres.reduce((a, s) => a + (Number(s.baldes) || 0), 0)
+  const totalPostreKg      = postres.reduce((a, s) => a + (Number(s.kg) || 0), 0)
+
+  const estadoColor = v => v === 0 ? '#dc2626' : v <= 3 ? '#d97706' : '#16a34a'
+  const estadoLabel = v => v === 0 ? 'AGOTADO' : v <= 3 ? 'BAJO' : 'OK'
+
+  const seccionHelado = (nombre, items) => {
+    if (!items.length) return ''
+    const sub = items.reduce((a, s) => a + (Number(s.baldes) || 0), 0)
+    const subKg = items.reduce((a, s) => a + (Number(s.kg) || 0), 0)
+    const filas = sorted(items).map(s => {
+      const b = Number(s.baldes) || 0; const kg = Number(s.kg) || 0
+      const c = estadoColor(b)
+      return `<tr style="border-bottom:1px solid #e5e7eb">
+        <td style="padding:8px 12px;color:${c};font-weight:${b === 0 ? 600 : 400}">${s.nombre}</td>
+        <td style="padding:8px 12px;text-align:right;font-weight:600">${b}</td>
         <td style="padding:8px 12px;text-align:right">${kg.toFixed(1)}</td>
-        <td style="padding:8px 12px;text-align:center;color:${color};font-weight:600">${estado}</td>
+        <td style="padding:8px 12px;text-align:center;color:${c};font-weight:600">${estadoLabel(b)}</td>
       </tr>`
     }).join('')
-
-  const seccionGrupo = (nombre, items) => {
-    const subtotalBaldes = items.reduce((a, s) => a + (Number(s.baldes) || 0), 0)
-    const subtotalKg     = items.reduce((a, s) => a + (Number(s.kg) || 0), 0)
-    return `
-    <div style="margin-bottom:24px">
+    return `<div style="margin-bottom:24px">
       <div style="background:#1e293b;color:white;padding:8px 12px;font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase">
-        ${nombre} — ${items.length} sabores | ${subtotalBaldes} baldes | ${subtotalKg.toFixed(1)} kg
+        ${nombre} — ${items.length} sabores | ${sub} baldes | ${subKg.toFixed(1)} kg
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead>
-          <tr style="background:#f1f5f9;border-bottom:2px solid #cbd5e1">
-            <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;width:50%">Sabor</th>
-            <th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;width:15%">Baldes</th>
-            <th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;width:20%">Kg</th>
-            <th style="padding:8px 12px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;width:15%">Estado</th>
-          </tr>
-        </thead>
+        <thead><tr style="background:#f1f5f9;border-bottom:2px solid #cbd5e1">
+          <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;width:50%">Sabor</th>
+          <th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b;width:15%">Baldes</th>
+          <th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b;width:20%">Kg</th>
+          <th style="padding:8px 12px;text-align:center;font-size:11px;text-transform:uppercase;color:#64748b;width:15%">Estado</th>
+        </tr></thead>
         <tbody>
-          ${filaGrupo(items)}
+          ${filas}
           <tr style="background:#f8fafc;border-top:2px solid #1e293b">
             <td style="padding:8px 12px;font-weight:700;font-size:12px">SUBTOTAL</td>
-            <td style="padding:8px 12px;text-align:right;font-weight:700">${subtotalBaldes}</td>
-            <td style="padding:8px 12px;text-align:right;font-weight:700">${subtotalKg.toFixed(1)} kg</td>
+            <td style="padding:8px 12px;text-align:right;font-weight:700">${sub}</td>
+            <td style="padding:8px 12px;text-align:right;font-weight:700">${subKg.toFixed(1)} kg</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`
+  }
+
+  const seccionImpulsivos = () => {
+    if (!impulsivos.length) return ''
+    const filas = sorted(impulsivos).map(s => {
+      const u = Number(s.baldes) || 0; const c = estadoColor(u)
+      return `<tr style="border-bottom:1px solid #e5e7eb">
+        <td style="padding:8px 12px;color:${c};font-weight:${u === 0 ? 600 : 400}">${s.nombre}</td>
+        <td style="padding:8px 12px;text-align:right;font-weight:600">${u}</td>
+        <td style="padding:8px 12px;text-align:center;color:${c};font-weight:600">${estadoLabel(u)}</td>
+      </tr>`
+    }).join('')
+    return `<div style="margin-bottom:24px">
+      <div style="background:#92400e;color:white;padding:8px 12px;font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase">
+        IMPULSIVOS — ${impulsivos.length} productos | ${totalImpUnidades} unidades
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#fef3c7;border-bottom:2px solid #fcd34d">
+          <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#92400e;width:65%">Producto</th>
+          <th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;color:#92400e;width:20%">Unidades</th>
+          <th style="padding:8px 12px;text-align:center;font-size:11px;text-transform:uppercase;color:#92400e;width:15%">Estado</th>
+        </tr></thead>
+        <tbody>
+          ${filas}
+          <tr style="background:#fef9e7;border-top:2px solid #92400e">
+            <td style="padding:8px 12px;font-weight:700;font-size:12px">SUBTOTAL</td>
+            <td style="padding:8px 12px;text-align:right;font-weight:700">${totalImpUnidades} unidades</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`
+  }
+
+  const seccionPostres = () => {
+    if (!postres.length) return ''
+    const filas = sorted(postres).map(s => {
+      const u = Number(s.baldes) || 0; const kg = Number(s.kg) || 0; const c = estadoColor(u)
+      return `<tr style="border-bottom:1px solid #e5e7eb">
+        <td style="padding:8px 12px;color:${c};font-weight:${u === 0 ? 600 : 400}">${s.nombre}</td>
+        <td style="padding:8px 12px;text-align:right;font-weight:600">${u}</td>
+        <td style="padding:8px 12px;text-align:right">${kg.toFixed(1)}</td>
+        <td style="padding:8px 12px;text-align:center;color:${c};font-weight:600">${estadoLabel(u)}</td>
+      </tr>`
+    }).join('')
+    return `<div style="margin-bottom:24px">
+      <div style="background:#3b0764;color:white;padding:8px 12px;font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase">
+        POSTRES — ${postres.length} productos | ${totalPostreUnidades} unidades | ${totalPostreKg.toFixed(1)} kg
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#f3e8ff;border-bottom:2px solid #c4b5fd">
+          <th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#3b0764;width:50%">Producto</th>
+          <th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;color:#3b0764;width:15%">Unidades</th>
+          <th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;color:#3b0764;width:20%">KG</th>
+          <th style="padding:8px 12px;text-align:center;font-size:11px;text-transform:uppercase;color:#3b0764;width:15%">Estado</th>
+        </tr></thead>
+        <tbody>
+          ${filas}
+          <tr style="background:#faf5ff;border-top:2px solid #3b0764">
+            <td style="padding:8px 12px;font-weight:700;font-size:12px">SUBTOTAL</td>
+            <td style="padding:8px 12px;text-align:right;font-weight:700">${totalPostreUnidades} unidades</td>
+            <td style="padding:8px 12px;text-align:right;font-weight:700">${totalPostreKg.toFixed(1)} kg</td>
             <td></td>
           </tr>
         </tbody>
@@ -422,6 +483,12 @@ function generarInforme(stock, showVal) {
 
   const fecha = new Date().toLocaleDateString('es-AR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
   const hora  = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+
+  const kpiCard = (valor, label, color) => `
+    <div style="border:1px solid #e2e8f0;border-top:3px solid ${color};border-radius:6px;padding:12px;text-align:center">
+      <div style="font-size:22px;font-weight:800;color:${color}">${valor}</div>
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#64748b;margin-top:2px">${label}</div>
+    </div>`
 
   return `<!DOCTYPE html>
 <html>
@@ -449,30 +516,31 @@ function generarInforme(stock, showVal) {
   </div>
   <div style="height:3px;background:linear-gradient(to right,#D4521A,#F97316);margin-bottom:24px;border-radius:2px"></div>
 
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px">
-    <div style="border:1px solid #e2e8f0;border-top:3px solid #3b82f6;border-radius:6px;padding:14px;text-align:center">
-      <div style="font-size:28px;font-weight:800;color:#3b82f6">${totalBaldes}</div>
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#64748b;margin-top:2px">Total Baldes</div>
-    </div>
-    <div style="border:1px solid #e2e8f0;border-top:3px solid #D4521A;border-radius:6px;padding:14px;text-align:center">
-      <div style="font-size:28px;font-weight:800;color:#D4521A">${totalKg.toFixed(1)}</div>
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#64748b;margin-top:2px">Total KG</div>
-    </div>
-    <div style="border:1px solid #e2e8f0;border-top:3px solid #16a34a;border-radius:6px;padding:14px;text-align:center">
-      <div style="font-size:28px;font-weight:800;color:#16a34a">${conStock}</div>
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#64748b;margin-top:2px">Con Stock</div>
-    </div>
-    <div style="border:1px solid #e2e8f0;border-top:3px solid #dc2626;border-radius:6px;padding:14px;text-align:center">
-      <div style="font-size:28px;font-weight:800;color:#dc2626">${agotados}</div>
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#64748b;margin-top:2px">Agotados</div>
-    </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+    ${kpiCard(totalBaldесHelado, 'Total Baldes Helados', '#3b82f6')}
+    ${kpiCard(totalKgHelado.toFixed(1) + ' kg', 'Total KG Helados', '#D4521A')}
+    ${kpiCard(totalImpUnidades + ' u.', 'Total Impulsivos', '#f59e0b')}
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:28px">
+    ${kpiCard(totalPostreUnidades + ' u. / ' + totalPostreKg.toFixed(1) + ' kg', 'Total Postres', '#a855f7')}
+    ${kpiCard(helados.filter(s => (Number(s.baldes) || 0) > 0).length, 'Con Stock (helados)', '#16a34a')}
+    ${kpiCard(helados.filter(s => (Number(s.baldes) || 0) === 0).length, 'Agotados (helados)', '#dc2626')}
   </div>
 
-  ${Object.entries(grupos).map(([tipo, items]) => seccionGrupo(tipo, items)).join('')}
+  ${seccionHelado('LISA', helados.filter(s => s.tipo === 'Lisa'))}
+  ${seccionHelado('CON AGREGADO', helados.filter(s => s.tipo === 'Con Agregado'))}
+  ${seccionHelado('AGUA', helados.filter(s => s.tipo === 'Agua'))}
+  ${seccionHelado('ESPECIAL', helados.filter(s => s.tipo === 'Especial'))}
+  ${seccionImpulsivos()}
+  ${seccionPostres()}
 
-  <div style="background:#1e293b;color:white;padding:12px 16px;border-radius:6px;display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-    <span style="font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:1px">TOTAL GENERAL</span>
-    <span style="font-weight:700;font-size:16px">${totalBaldes} baldes — ${totalKg.toFixed(1)} kg</span>
+  <div style="background:#1e293b;color:white;padding:12px 16px;border-radius:6px;display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:4px">
+    <span style="font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:1px">TOTAL GENERAL</span>
+    <span style="font-weight:700;font-size:14px">
+      ${totalBaldесHelado} baldes helados — ${totalKgHelado.toFixed(1)} kg
+      ${impulsivos.length ? ' | ' + totalImpUnidades + ' u. impulsivos' : ''}
+      ${postres.length ? ' | ' + totalPostreUnidades + ' u. postres' : ''}
+    </span>
   </div>
 
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:48px">

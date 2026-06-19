@@ -294,17 +294,13 @@ export default function Ordenes() {
       const cantidad = parseFloat(lineaCantidad || '1')
       if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
       const { kgObjetivo, litrosBase, extraKg } = calcularKgObjetivo(productoSel.nombre, cantidad)
-      const baseNombre = tabProducto === 'SABORES' && baseSel
-        ? (stockBases.find(b => String(b.id) === baseSel)?.base_nombre || null)
-        : null
-      const kgBaseUsado = baseNombre ? (parseFloat(kgBaseAUsar) || litrosBase * cantidad) : 0
       const linea = {
         tipo: 'helado', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
         cantidad, litros: cantidad * LITROS_BATCH,
         kg_objetivo: kgObjetivo, litros_base: litrosBase, extra_kg: extraKg,
         horas_estimadas: horasEstimadas,
-        base_nombre: baseNombre,
-        kg_base_consumida: kgBaseUsado,
+        base_nombre: null,
+        kg_base_consumida: 0,
       }
       const items = compararConStock(requerimientosDeLineas([linea]))
       if (items.some(it => it.estado !== 'ok')) {
@@ -585,7 +581,9 @@ export default function Ordenes() {
     const receta = resolverReceta(item.sabor_nombre)
     if (receta?.tipo !== 'base') return false
     const litrosBase = receta.litrosBase || LITROS_BATCH
-    const kgProducidos = (item.batches || 0) * litrosBase
+    const kgTeorico = (item.batches || 0) * litrosBase
+    // Usar kg_producido real (escaneado en Producción); fallback al teórico si no hay dato
+    const kgProducidos = (item.kg_producido || 0) > 0 ? item.kg_producido : kgTeorico
     const hoy = new Date().toISOString().split('T')[0]
     const { error } = await supabase.from('stock_bases').insert({
       base_nombre: item.sabor_nombre,
@@ -596,90 +594,17 @@ export default function Ordenes() {
       fecha: hoy,
     })
     if (!error) {
-      toast2(`Base ${item.sabor_nombre} lista: ${kgProducidos.toFixed(1)} kg disponibles para elaborar sabores`)
+      const difTexto = Math.abs(kgProducidos - kgTeorico) > 0.5
+        ? ` (teórico: ${kgTeorico.toFixed(1)} kg)`
+        : ''
+      toast2(`Base ${item.sabor_nombre} lista: ${kgProducidos.toFixed(1)} kg${difTexto}`)
     }
     return true
   }
 
-  async function manejarCompletadaSabor(item) {
-    if (!item.base_nombre || !((item.kg_base_consumida || 0) > 0)) return
-    const hoy = new Date().toISOString().split('T')[0]
-
-    const { data: rows } = await supabase.from('stock_bases')
-      .select('*').eq('base_nombre', item.base_nombre).gt('kg_disponible', 0)
-      .order('fecha', { ascending: false }).limit(1)
-
-    if (rows && rows.length > 0) {
-      const row = rows[0]
-      const rawNuevosKg = row.kg_disponible - (item.kg_base_consumida || 0)
-      const nuevosKg = Math.max(0, rawNuevosKg)
-      await supabase.from('stock_bases').update({ kg_disponible: nuevosKg }).eq('id', row.id)
-
-      if (rawNuevosKg <= 0) {
-        // Base agotada — calcular merma del ciclo completo
-        const totalConsumido = (row.kg_original - row.kg_disponible) + (item.kg_base_consumida || 0)
-        const mermaBase = row.kg_original - totalConsumido
-
-        if (mermaBase > 0.5) {
-          await supabase.from('mermas').insert({
-            fecha: hoy,
-            sabor_nombre: `Base ${item.base_nombre}`,
-            operario_nombre: item.operario_nombre || null,
-            kg_teoricos: row.kg_original,
-            kg_reales: row.kg_original - mermaBase,
-            diferencia: mermaBase,
-            porcentaje: (mermaBase / row.kg_original) * 100,
-            causa: 'Merma de base — ciclo completo',
-            observaciones: 'Base agotada. Merma total del ciclo.',
-          })
-          toast2(`📊 Base ${item.base_nombre} agotada. Merma del ciclo: ${mermaBase.toFixed(2)} kg (${((mermaBase / row.kg_original) * 100).toFixed(1)}%)`, 'warn')
-        } else if (mermaBase < -0.5) {
-          await supabase.from('mermas').insert({
-            fecha: hoy,
-            sabor_nombre: `Base ${item.base_nombre}`,
-            operario_nombre: item.operario_nombre || null,
-            kg_teoricos: row.kg_original,
-            kg_reales: row.kg_original - mermaBase,
-            diferencia: mermaBase,
-            porcentaje: Math.abs(mermaBase / row.kg_original) * 100,
-            causa: 'Sobrante de base — posible error de pesaje',
-            observaciones: `Se usó más base de la disponible. Diferencia: ${Math.abs(mermaBase).toFixed(2)} kg`,
-          })
-          toast2(`⚠️ Atención: se usó más base de la disponible`, 'warn')
-        } else {
-          toast2(`Base ${item.base_nombre} agotada`)
-        }
-      }
-    }
-
-    const kgBase = item.kg_base_consumida || 0
-    const kgSabor = item.kg_producido || 0
-    const diferencia = kgBase - kgSabor
-    if (diferencia > 0) {
-      await supabase.from('mermas').insert({
-        fecha: hoy,
-        sabor_nombre: item.sabor_nombre,
-        operario_nombre: item.operario_nombre,
-        kg_teoricos: kgBase,
-        kg_reales: kgSabor,
-        diferencia,
-        porcentaje: (diferencia / kgBase) * 100,
-        causa: 'Diferencia elaboración base→sabor',
-        observaciones: `Orden ${item.numero} · Base: ${item.base_nombre}`,
-      })
-    } else if (diferencia < -0) {
-      await supabase.from('mermas').insert({
-        fecha: hoy,
-        sabor_nombre: item.sabor_nombre,
-        operario_nombre: item.operario_nombre,
-        kg_teoricos: kgBase,
-        kg_reales: kgSabor,
-        diferencia,
-        porcentaje: kgBase > 0 ? (diferencia / kgBase) * 100 : 0,
-        causa: 'Exceso de producción',
-        observaciones: `Orden ${item.numero} · Base: ${item.base_nombre} · Produjeron ${Math.abs(diferencia).toFixed(2)} kg más de lo esperado`,
-      })
-    }
+  async function manejarCompletadaSabor(_item) {
+    // El descuento de stock_bases y el registro de merma base→sabor
+    // se procesan en registrarMermaAutomatica (src/lib/ordenes.js).
   }
 
   const grupos = useMemo(() => {
@@ -1439,45 +1364,6 @@ export default function Ordenes() {
                     value={lineaHoras} onChange={e => setLineaHoras(e.target.value)} />
                 </div>
 
-                {tabProducto === 'SABORES' && productoSelEsHelado && (
-                  <div className="mt-3 space-y-2 pt-3" style={{ borderTop: `1px solid ${colors.border}` }}>
-                    <p className="text-xs font-semibold uppercase" style={{ color: colors.textMuted }}>Base a usar (Etapa 1)</p>
-                    <Select
-                      label="Base disponible"
-                      value={baseSel}
-                      onChange={e => { setBaseSel(e.target.value); setKgBaseAUsar('') }}
-                    >
-                      <option value="">— Sin base (elaboración directa) —</option>
-                      {stockBases.filter(b => b.kg_disponible > 0).map(b => (
-                        <option key={b.id} value={String(b.id)}>
-                          {b.base_nombre} — {fmtNum(b.kg_disponible)} kg disponibles
-                        </option>
-                      ))}
-                    </Select>
-                    {baseSel && (() => {
-                      const batches = parseFloat(lineaCantidad || '1') || 1
-                      const { litrosBase } = calcularKgObjetivo(productoSel?.nombre || '', batches)
-                      const kgDefault = (litrosBase * batches).toFixed(1)
-                      const baseSelObj = stockBases.find(b => String(b.id) === baseSel)
-                      return (
-                        <>
-                          {baseSelObj && (
-                            <p className="text-xs" style={{ color: colors.textMuted }}>
-                              Disponible: <strong style={{ color: colors.brand }}>{fmtNum(baseSelObj.kg_disponible)} kg</strong>
-                            </p>
-                          )}
-                          <Input
-                            label={`Kg de base a usar (default: ${kgDefault} kg)`}
-                            type="number" min="0.1" step="0.1"
-                            placeholder={`${kgDefault}`}
-                            value={kgBaseAUsar}
-                            onChange={e => setKgBaseAUsar(e.target.value)}
-                          />
-                        </>
-                      )
-                    })()}
-                  </div>
-                )}
               </>
             )}
 

@@ -46,45 +46,92 @@ export function eficienciaColor(pct, colors) {
   return colors.danger
 }
 
-// Cuando una orden de sabor se finaliza, compara kg_producido vs kg_objetivo:
-// - Sobrante (> 0.5 kg de diferencia positiva): registra y avisa en verde
-// - Merma    (> 0.5 kg de diferencia negativa):  registra y avisa en amarillo
-// - Exacto   (diferencia < 0.5 kg):              solo avisa, no registra
+// Al finalizar una orden:
+// - Si es SABOR con base: compara kg_producido vs kg_base_teorica (batches × litros_base),
+//   descuenta stock_bases (FIFO) y registra merma si corresponde.
+// - Si no tiene base (base pura u otro): compara kg_producido vs kg_objetivo.
 export async function registrarMermaAutomatica(orden, kgProducidoFinal) {
-  const kgObjetivo = orden.kg_objetivo || 0
   const fecha = new Date().toISOString().split('T')[0]
   const saborNombre = orden.sabor_nombre || orden.producto_nombre
+  const kgObjetivo = orden.kg_objetivo || 0
 
   if (kgObjetivo <= 0) {
     return { error: null, toastMsg: '✅ Orden completada', toastType: 'ok' }
   }
 
-  const diferencia = kgProducidoFinal - kgObjetivo // positivo = sobrante, negativo = merma
-  const absDif = Math.abs(diferencia)
+  // Buscar si es un sabor con base asociada
+  const { data: saborData } = await supabase
+    .from('sabores')
+    .select('base_nombre, litros_base')
+    .ilike('nombre', saborNombre)
+    .maybeSingle()
 
-  // CASO C — Exacto
-  if (absDif < 0.5) {
-    return { error: null, toastMsg: '✅ Orden completada — Producción exacta', toastType: 'ok' }
-  }
+  if (saborData?.base_nombre) {
+    // ── FLUJO SABOR CON BASE ─────────────────────────────────────────────────
+    const litrosBase = saborData.litros_base || 120
+    const kgBaseTeorica = (orden.batches || 0) * litrosBase
+    const diferencia = kgProducidoFinal - kgBaseTeorica
 
-  // CASO A — Sobrante
-  if (diferencia > 0) {
+    // Descontar de stock_bases (FIFO: más antiguo primero)
+    const { data: baseRows } = await supabase
+      .from('stock_bases')
+      .select('id, kg_disponible')
+      .eq('base_nombre', saborData.base_nombre)
+      .gt('kg_disponible', 0)
+      .order('fecha', { ascending: true })
+      .limit(1)
+
+    if (baseRows && baseRows.length > 0) {
+      const row = baseRows[0]
+      const nuevosKg = Math.max(0, row.kg_disponible - kgBaseTeorica)
+      await supabase.from('stock_bases').update({ kg_disponible: nuevosKg }).eq('id', row.id)
+    }
+
+    if (Math.abs(diferencia) <= 0.5) {
+      return { error: null, toastMsg: `✅ Producción exacta: ${kgProducidoFinal.toFixed(1)} kg`, toastType: 'ok' }
+    }
+
+    if (diferencia > 0.5) {
+      return {
+        error: null,
+        toastMsg: `✅ Producción: ${kgProducidoFinal.toFixed(1)} kg — Sobrante: ${diferencia.toFixed(2)} kg vs base teórica`,
+        toastType: 'ok',
+      }
+    }
+
+    // Merma base→sabor
+    const absDif = Math.abs(diferencia)
     const { error } = await supabase.from('mermas').insert({
       fecha,
       sabor_nombre: saborNombre,
       operario_nombre: orden.operario_nombre || null,
-      kg_teoricos: kgObjetivo,
+      kg_teoricos: kgBaseTeorica,
       kg_reales: kgProducidoFinal,
-      diferencia,
-      porcentaje: (diferencia / kgObjetivo) * 100,
-      causa: 'Sobrante de producción',
-      observaciones: `Se produjeron ${diferencia.toFixed(2)} kg más de lo esperado. Orden ${orden.numero}`,
+      diferencia: absDif,
+      porcentaje: (absDif / kgBaseTeorica) * 100,
+      causa: 'Merma de elaboración base→sabor',
+      observaciones: `Base: ${saborData.base_nombre}. Teórico: ${kgBaseTeorica.toFixed(1)} kg. Real: ${kgProducidoFinal.toFixed(1)} kg.`,
     })
     if (error) return { error }
+    return {
+      error: null,
+      toastMsg: `⚠️ Merma registrada: ${absDif.toFixed(2)} kg (${((absDif / kgBaseTeorica) * 100).toFixed(1)}%)`,
+      toastType: 'warn',
+    }
+  }
+
+  // ── FLUJO GENERAL (base pura, sabor sin base, etc.) ──────────────────────
+  const diferencia = kgProducidoFinal - kgObjetivo
+  const absDif = Math.abs(diferencia)
+
+  if (absDif < 0.5) {
+    return { error: null, toastMsg: '✅ Orden completada — Producción exacta', toastType: 'ok' }
+  }
+
+  if (diferencia > 0) {
     return { error: null, toastMsg: `✅ Orden completada — Sobrante: ${diferencia.toFixed(2)} kg`, toastType: 'ok' }
   }
 
-  // CASO B — Merma
   const merma = absDif
   const { error } = await supabase.from('mermas').insert({
     fecha,

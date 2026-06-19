@@ -21,6 +21,15 @@ const CAUSAS = [
   'Vencimiento', 'Error de pesaje', 'Limpieza de línea', 'Otra',
 ]
 
+function OrigenBadge({ causa }) {
+  const c = causa || ''
+  if (c.includes('base→sabor'))
+    return <Badge variant="info" className="whitespace-nowrap">BASE→SABOR</Badge>
+  if (CAUSAS.some(m => c.includes(m)))
+    return <Badge variant="neutral">MANUAL</Badge>
+  return <Badge variant="success">AUTO</Badge>
+}
+
 const TIPO_PRECIOS = {
   Lisa:           { costo_kg: 1200, precio_kg: 2800 },
   'Con Agregado': { costo_kg: 1500, precio_kg: 3200 },
@@ -306,6 +315,7 @@ export default function Mermas() {
                         <Th>% Merma</Th>
                         <Th>Costo merma $</Th>
                         <Th>Causa</Th>
+                        <Th>Origen</Th>
                       </Tr>
                     </Thead>
                     <Tbody>
@@ -321,6 +331,7 @@ export default function Mermas() {
                           <Td><Badge variant={pctVariant(m.porcentaje || 0)}>{(m.porcentaje || 0).toFixed(1)}%</Badge></Td>
                           <Td className="font-semibold text-right" style={{ color: colors.danger }}>${pesos(costoMerma(m))}</Td>
                           <Td className="text-xs" style={{ color: colors.textMuted }}>{m.causa}</Td>
+                          <Td><OrigenBadge causa={m.causa} /></Td>
                         </Tr>
                       ))}
                     </Tbody>

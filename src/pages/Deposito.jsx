@@ -33,11 +33,8 @@ const CATS_FILTRO_BASE = ['TODOS', 'BOLSAS', 'CUCURUCHOS', 'LIMPIEZA', 'REVENTA'
 const TODAS_LAS_CATS = ['BOLSAS', 'CUCURUCHOS', 'LIMPIEZA', 'REVENTA', 'TERMICOS', 'LÁCTEOS', 'AZÚCARES', 'CHOCOLATES', 'PASTAS', 'FRUTAS', 'VARIEGATOS', 'OTROS']
 
 function motivosPorCategoria(categoria) {
-  if (categoria === 'REVENTA') return ['Venta a cliente', 'Venta por mayor', 'Muestra', 'Baja por daño', 'Ajuste de inventario']
-  if (categoria === 'LIMPIEZA') return ['Uso interno', 'Limpieza equipos', 'Limpieza instalaciones', 'Baja', 'Ajuste de inventario']
-  if (['TERMICOS', 'BOLSAS', 'CUCURUCHOS'].includes(categoria))
-    return ['Uso en producción', 'Entrega a operario', 'Baja por daño', 'Ajuste de inventario']
-  return ['Uso en producción', 'Merma', 'Vencimiento', 'Devolución', 'Ajuste de inventario']
+  if (categoria === 'REVENTA') return ['Venta a cliente', 'Venta por mayor', 'Venta', 'Muestra', 'Baja por daño', 'Ajuste de inventario']
+  return ['Uso en producción', 'Venta', 'Merma', 'Vencimiento', 'Devolución', 'Ajuste de inventario', 'Baja']
 }
 const MOTIVOS_INGRESO_DEPOSITO = ['Normal', 'Ajuste de inventario', 'Devolución de proveedor']
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']

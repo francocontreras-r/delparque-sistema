@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { LOGO_HORIZONTAL } from '../assets/logos'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -40,7 +41,7 @@ export default function Login() {
           {/* Logo */}
           <div className="flex flex-col items-center mb-8">
             <img
-              src="/logo_delparque_white.png"
+              src={LOGO_HORIZONTAL}
               alt="Del Parque"
               style={{ width: '220px', objectFit: 'contain', marginBottom: '28px' }}
             />

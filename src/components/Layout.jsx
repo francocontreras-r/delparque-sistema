@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
+import { LOGO_ISOTIPO } from '../assets/logos'
 
 import { colors } from '../styles/design-system'
 import {
@@ -97,7 +98,7 @@ function SidebarContent({ onClose, user, onLogout, navItems }) {
         style={{ borderBottom: `1px solid ${colors.sidebarHover}` }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <img src="/logo_isotipo_white.png" style={{ height: '32px', width: '32px', objectFit: 'contain' }} alt="" />
+          <img src={LOGO_ISOTIPO} style={{ height: '32px', width: '32px', objectFit: 'contain' }} alt="Del Parque" />
           <span style={{ color: '#D4521A', fontFamily: 'Georgia, serif', fontSize: '16px', fontWeight: 'bold' }}>Del Parque</span>
         </div>
         {onClose && (

@@ -46,39 +46,59 @@ export function eficienciaColor(pct, colors) {
   return colors.danger
 }
 
-// Cuando una orden se finaliza (manual o automáticamente al alcanzar el 95%),
-// se registra un movimiento en "mermas" con el resultado de la producción
-// (diferencia entre lo planificado y lo producido) para mantener trazabilidad.
+// Cuando una orden de sabor se finaliza, compara kg_producido vs kg_objetivo:
+// - Sobrante (> 0.5 kg de diferencia positiva): registra y avisa en verde
+// - Merma    (> 0.5 kg de diferencia negativa):  registra y avisa en amarillo
+// - Exacto   (diferencia < 0.5 kg):              solo avisa, no registra
 export async function registrarMermaAutomatica(orden, kgProducidoFinal) {
-  console.log('registrarMermaAutomatica → orden:', orden.numero, 'kgProducidoFinal:', kgProducidoFinal)
   const kgObjetivo = orden.kg_objetivo || 0
-  if (kgObjetivo <= 0) {
-    console.log('registrarMermaAutomatica → orden sin kg_objetivo, no se registra merma')
-    return { error: null }
-  }
-  const diferencia = kgObjetivo - kgProducidoFinal
-  const porcentaje = (diferencia / kgObjetivo) * 100
-  console.log('registrarMermaAutomatica → kg_objetivo:', kgObjetivo, 'diferencia:', diferencia, 'porcentaje:', porcentaje)
+  const fecha = new Date().toISOString().split('T')[0]
+  const saborNombre = orden.sabor_nombre || orden.producto_nombre
 
-  const payload = {
-    fecha: new Date().toISOString().split('T')[0],
-    sabor_nombre: orden.sabor_nombre || orden.producto_nombre,
+  if (kgObjetivo <= 0) {
+    return { error: null, toastMsg: '✅ Orden completada', toastType: 'ok' }
+  }
+
+  const diferencia = kgProducidoFinal - kgObjetivo // positivo = sobrante, negativo = merma
+  const absDif = Math.abs(diferencia)
+
+  // CASO C — Exacto
+  if (absDif < 0.5) {
+    return { error: null, toastMsg: '✅ Orden completada — Producción exacta', toastType: 'ok' }
+  }
+
+  // CASO A — Sobrante
+  if (diferencia > 0) {
+    const { error } = await supabase.from('mermas').insert({
+      fecha,
+      sabor_nombre: saborNombre,
+      operario_nombre: orden.operario_nombre || null,
+      kg_teoricos: kgObjetivo,
+      kg_reales: kgProducidoFinal,
+      diferencia,
+      porcentaje: (diferencia / kgObjetivo) * 100,
+      causa: 'Sobrante de producción',
+      observaciones: `Se produjeron ${diferencia.toFixed(2)} kg más de lo esperado. Orden ${orden.numero}`,
+    })
+    if (error) return { error }
+    return { error: null, toastMsg: `✅ Orden completada — Sobrante: ${diferencia.toFixed(2)} kg`, toastType: 'ok' }
+  }
+
+  // CASO B — Merma
+  const merma = absDif
+  const { error } = await supabase.from('mermas').insert({
+    fecha,
+    sabor_nombre: saborNombre,
     operario_nombre: orden.operario_nombre || null,
     kg_teoricos: kgObjetivo,
     kg_reales: kgProducidoFinal,
-    diferencia,
-    porcentaje,
-    causa: 'Producción finalizada - registro automático',
-    observaciones: `Orden ${orden.numero}`,
-  }
-  console.log('registrarMermaAutomatica → insertando en mermas:', payload)
-  const { error } = await supabase.from('mermas').insert(payload)
-  if (error) {
-    console.error('registrarMermaAutomatica → error al insertar:', error)
-    return { error }
-  }
-  console.log('registrarMermaAutomatica → merma registrada correctamente')
-  return { error: null }
+    diferencia: -merma,
+    porcentaje: (merma / kgObjetivo) * 100,
+    causa: 'Merma de elaboración',
+    observaciones: `Se produjeron ${merma.toFixed(2)} kg menos de lo esperado. Orden ${orden.numero}`,
+  })
+  if (error) return { error }
+  return { error: null, toastMsg: `⚠️ Orden completada — Merma: ${merma.toFixed(2)} kg`, toastType: 'warn' }
 }
 
 export async function aplicarProduccionAOrden(orden, kgIncremento) {
@@ -109,12 +129,14 @@ export async function aplicarProduccionAOrden(orden, kgIncremento) {
   const { error } = await supabase.from('ordenes_produccion').update(update).eq('id', orden.id)
   if (error) return { error }
 
-  let mermaError = null
+  let mermaError = null, toastMsg = null, toastType = 'ok'
   if (seFinaliza) {
     const resultado = await registrarMermaAutomatica(orden, kgProducido)
     mermaError = resultado.error
+    toastMsg = resultado.toastMsg || null
+    toastType = resultado.toastType || 'ok'
   }
-  return { kgProducido, pct, estado: nuevoEstado, mermaError }
+  return { kgProducido, pct, estado: nuevoEstado, mermaError, toastMsg, toastType }
 }
 
 export async function finalizarOrdenManual(orden) {
@@ -143,6 +165,6 @@ export async function finalizarOrdenManual(orden) {
   const { error } = await supabase.from('ordenes_produccion').update(update).eq('id', orden.id)
   if (error) return { error }
 
-  const { error: mermaError } = await registrarMermaAutomatica(orden, kgProducido)
-  return { pct, mermaError }
+  const { error: mermaError, toastMsg, toastType } = await registrarMermaAutomatica(orden, kgProducido)
+  return { pct, mermaError, toastMsg, toastType }
 }

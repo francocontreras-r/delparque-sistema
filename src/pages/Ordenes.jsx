@@ -446,7 +446,7 @@ export default function Ordenes() {
 
   async function cambiarEstado(item, estado) {
     if (estado === ESTADO_COMPLETADA) {
-      const { error, mermaError } = await finalizarOrdenManual(item)
+      const { error, mermaError, toastMsg, toastType } = await finalizarOrdenManual(item)
       if (error) { toast2(error.message, 'error'); return }
       if (mermaError) {
         toast2(`Orden finalizada, pero hubo un error al registrar la merma: ${mermaError.message}`, 'error')
@@ -454,7 +454,7 @@ export default function Ordenes() {
       const esBase = await manejarCompletadaBase(item)
       if (!esBase) {
         await manejarCompletadaSabor(item)
-        if (!mermaError) toast2('Estado actualizado')
+        if (!mermaError) toast2(toastMsg || 'Estado actualizado', toastType || 'ok')
       }
       cargar()
       return
@@ -536,7 +536,7 @@ export default function Ordenes() {
   async function finalizarManual() {
     if (!ordenDetalle) return
     setFinalizando(true)
-    const { error, pct, mermaError } = await finalizarOrdenManual(ordenDetalle)
+    const { error, pct, mermaError, toastMsg, toastType } = await finalizarOrdenManual(ordenDetalle)
     setFinalizando(false)
     if (error) { toast2(error.message, 'error'); return }
     if (mermaError) {
@@ -545,7 +545,7 @@ export default function Ordenes() {
     const esBase = await manejarCompletadaBase(ordenDetalle)
     if (!esBase) {
       await manejarCompletadaSabor(ordenDetalle)
-      if (!mermaError) toast2(`Orden ${ordenDetalle.numero} finalizada manualmente (${fmtNum(pct)}%)`)
+      if (!mermaError) toast2(toastMsg || `Orden ${ordenDetalle.numero} finalizada manualmente (${fmtNum(pct)}%)`, toastType || 'ok')
     }
     setOrdenDetalle(null)
     cargar()
@@ -573,21 +573,58 @@ export default function Ordenes() {
 
   async function manejarCompletadaSabor(item) {
     if (!item.base_nombre || !((item.kg_base_consumida || 0) > 0)) return
+    const hoy = new Date().toISOString().split('T')[0]
+
     const { data: rows } = await supabase.from('stock_bases')
       .select('*').eq('base_nombre', item.base_nombre).gt('kg_disponible', 0)
       .order('fecha', { ascending: false }).limit(1)
+
     if (rows && rows.length > 0) {
       const row = rows[0]
-      const nuevosKg = Math.max(0, row.kg_disponible - (item.kg_base_consumida || 0))
+      const rawNuevosKg = row.kg_disponible - (item.kg_base_consumida || 0)
+      const nuevosKg = Math.max(0, rawNuevosKg)
       await supabase.from('stock_bases').update({ kg_disponible: nuevosKg }).eq('id', row.id)
-      if (nuevosKg === 0) {
-        toast2(`Base ${item.base_nombre} agotada`)
+
+      if (rawNuevosKg <= 0) {
+        // Base agotada — calcular merma del ciclo completo
+        const totalConsumido = (row.kg_original - row.kg_disponible) + (item.kg_base_consumida || 0)
+        const mermaBase = row.kg_original - totalConsumido
+
+        if (mermaBase > 0.5) {
+          await supabase.from('mermas').insert({
+            fecha: hoy,
+            sabor_nombre: `Base ${item.base_nombre}`,
+            operario_nombre: item.operario_nombre || null,
+            kg_teoricos: row.kg_original,
+            kg_reales: row.kg_original - mermaBase,
+            diferencia: mermaBase,
+            porcentaje: (mermaBase / row.kg_original) * 100,
+            causa: 'Merma de base — ciclo completo',
+            observaciones: 'Base agotada. Merma total del ciclo.',
+          })
+          toast2(`📊 Base ${item.base_nombre} agotada. Merma del ciclo: ${mermaBase.toFixed(2)} kg (${((mermaBase / row.kg_original) * 100).toFixed(1)}%)`, 'warn')
+        } else if (mermaBase < -0.5) {
+          await supabase.from('mermas').insert({
+            fecha: hoy,
+            sabor_nombre: `Base ${item.base_nombre}`,
+            operario_nombre: item.operario_nombre || null,
+            kg_teoricos: row.kg_original,
+            kg_reales: row.kg_original - mermaBase,
+            diferencia: mermaBase,
+            porcentaje: Math.abs(mermaBase / row.kg_original) * 100,
+            causa: 'Sobrante de base — posible error de pesaje',
+            observaciones: `Se usó más base de la disponible. Diferencia: ${Math.abs(mermaBase).toFixed(2)} kg`,
+          })
+          toast2(`⚠️ Atención: se usó más base de la disponible`, 'warn')
+        } else {
+          toast2(`Base ${item.base_nombre} agotada`)
+        }
       }
     }
+
     const kgBase = item.kg_base_consumida || 0
     const kgSabor = item.kg_producido || 0
     const diferencia = kgBase - kgSabor
-    const hoy = new Date().toISOString().split('T')[0]
     if (diferencia > 0) {
       await supabase.from('mermas').insert({
         fecha: hoy,
@@ -600,7 +637,7 @@ export default function Ordenes() {
         causa: 'Diferencia elaboración base→sabor',
         observaciones: `Orden ${item.numero} · Base: ${item.base_nombre}`,
       })
-    } else if (diferencia < 0) {
+    } else if (diferencia < -0) {
       await supabase.from('mermas').insert({
         fecha: hoy,
         sabor_nombre: item.sabor_nombre,
@@ -1352,7 +1389,7 @@ export default function Ordenes() {
                   </Button>
                 </div>
                 <div className="w-32 mt-2">
-                  <Input label="Tiempo estimado (h)" type="number" min="0" step="0.5" placeholder="ej: 4.5"
+                  <Input label="Tiempo estimado (horas)" type="number" min="0" step="0.5" placeholder="ej: 4.5"
                     value={lineaHoras} onChange={e => setLineaHoras(e.target.value)} />
                 </div>
 

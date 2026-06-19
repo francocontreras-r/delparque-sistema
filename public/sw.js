@@ -1,4 +1,4 @@
-const CACHE_NAME = 'delparque-v' + Date.now();
+const CACHE_NAME = 'delparque-v3-' + Date.now();
 const urlsToCache = ['/'];
 
 self.addEventListener('install', e => {

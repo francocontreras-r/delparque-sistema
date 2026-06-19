@@ -139,7 +139,7 @@ export async function aplicarProduccionAOrden(orden, kgIncremento) {
   return { kgProducido, pct, estado: nuevoEstado, mermaError, toastMsg, toastType }
 }
 
-export async function finalizarOrdenManual(orden) {
+export async function finalizarOrdenManual(orden, fechaFinParam = null) {
   const kgObjetivo = orden.kg_objetivo || 0
   const kgProducido = orden.kg_producido || 0
   const pct = pctCompletitud(kgProducido, kgObjetivo)
@@ -151,7 +151,7 @@ export async function finalizarOrdenManual(orden) {
 
   const seFinaliza = orden.estado !== ESTADO_COMPLETADA
   if (seFinaliza) {
-    const fechaFin = new Date().toISOString()
+    const fechaFin = fechaFinParam || new Date().toISOString()
     const horasReales = calcularHorasReales(orden.fecha_inicio, fechaFin)
     const eficienciaKg = calcularEficienciaKg(kgProducido, kgObjetivo)
     const eficienciaTiempo = calcularEficienciaTiempo(orden.horas_estimadas, horasReales)

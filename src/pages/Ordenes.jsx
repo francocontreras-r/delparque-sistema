@@ -69,6 +69,17 @@ function eficienciaVariant(pct) {
   return 'danger'
 }
 
+function nowLocal() {
+  const d = new Date()
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
+  return d.toISOString().slice(0, 16)
+}
+
+function fmtDatetime(iso) {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
 // Muestra el tiempo transcurrido desde fecha_inicio, actualizándose en vivo.
 function TiempoTranscurrido({ fechaInicio }) {
   const [ahora, setAhora] = useState(Date.now())
@@ -173,6 +184,12 @@ export default function Ordenes() {
   const [baseSel, setBaseSel]       = useState('')
   const [kgBaseAUsar, setKgBaseAUsar] = useState('')
   const [pdfLoadingGrupo, setPdfLoadingGrupo] = useState(null)
+
+  const [modalInicio, setModalInicio] = useState(null) // { orden }
+  const [modalFin, setModalFin]       = useState(null) // { orden, fromDetalle }
+  const [fechaInicioVal, setFechaInicioVal] = useState('')
+  const [fechaFinVal, setFechaFinVal]       = useState('')
+  const [savingHora, setSavingHora]         = useState(false)
 
   useEffect(() => { cargar() }, [])
 
@@ -445,29 +462,52 @@ export default function Ordenes() {
   }
 
   async function cambiarEstado(item, estado) {
-    if (estado === ESTADO_COMPLETADA) {
-      const { error, mermaError, toastMsg, toastType } = await finalizarOrdenManual(item)
-      if (error) { toast2(error.message, 'error'); return }
-      if (mermaError) {
-        toast2(`Orden finalizada, pero hubo un error al registrar la merma: ${mermaError.message}`, 'error')
-      }
-      const esBase = await manejarCompletadaBase(item)
-      if (!esBase) {
-        await manejarCompletadaSabor(item)
-        if (!mermaError) toast2(toastMsg || 'Estado actualizado', toastType || 'ok')
-      }
-      cargar()
-      return
-    }
     const update = { estado }
-    if (estado === 'en_proceso') update.fecha_inicio = new Date().toISOString()
     const { error } = await supabase.from('ordenes_produccion').update(update).eq('id', item.id)
     if (error) { toast2(error.message, 'error'); return }
     setOrdenes(prev => prev.map(o => o.id === item.id ? { ...o, ...update } : o))
     toast2('Estado actualizado')
   }
 
+  async function confirmarInicioConFecha() {
+    if (!modalInicio) return
+    setSavingHora(true)
+    const { orden } = modalInicio
+    const fechaInicio = new Date(fechaInicioVal).toISOString()
+    const update = { estado: 'en_proceso', fecha_inicio: fechaInicio }
+    const { error } = await supabase.from('ordenes_produccion').update(update).eq('id', orden.id)
+    setSavingHora(false)
+    if (error) { toast2(error.message, 'error'); return }
+    setOrdenes(prev => prev.map(o => o.id === orden.id ? { ...o, ...update } : o))
+    setModalInicio(null)
+    toast2('Producción iniciada')
+  }
+
+  async function confirmarFinConFecha() {
+    if (!modalFin) return
+    setSavingHora(true)
+    const { orden, fromDetalle } = modalFin
+    const fechaFin = new Date(fechaFinVal).toISOString()
+    const { error, mermaError, toastMsg, toastType } = await finalizarOrdenManual(orden, fechaFin)
+    setSavingHora(false)
+    if (error) { toast2(error.message, 'error'); return }
+    if (mermaError) toast2(`Orden finalizada, error en merma: ${mermaError.message}`, 'error')
+    const esBase = await manejarCompletadaBase(orden)
+    if (!esBase) {
+      await manejarCompletadaSabor(orden)
+      if (!mermaError) toast2(toastMsg || 'Orden finalizada', toastType || 'ok')
+    }
+    setModalFin(null)
+    if (fromDetalle) setOrdenDetalle(null)
+    cargar()
+  }
+
   async function intentarCambiarEstado(item, estado) {
+    if (estado === ESTADO_COMPLETADA) {
+      setFechaFinVal(nowLocal())
+      setModalFin({ orden: item, fromDetalle: false })
+      return
+    }
     if (estado !== 'en_proceso') {
       cambiarEstado(item, estado)
       return
@@ -517,8 +557,10 @@ export default function Ordenes() {
 
   function confirmarInicio() {
     if (!stockAlert) return
-    cambiarEstado(stockAlert.orden, 'en_proceso')
+    const orden = stockAlert.orden
     setStockAlert(null)
+    setFechaInicioVal(nowLocal())
+    setModalInicio({ orden })
   }
 
   async function abrirDashboard(item) {
@@ -533,22 +575,10 @@ export default function Ordenes() {
     setCargandoDetalle(false)
   }
 
-  async function finalizarManual() {
+  function finalizarManual() {
     if (!ordenDetalle) return
-    setFinalizando(true)
-    const { error, pct, mermaError, toastMsg, toastType } = await finalizarOrdenManual(ordenDetalle)
-    setFinalizando(false)
-    if (error) { toast2(error.message, 'error'); return }
-    if (mermaError) {
-      toast2(`Orden finalizada, pero hubo un error al registrar la merma: ${mermaError.message}`, 'error')
-    }
-    const esBase = await manejarCompletadaBase(ordenDetalle)
-    if (!esBase) {
-      await manejarCompletadaSabor(ordenDetalle)
-      if (!mermaError) toast2(toastMsg || `Orden ${ordenDetalle.numero} finalizada manualmente (${fmtNum(pct)}%)`, toastType || 'ok')
-    }
-    setOrdenDetalle(null)
-    cargar()
+    setFechaFinVal(nowLocal())
+    setModalFin({ orden: ordenDetalle, fromDetalle: true })
   }
 
   async function manejarCompletadaBase(item) {
@@ -1210,23 +1240,39 @@ export default function Ordenes() {
                           </div>
                         </div>
                       )}
-                      {item.estado === ESTADO_EN_PROCESO && item.fecha_inicio && (
-                        <div className="mt-2 flex items-center gap-1.5 text-xs" style={{ color: colors.textMuted }}>
-                          <Clock size={12} />
-                          <span>Tiempo transcurrido: <strong style={{ color: colors.textPrimary }}><TiempoTranscurrido fechaInicio={item.fecha_inicio} /></strong>
-                            {item.horas_estimadas > 0 && ` (estimado: ${fmtNum(item.horas_estimadas)}h)`}
-                          </span>
+                      {(item.fecha_inicio || item.fecha_fin) && (
+                        <div className="mt-2 space-y-0.5">
+                          {item.fecha_inicio && (
+                            <p className="text-xs" style={{ color: colors.textMuted }}>
+                              ▶ Inicio: <strong style={{ color: colors.textPrimary }}>{fmtDatetime(item.fecha_inicio)}</strong>
+                            </p>
+                          )}
+                          {item.fecha_fin && (
+                            <p className="text-xs" style={{ color: colors.textMuted }}>
+                              ⏹ Fin: <strong style={{ color: colors.textPrimary }}>{fmtDatetime(item.fecha_fin)}</strong>
+                            </p>
+                          )}
+                          {item.fecha_inicio && item.fecha_fin && (
+                            <p className="text-xs flex items-center gap-1" style={{ color: colors.textMuted }}>
+                              <Clock size={10} />
+                              Duración: <strong style={{ color: colors.textPrimary }}>
+                                {formatDuracion((new Date(item.fecha_fin) - new Date(item.fecha_inicio)) / 3600000)}
+                              </strong>
+                            </p>
+                          )}
                         </div>
                       )}
-                      {item.estado === ESTADO_COMPLETADA && (item.horas_estimadas > 0 || item.horas_reales > 0) && (
-                        <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
-                          <span className="flex items-center gap-1.5 text-xs" style={{ color: colors.textMuted }}>
-                            <Clock size={12} />
-                            Estimado: {fmtNum(item.horas_estimadas)}h · Real: {fmtNum(item.horas_reales)}h
+                      {(item.horas_estimadas > 0 || item.horas_reales > 0) && (
+                        <div className="mt-1.5 flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-xs" style={{ color: colors.textMuted }}>
+                            Meta: {fmtNum(item.horas_estimadas)} hs
+                            {item.horas_reales > 0 && ` | Real: ${fmtNum(item.horas_reales)} hs`}
                           </span>
-                          <Badge variant={eficienciaVariant(item.eficiencia_tiempo)}>
-                            ⏱ {fmtNum(item.eficiencia_tiempo)}% tiempo
-                          </Badge>
+                          {item.eficiencia_tiempo > 0 && (
+                            <Badge variant={eficienciaVariant(item.eficiencia_tiempo)}>
+                              ⏱ Eficiencia: {fmtNum(item.eficiencia_tiempo)}%
+                            </Badge>
+                          )}
                         </div>
                       )}
                       {(item.estado === 'pendiente' || item.estado === ESTADO_EN_PROCESO) && materiasPrimas.length > 0 && (
@@ -1595,6 +1641,67 @@ export default function Ordenes() {
       </Modal>
 
       <Modal
+        open={!!modalInicio}
+        onClose={() => setModalInicio(null)}
+        title="Registrar inicio de producción"
+        maxWidth="max-w-sm"
+        disableBackdropClose
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setModalInicio(null)} disabled={savingHora} className="flex-1">Cancelar</Button>
+            <Button variant="primary" onClick={confirmarInicioConFecha} loading={savingHora} className="flex-1">Confirmar inicio</Button>
+          </>
+        }
+      >
+        {modalInicio && (
+          <div className="space-y-3">
+            <p className="text-sm" style={{ color: colors.textSecondary }}>
+              Producto: <strong style={{ color: colors.textPrimary }}>{modalInicio.orden.sabor_nombre}</strong>
+            </p>
+            <Input
+              label="Fecha y hora de inicio"
+              type="datetime-local"
+              value={fechaInicioVal}
+              onChange={e => setFechaInicioVal(e.target.value)}
+            />
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={!!modalFin}
+        onClose={() => setModalFin(null)}
+        title="Registrar finalización de producción"
+        maxWidth="max-w-sm"
+        disableBackdropClose
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setModalFin(null)} disabled={savingHora} className="flex-1">Cancelar</Button>
+            <Button variant="danger" onClick={confirmarFinConFecha} loading={savingHora} className="flex-1">Confirmar finalización</Button>
+          </>
+        }
+      >
+        {modalFin && (
+          <div className="space-y-3">
+            <p className="text-sm" style={{ color: colors.textSecondary }}>
+              Producto: <strong style={{ color: colors.textPrimary }}>{modalFin.orden.sabor_nombre}</strong>
+            </p>
+            <Input
+              label="Fecha y hora de finalización"
+              type="datetime-local"
+              value={fechaFinVal}
+              onChange={e => setFechaFinVal(e.target.value)}
+            />
+            {modalFin.orden.fecha_inicio && (
+              <p className="text-xs" style={{ color: colors.textMuted }}>
+                Inicio registrado: {fmtDatetime(modalFin.orden.fecha_inicio)}
+              </p>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      <Modal
         open={!!stockAlert}
         onClose={() => setStockAlert(null)}
         title={stockAlert?.ok ? 'Confirmar inicio de producción' : 'Stock insuficiente en depósito'}
@@ -1677,12 +1784,33 @@ export default function Ordenes() {
               </div>
             </div>
 
-            {ordenDetalle.estado === ESTADO_EN_PROCESO && ordenDetalle.fecha_inicio && (
-              <div className="flex items-center gap-1.5 text-sm" style={{ color: colors.textMuted }}>
-                <Clock size={14} />
-                <span>Tiempo transcurrido: <strong style={{ color: colors.textPrimary }}><TiempoTranscurrido fechaInicio={ordenDetalle.fecha_inicio} /></strong>
-                  {ordenDetalle.horas_estimadas > 0 && ` (estimado: ${fmtNum(ordenDetalle.horas_estimadas)}h)`}
-                </span>
+            {(ordenDetalle.fecha_inicio || ordenDetalle.fecha_fin) && (
+              <div className="space-y-0.5">
+                {ordenDetalle.fecha_inicio && (
+                  <p className="text-sm" style={{ color: colors.textMuted }}>
+                    ▶ Inicio: <strong style={{ color: colors.textPrimary }}>{fmtDatetime(ordenDetalle.fecha_inicio)}</strong>
+                  </p>
+                )}
+                {ordenDetalle.fecha_fin && (
+                  <p className="text-sm" style={{ color: colors.textMuted }}>
+                    ⏹ Fin: <strong style={{ color: colors.textPrimary }}>{fmtDatetime(ordenDetalle.fecha_fin)}</strong>
+                  </p>
+                )}
+                {ordenDetalle.fecha_inicio && ordenDetalle.fecha_fin && (
+                  <p className="text-sm flex items-center gap-1.5" style={{ color: colors.textMuted }}>
+                    <Clock size={13} />
+                    Duración: <strong style={{ color: colors.textPrimary }}>
+                      {formatDuracion((new Date(ordenDetalle.fecha_fin) - new Date(ordenDetalle.fecha_inicio)) / 3600000)}
+                    </strong>
+                  </p>
+                )}
+                {(ordenDetalle.horas_estimadas > 0 || ordenDetalle.horas_reales > 0) && (
+                  <p className="text-sm" style={{ color: colors.textMuted }}>
+                    Meta: <strong>{fmtNum(ordenDetalle.horas_estimadas)} hs</strong>
+                    {ordenDetalle.horas_reales > 0 && <> | Real: <strong>{fmtNum(ordenDetalle.horas_reales)} hs</strong></>}
+                    {ordenDetalle.eficiencia_tiempo > 0 && <> | Eficiencia: <strong>{fmtNum(ordenDetalle.eficiencia_tiempo)}%</strong></>}
+                  </p>
+                )}
               </div>
             )}
 

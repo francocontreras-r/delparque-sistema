@@ -96,8 +96,9 @@ function SidebarContent({ onClose, user, onLogout, navItems }) {
         className="flex items-center justify-between px-5 py-5 flex-shrink-0"
         style={{ borderBottom: `1px solid ${colors.sidebarHover}` }}
       >
-        <div className="flex items-center">
-          <img src="/logo_delparque.png" alt="Del Parque" style={{ height: '36px', objectFit: 'contain', filter: 'brightness(0) invert(1)', opacity: 0.95 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <img src="/logo_isotipo_white.png" style={{ height: '32px', width: '32px', objectFit: 'contain' }} alt="" />
+          <span style={{ color: '#D4521A', fontFamily: 'Georgia, serif', fontSize: '16px', fontWeight: 'bold' }}>Del Parque</span>
         </div>
         {onClose && (
           <button

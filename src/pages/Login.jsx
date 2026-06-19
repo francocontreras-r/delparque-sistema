@@ -40,9 +40,9 @@ export default function Login() {
           {/* Logo */}
           <div className="flex flex-col items-center mb-8">
             <img
-              src="/logo_delparque.png"
+              src="/logo_delparque_white.png"
               alt="Del Parque"
-              style={{ height: '60px', objectFit: 'contain', filter: 'brightness(0) invert(1)', marginBottom: '16px' }}
+              style={{ width: '220px', objectFit: 'contain', marginBottom: '28px' }}
             />
             <p className="text-sm" style={{ color: '#64748B' }}>Sistema de gestión industrial</p>
           </div>

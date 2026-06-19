@@ -70,7 +70,8 @@ function SkeletonCard() {
 function TarjetaSabor({ item, onClick, showVal }) {
   const e    = estadoSabor(item.baldes)
   const tb   = TIPO_BADGE[item.tipo] || { bg: 'rgba(100,116,139,0.12)', color: '#94A3B8' }
-  const esImp = (item.tipo_producto || '') === 'impulsivo'
+  const esImp  = (item.tipo_producto || '') === 'impulsivo'
+  const esPost = (item.tipo_producto || '') === 'postre'
   const precioKg = item.precio_kg || TIPO_PRECIOS[item.tipo]?.precio_kg
   const [hov, setHov] = useState(false)
 
@@ -100,7 +101,9 @@ function TarjetaSabor({ item, onClick, showVal }) {
       </p>
       {esImp
         ? <p className="text-xs mb-2" style={{ color: colors.textMuted }}>unidades</p>
-        : <p className="text-xs mb-2" style={{ color: colors.textMuted }}>{Number(item.kg).toFixed(1)} kg</p>}
+        : esPost
+          ? <p className="text-xs mb-2" style={{ color: colors.textMuted }}>unidades · {Number(item.kg).toFixed(1)} kg</p>
+          : <p className="text-xs mb-2" style={{ color: colors.textMuted }}>baldes · {Number(item.kg).toFixed(1)} kg</p>}
       {item.lote && (
         <span className="inline-block text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded mb-1.5"
           style={{ backgroundColor: 'rgba(212,82,26,0.15)', color: colors.brand, border: '1px solid rgba(212,82,26,0.3)' }}>
@@ -117,7 +120,7 @@ function TarjetaSabor({ item, onClick, showVal }) {
           {new Date(item.ultima_actualizacion).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
         </p>
       )}
-      {showVal && !esImp && precioKg && item.kg > 0 && (
+      {showVal && !esImp && !esPost && precioKg && item.kg > 0 && (
         <p className="text-xs font-bold mb-1.5" style={{ color: colors.brand }}>
           ${pesos(item.kg * precioKg)}
         </p>
@@ -135,9 +138,10 @@ function TarjetaSabor({ item, onClick, showVal }) {
 
 // ── Fila tabla lista ──────────────────────────────────────────────────────────
 
-function FilaLista({ item, onClick, showVal, esImpGrupo }) {
+function FilaLista({ item, onClick, showVal, esImpGrupo, esPostGrupo }) {
   const e = estadoSabor(item.baldes)
   const precioKg = item.precio_kg || TIPO_PRECIOS[item.tipo]?.precio_kg
+  const esUnidades = esImpGrupo || esPostGrupo
   return (
     <tr
       className="cursor-pointer transition-colors"
@@ -170,13 +174,13 @@ function FilaLista({ item, onClick, showVal, esImpGrupo }) {
       </td>
       <td className="py-3 px-4">
         <span className="text-base font-bold" style={{ color: e.dot }}>
-          {item.baldes}{esImpGrupo ? ' u.' : ''}
+          {item.baldes}{esUnidades ? ' u.' : ''}
         </span>
       </td>
       {!esImpGrupo && (
         <td className="py-3 px-4 text-sm" style={{ color: colors.textMuted }}>{Number(item.kg).toFixed(1)} kg</td>
       )}
-      {showVal && !esImpGrupo && (
+      {showVal && !esImpGrupo && !esPostGrupo && (
         <td className="py-3 px-4 text-sm font-semibold" style={{ color: colors.brand }}>
           {precioKg && item.kg > 0 ? `$${pesos(item.kg * precioKg)}` : '—'}
         </td>
@@ -191,18 +195,28 @@ function FilaLista({ item, onClick, showVal, esImpGrupo }) {
 // ── Grupo lista ───────────────────────────────────────────────────────────────
 
 function GrupoLista({ tipo, items, onSelect, showVal }) {
-  const tb        = TIPO_BADGE[tipo] || { bg: 'rgba(100,116,139,0.12)', color: '#94A3B8' }
-  const esImpGrupo = items[0]?.tipo_producto === 'impulsivo'
+  const tb         = TIPO_BADGE[tipo] || { bg: 'rgba(100,116,139,0.12)', color: '#94A3B8' }
+  const esImpGrupo  = items[0]?.tipo_producto === 'impulsivo'
+  const esPostGrupo = items[0]?.tipo_producto === 'postre'
   const totalBaldes = items.reduce((a, s) => a + s.baldes, 0)
   const totalKg     = items.reduce((a, s) => a + s.kg, 0)
-  const cols = ['Sabor', esImpGrupo ? 'Unidades' : 'Baldes', !esImpGrupo && 'KG', showVal && !esImpGrupo && 'Valor venta', 'Estado'].filter(Boolean)
+  const headerResumen = esImpGrupo
+    ? `${totalBaldes} unidades`
+    : esPostGrupo
+      ? `${totalBaldes} unidades · ${Number(totalKg).toFixed(1)} kg`
+      : `${totalBaldes} baldes · ${Number(totalKg).toFixed(1)} kg`
+  const cols = [
+    'Sabor',
+    (esImpGrupo || esPostGrupo) ? 'Unidades' : 'Baldes',
+    !esImpGrupo && 'KG',
+    showVal && !esImpGrupo && !esPostGrupo && 'Valor venta',
+    'Estado',
+  ].filter(Boolean)
   return (
     <div className="mb-4 overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
       <div className="flex items-center justify-between px-4 py-3" style={{ backgroundColor: tb.bg, borderBottom: `1px solid ${colors.border}` }}>
         <span className="text-xs font-bold uppercase tracking-wider" style={{ color: tb.color }}>{tipo}</span>
-        <span className="text-xs font-semibold" style={{ color: tb.color }}>
-          {esImpGrupo ? `${totalBaldes} unidades` : `${totalBaldes} baldes · ${Number(totalKg).toFixed(1)} kg`}
-        </span>
+        <span className="text-xs font-semibold" style={{ color: tb.color }}>{headerResumen}</span>
       </div>
       <table className="w-full">
         <thead>
@@ -217,7 +231,7 @@ function GrupoLista({ tipo, items, onSelect, showVal }) {
         </thead>
         <tbody>
           {items.map(item => (
-            <FilaLista key={item.id} item={item} onClick={onSelect} showVal={showVal} esImpGrupo={esImpGrupo} />
+            <FilaLista key={item.id} item={item} onClick={onSelect} showVal={showVal} esImpGrupo={esImpGrupo} esPostGrupo={esPostGrupo} />
           ))}
         </tbody>
       </table>
@@ -236,7 +250,8 @@ function ModalMovimiento({ item, onClose, onApply }) {
   const [saving, setSaving]         = useState(false)
   const [errorMsg, setErrorMsg]     = useState(null)
 
-  const esImp = (item?.tipo_producto || '') === 'impulsivo'
+  const esImp  = (item?.tipo_producto || '') === 'impulsivo'
+  const esPost = (item?.tipo_producto || '') === 'postre'
   const e = estadoSabor(item.baldes)
 
   useEffect(() => {
@@ -290,7 +305,7 @@ function ModalMovimiento({ item, onClose, onApply }) {
           <div className="text-right">
             <span className="text-xl font-extrabold" style={{ color: e.dot }}>{item.baldes}</span>
             <span className="text-xs ml-1.5" style={{ color: colors.textMuted }}>
-              {esImp ? 'unidades' : `baldes · ${Number(item.kg).toFixed(1)} kg`}
+              {esImp ? 'unidades' : esPost ? `unidades · ${Number(item.kg).toFixed(1)} kg` : `baldes · ${Number(item.kg).toFixed(1)} kg`}
             </span>
           </div>
         </div>
@@ -317,7 +332,7 @@ function ModalMovimiento({ item, onClose, onApply }) {
 
         {/* Inputs */}
         <div className={esImp ? '' : 'flex gap-3'}>
-          <Input label={esImp ? 'Unidades' : 'Baldes'} type="number" min="1" value={cantBaldes} disabled={saving}
+          <Input label={(esImp || esPost) ? 'Unidades' : 'Baldes'} type="number" min="1" value={cantBaldes} disabled={saving}
             onChange={ev => setCantBaldes(ev.target.value)} placeholder="0" />
           {!esImp && (
             <Input label="KG" type="number" min="0" step="0.1" value={cantKg} disabled={saving}
@@ -343,7 +358,7 @@ function ModalMovimiento({ item, onClose, onApply }) {
               {tipoMov === 'ingreso'
                 ? item.baldes + parseInt(cantBaldes)
                 : Math.max(0, item.baldes - parseInt(cantBaldes))}
-            </strong> {esImp ? 'unidades' : 'baldes'}
+            </strong> {(esImp || esPost) ? 'unidades' : 'baldes'}
           </div>
         )}
 
@@ -367,11 +382,13 @@ function generarInforme(stock, showVal) {
   const impulsivos = stock.filter(s => s.tipo_producto === 'impulsivo')
   const postres    = stock.filter(s => s.tipo_producto === 'postre')
 
-  const totalBaldесHelado  = helados.reduce((a, s) => a + (Number(s.baldes) || 0), 0)
-  const totalKgHelado      = helados.reduce((a, s) => a + (Number(s.kg) || 0), 0)
-  const totalImpUnidades   = impulsivos.reduce((a, s) => a + (Number(s.baldes) || 0), 0)
+  const totalBaldесHelado   = helados.reduce((a, s) => a + (Number(s.baldes) || 0), 0)
+  const totalKgHelado       = helados.reduce((a, s) => a + (Number(s.kg) || 0), 0)
+  const totalImpUnidades    = impulsivos.reduce((a, s) => a + (Number(s.baldes) || 0), 0)
   const totalPostreUnidades = postres.reduce((a, s) => a + (Number(s.baldes) || 0), 0)
-  const totalPostreKg      = postres.reduce((a, s) => a + (Number(s.kg) || 0), 0)
+  const totalPostreKg       = postres.reduce((a, s) => a + (Number(s.kg) || 0), 0)
+  const conStockHelado      = helados.filter(s => (Number(s.baldes) || 0) > 0).length
+  const agotadosHelado      = helados.filter(s => (Number(s.baldes) || 0) === 0).length
 
   const estadoColor = v => v === 0 ? '#dc2626' : v <= 3 ? '#d97706' : '#16a34a'
   const estadoLabel = v => v === 0 ? 'AGOTADO' : v <= 3 ? 'BAJO' : 'OK'
@@ -516,15 +533,16 @@ function generarInforme(stock, showVal) {
   </div>
   <div style="height:3px;background:linear-gradient(to right,#D4521A,#F97316);margin-bottom:24px;border-radius:2px"></div>
 
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
-    ${kpiCard(totalBaldесHelado, 'Total Baldes Helados', '#3b82f6')}
-    ${kpiCard(totalKgHelado.toFixed(1) + ' kg', 'Total KG Helados', '#D4521A')}
-    ${kpiCard(totalImpUnidades + ' u.', 'Total Impulsivos', '#f59e0b')}
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
+    ${kpiCard(totalBaldесHelado, 'Total Baldes', '#3b82f6')}
+    ${kpiCard(totalKgHelado.toFixed(1) + ' kg', 'Total KG', '#D4521A')}
+    ${kpiCard(conStockHelado, 'Con Stock', '#16a34a')}
+    ${kpiCard(agotadosHelado, 'Agotados', '#dc2626')}
   </div>
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:28px">
-    ${kpiCard(totalPostreUnidades + ' u. / ' + totalPostreKg.toFixed(1) + ' kg', 'Total Postres', '#a855f7')}
-    ${kpiCard(helados.filter(s => (Number(s.baldes) || 0) > 0).length, 'Con Stock (helados)', '#16a34a')}
-    ${kpiCard(helados.filter(s => (Number(s.baldes) || 0) === 0).length, 'Agotados (helados)', '#dc2626')}
+    ${kpiCard(totalImpUnidades + ' u.', 'Total Unidades Impulsivos', '#f59e0b')}
+    ${kpiCard(totalPostreUnidades + ' u.', 'Total Unidades Postres', '#a855f7')}
+    ${kpiCard(totalPostreKg.toFixed(1) + ' kg', 'Total KG Postres', '#7c3aed')}
   </div>
 
   ${seccionHelado('LISA', helados.filter(s => s.tipo === 'Lisa'))}
@@ -534,13 +552,13 @@ function generarInforme(stock, showVal) {
   ${seccionImpulsivos()}
   ${seccionPostres()}
 
-  <div style="background:#1e293b;color:white;padding:12px 16px;border-radius:6px;display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:4px">
-    <span style="font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:1px">TOTAL GENERAL</span>
-    <span style="font-weight:700;font-size:14px">
-      ${totalBaldесHelado} baldes helados — ${totalKgHelado.toFixed(1)} kg
-      ${impulsivos.length ? ' | ' + totalImpUnidades + ' u. impulsivos' : ''}
-      ${postres.length ? ' | ' + totalPostreUnidades + ' u. postres' : ''}
-    </span>
+  <div style="background:#1e293b;color:white;padding:14px 16px;border-radius:6px;margin-top:8px">
+    <div style="font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">TOTAL GENERAL</div>
+    <div style="font-size:14px;font-weight:700;line-height:1.8">
+      <div>Helados: ${totalBaldесHelado} baldes — ${totalKgHelado.toFixed(1)} kg</div>
+      ${impulsivos.length ? `<div>Impulsivos: ${totalImpUnidades} unidades</div>` : ''}
+      ${postres.length ? `<div>Postres: ${totalPostreUnidades} unidades — ${totalPostreKg.toFixed(1)} kg</div>` : ''}
+    </div>
   </div>
 
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:48px">
@@ -668,7 +686,8 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
   const [historial, setHistorial] = useState([])
   const [loadingH, setLoadingH]   = useState(true)
   const [lotes, setLotes]         = useState([])
-  const esImp = (item?.tipo_producto || '') === 'impulsivo'
+  const esImp  = (item?.tipo_producto || '') === 'impulsivo'
+  const esPost = (item?.tipo_producto || '') === 'postre'
   const e  = estadoSabor(item.baldes)
   const tb = TIPO_BADGE[item.tipo] || { bg: 'rgba(100,116,139,0.12)', color: '#94A3B8' }
 
@@ -716,9 +735,9 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <p className="text-xs mb-0.5" style={{ color: colors.textMuted }}>{esImp ? 'Unidades' : 'Baldes'}</p>
+              <p className="text-xs mb-0.5" style={{ color: colors.textMuted }}>{(esImp || esPost) ? 'Unidades' : 'Baldes'}</p>
               <p className="text-3xl font-extrabold leading-none" style={{ color: e.dot }}>
-                {item.baldes}{esImp ? ' u.' : ''}
+                {item.baldes}{(esImp || esPost) ? ' u.' : ''}
               </p>
             </div>
             {!esImp && (
@@ -976,6 +995,17 @@ export default function Camaras() {
     stock.filter(s => (s.tipo_producto || 'helado') === filtroTipoProducto)
   ), [stock, filtroTipoProducto])
 
+  // KPIs fijos por tipo de producto (sobre todo el stock, no sobre el filtro activo)
+  const stockHelados    = useMemo(() => stock.filter(s => !s.tipo_producto || s.tipo_producto === 'helado'), [stock])
+  const stockImpulsivos = useMemo(() => stock.filter(s => s.tipo_producto === 'impulsivo'), [stock])
+  const stockPostres    = useMemo(() => stock.filter(s => s.tipo_producto === 'postre'), [stock])
+
+  const kpiBaldесHelado   = stockHelados.reduce((a, s) => a + s.baldes, 0)
+  const kpiKgHelado       = stockHelados.reduce((a, s) => a + s.kg, 0)
+  const kpiImpUnidades    = stockImpulsivos.reduce((a, s) => a + s.baldes, 0)
+  const kpiPostreUnidades = stockPostres.reduce((a, s) => a + s.baldes, 0)
+  const kpiPostreKg       = stockPostres.reduce((a, s) => a + s.kg, 0)
+
   const totalBaldes = stockTipo.reduce((a, s) => a + s.baldes, 0)
   const totalKg     = stockTipo.reduce((a, s) => a + s.kg, 0)
   const conStock    = stockTipo.filter(s => s.baldes > 3).length
@@ -1194,18 +1224,24 @@ export default function Camaras() {
 
       {/* KPIs */}
       {tabCamara === 'stock' && !errorCarga && (
-        <div className={`grid gap-3 ${showVal ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-7' : 'grid-cols-2 sm:grid-cols-5'}`}>
-          <KpiCard label="Total baldes" value={loading ? '—' : totalBaldes} />
-          <KpiCard label="Total KG"     value={loading ? '—' : `${totalKg.toFixed(1)} kg`} />
-          <KpiCard label="Con stock"    value={loading ? '—' : conStock}    color={colors.success} active={filtroEstado === 'ok'}      onClick={() => setFiltroEstado(prev => prev === 'ok' ? null : 'ok')} />
-          <KpiCard label="Poco stock"   value={loading ? '—' : pocoStock}   color={colors.warning} active={filtroEstado === 'poco'}    onClick={() => setFiltroEstado(prev => prev === 'poco' ? null : 'poco')} />
-          <KpiCard label="Agotados"     value={loading ? '—' : agotados}    color={colors.danger}  active={filtroEstado === 'agotado'} onClick={() => setFiltroEstado(prev => prev === 'agotado' ? null : 'agotado')} />
-          {showVal && (
-            <>
-              <KpiCard label="Costo total" value={loading ? '—' : `$${pesos(costoTotal / 1000)}k`} color={colors.textSecondary} />
-              <KpiCard label="Valor venta" value={loading ? '—' : `$${pesos(valorVenta / 1000)}k`} color={colors.brand} />
-            </>
-          )}
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <KpiCard label="Total Baldes" value={loading ? '—' : kpiBaldесHelado} />
+            <KpiCard label="Total KG" value={loading ? '—' : `${kpiKgHelado.toFixed(1)} kg`} />
+            <KpiCard label="Total Impulsivos" value={loading ? '—' : `${kpiImpUnidades} u.`} color={colors.warning} />
+            <KpiCard label="Total Postres" value={loading ? '—' : `${kpiPostreUnidades} u. / ${kpiPostreKg.toFixed(1)} kg`} color="#a855f7" />
+          </div>
+          <div className={`grid gap-3 ${showVal ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-3'}`}>
+            <KpiCard label="Con stock"  value={loading ? '—' : conStock}  color={colors.success} active={filtroEstado === 'ok'}      onClick={() => setFiltroEstado(prev => prev === 'ok' ? null : 'ok')} />
+            <KpiCard label="Poco stock" value={loading ? '—' : pocoStock} color={colors.warning} active={filtroEstado === 'poco'}    onClick={() => setFiltroEstado(prev => prev === 'poco' ? null : 'poco')} />
+            <KpiCard label="Agotados"   value={loading ? '—' : agotados}  color={colors.danger}  active={filtroEstado === 'agotado'} onClick={() => setFiltroEstado(prev => prev === 'agotado' ? null : 'agotado')} />
+            {showVal && (
+              <>
+                <KpiCard label="Costo total" value={loading ? '—' : `$${pesos(costoTotal / 1000)}k`} color={colors.textSecondary} />
+                <KpiCard label="Valor venta" value={loading ? '—' : `$${pesos(valorVenta / 1000)}k`} color={colors.brand} />
+              </>
+            )}
+          </div>
         </div>
       )}
 

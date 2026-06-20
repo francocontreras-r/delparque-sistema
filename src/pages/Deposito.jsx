@@ -78,6 +78,23 @@ function fmtFechaHora(iso) {
   return new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+function formatFecha(ts) {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    + ' ' + d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) + ' hs'
+}
+
+function formatCantidad(m) {
+  const cant = Number(m.cantidad) || 0
+  const unidad = m.unidad || 'u'
+  const pesoTotal = Number(m.peso_total) || 0
+  if (pesoTotal > 0) return `${cant} u / ${pesoTotal.toFixed(1)} kg`
+  if (unidad === 'kg') return `${cant} kg`
+  if (unidad === 'L') return `${cant} L`
+  return `${cant} u`
+}
+
 // Discrepancia > 5% entre lo que dice el sistema y el conteo físico real.
 function esDiscrepancia(stockSistema, stockFisico) {
   if (!stockSistema) return (stockFisico || 0) !== 0
@@ -701,6 +718,39 @@ function ModalMovsCamaraDetalle({ producto, movs, onClose }) {
   )
 }
 
+function ModalDetMovimiento({ mov, onClose }) {
+  if (!mov) return null
+  const esIngreso = mov.tipo === 'ingreso'
+  const titulo = `${esIngreso ? 'INGRESO' : 'EGRESO'} — ${mov.producto_nombre || ''}`
+  const campo = (label, valor) => valor ? (
+    <div className="flex justify-between gap-2 py-1.5" style={{ borderBottom: `1px solid ${colors.border}` }}>
+      <span className="text-xs flex-shrink-0" style={{ color: colors.textMuted }}>{label}</span>
+      <span className="text-xs font-medium text-right" style={{ color: colors.textPrimary }}>{valor}</span>
+    </div>
+  ) : null
+  return (
+    <Modal open onClose={onClose} title={titulo} maxWidth="max-w-md">
+      <div className="divide-y" style={{ borderColor: colors.border }}>
+        {campo('Fecha y hora', formatFecha(mov.created_at))}
+        {campo('Producto', mov.producto_nombre)}
+        {campo('Marca', mov.marca)}
+        {campo('Presentación', mov.presentacion)}
+        {campo('Cantidad', formatCantidad(mov))}
+        {(Number(mov.peso_total) > 0) && campo('Peso total', `${Number(mov.peso_total).toFixed(1)} kg`)}
+        {campo('Lote', mov.lote)}
+        {campo('Vencimiento', mov.fecha_vencimiento ? fmtFecha(mov.fecha_vencimiento) : null)}
+        {esIngreso && campo('Proveedor', mov.proveedor)}
+        {!esIngreso && campo('Destino', mov.destino)}
+        {campo('Recibió / Solicitó', mov.operario_recibe)}
+        {campo('Controló', mov.controlo)}
+        {campo('N° Remito', mov.nro_remito)}
+        {campo('Motivo', mov.motivo)}
+        {campo('Observaciones', mov.observaciones)}
+      </div>
+    </Modal>
+  )
+}
+
 export default function Deposito() {
   const [tab, setTab]             = useState('Movimientos')
   const [movimientos, setMovimientos] = useState([])
@@ -743,6 +793,7 @@ export default function Deposito() {
   const [filtroCSCategoria, setFiltroCSCategoria] = useState('TODOS')
   const [movsCamara, setMovsCamara]         = useState([])
   const [modalMovsCamara, setModalMovsCamara] = useState(null) // { producto }
+  const [modalDetMov, setModalDetMov]       = useState(null)
   const [generandoPDFcamara, setGenerandoPDFcamara] = useState(false)
   const tablaDepositoRef = useRef(null)
 
@@ -1990,14 +2041,14 @@ export default function Deposito() {
                         </div>
                         <Table>
                           <Thead>
-                            <Tr><Th>Producto</Th><Th>Cantidad</Th><Th>Fecha</Th><Th>Lote</Th></Tr>
+                            <Tr><Th>Producto</Th><Th>Cantidad</Th><Th>Fecha y hora</Th><Th>Lote</Th></Tr>
                           </Thead>
                           <Tbody>
                             {grupo.items.map(m => (
-                              <Tr key={m.id}>
+                              <Tr key={m.id} onClick={() => setModalDetMov(m)} style={{ cursor: 'pointer' }}>
                                 <Td className="font-medium">{m.producto_nombre}</Td>
-                                <Td className="font-bold">{m.cantidad} {m.unidad}</Td>
-                                <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{m.fecha}</Td>
+                                <Td className="font-bold">{formatCantidad(m)}</Td>
+                                <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{formatFecha(m.created_at)}</Td>
                                 <Td className="text-xs" style={{ color: colors.textSecondary }}>{m.lote || '—'}</Td>
                               </Tr>
                             ))}
@@ -2022,14 +2073,14 @@ export default function Deposito() {
                         </div>
                         <Table>
                           <Thead>
-                            <Tr><Th>Producto</Th><Th>Cantidad</Th><Th>Fecha</Th><Th>Recibió</Th></Tr>
+                            <Tr><Th>Producto</Th><Th>Cantidad</Th><Th>Fecha y hora</Th><Th>Recibió</Th></Tr>
                           </Thead>
                           <Tbody>
                             {grupo.items.map(m => (
-                              <Tr key={m.id}>
+                              <Tr key={m.id} onClick={() => setModalDetMov(m)} style={{ cursor: 'pointer' }}>
                                 <Td className="font-medium">{m.producto_nombre}</Td>
-                                <Td className="font-bold">{m.cantidad} {m.unidad}</Td>
-                                <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{m.fecha}</Td>
+                                <Td className="font-bold">{formatCantidad(m)}</Td>
+                                <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{formatFecha(m.created_at)}</Td>
                                 <Td className="text-xs" style={{ color: colors.textSecondary }}>{m.operario_recibe || '—'}</Td>
                               </Tr>
                             ))}
@@ -2060,14 +2111,14 @@ export default function Deposito() {
                         </div>
                         <Table>
                           <Thead>
-                            <Tr><Th>Producto</Th><Th>Cantidad</Th><Th>Fecha</Th><Th>Destino</Th></Tr>
+                            <Tr><Th>Producto</Th><Th>Cantidad</Th><Th>Fecha y hora</Th><Th>Destino</Th></Tr>
                           </Thead>
                           <Tbody>
                             {grupo.items.map(m => (
-                              <Tr key={m.id}>
+                              <Tr key={m.id} onClick={() => setModalDetMov(m)} style={{ cursor: 'pointer' }}>
                                 <Td className="font-medium">{m.producto_nombre}</Td>
-                                <Td className="font-bold">{m.cantidad} {m.unidad}</Td>
-                                <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{m.fecha}</Td>
+                                <Td className="font-bold">{formatCantidad(m)}</Td>
+                                <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{formatFecha(m.created_at)}</Td>
                                 <Td><Badge variant="info">{m.destino || '—'}</Badge></Td>
                               </Tr>
                             ))}
@@ -2499,6 +2550,13 @@ export default function Deposito() {
           producto={modalMovsCamara.producto}
           movs={modalMovsCamara.movs}
           onClose={() => setModalMovsCamara(null)}
+        />
+      )}
+
+      {modalDetMov && (
+        <ModalDetMovimiento
+          mov={modalDetMov}
+          onClose={() => setModalDetMov(null)}
         />
       )}
     </div>

@@ -91,6 +91,7 @@ export default function Produccion() {
   const [modo, setModo] = useState('escaneo')
   const [manualProducto, setManualProducto] = useState('')
   const [manualCantidad, setManualCantidad] = useState('')
+  const [manualPesoTotal, setManualPesoTotal] = useState('')
   const [manualLote, setManualLote] = useState('')
   const [manualObservaciones, setManualObservaciones] = useState('')
 
@@ -295,19 +296,24 @@ export default function Produccion() {
       categoria = 'Impulsivo/Postre'
     }
     const operario = operarios.find(o => String(o.id) === operarioSel)
+    const esImpulsivo = tipo === 'impulsivo'
+    const pesoTotal = esImpulsivo ? (parseFloat(manualPesoTotal) || 0) : 0
     agregarAPreCarga({
       fecha: fechaHoy,
       producto_codigo: null,
       producto_nombre: nombre,
       categoria,
       origen: 'manual',
-      peso_kg: cantidad,
+      // helados: peso_kg = kg reales; impulsivos: peso_kg = unidades (convención existente)
+      peso_kg: esImpulsivo ? cantidad : cantidad,
+      _pesoTotalKg: esImpulsivo ? pesoTotal : 0,
       lote: manualLote || lote,
       operario_id: operario?.id || null,
       operario_nombre: operario?.nombre || '—',
       observaciones: manualObservaciones.trim(),
     })
     setManualCantidad('')
+    setManualPesoTotal('')
     setManualObservaciones('')
   }
 
@@ -318,7 +324,7 @@ export default function Produccion() {
     console.log('Iniciando confirmación, items:', preCarga)
 
     // 1. Insertar en producciones
-    const payload = preCarga.map(({ _id, categoria, ...item }) => ({
+    const payload = preCarga.map(({ _id, _pesoTotalKg, categoria, ...item }) => ({
       ...item,
       observaciones: item.observaciones?.trim() || null,
     }))
@@ -386,8 +392,8 @@ export default function Produccion() {
       if (!camara) {
         console.log('Producto NO encontrado en cámaras:', nombre, '→ insertando nuevo registro')
         if (!noEncontrados.includes(nombre)) noEncontrados.push(nombre)
-        const kgNuevo = esUnidad ? 0 : kgItem
-        const baldesNuevo = esUnidad ? 1 : Math.round(kgItem / 7)
+        const kgNuevo = esUnidad ? (item._pesoTotalKg || 0) : kgItem
+        const baldesNuevo = esUnidad ? (item.peso_kg || 1) : Math.round(kgItem / 7)
         const { data: nuevo, error: errIns } = await supabase
           .from('stock_camaras')
           .insert({ nombre, kg: kgNuevo, baldes: baldesNuevo, operario_nombre: item.operario_nombre || null, ultima_actualizacion: new Date().toISOString() })
@@ -401,8 +407,8 @@ export default function Produccion() {
             producto_nombre: item.producto_nombre || 'Sin nombre',
             tipo: 'ingreso',
             tipo_producto: item.categoria || 'helado',
-            kg: kgItem,
-            baldes: item.categoria === 'helado' ? Math.round(kgItem / 7) : 0,
+            kg: esUnidad ? (item._pesoTotalKg || 0) : kgItem,
+            baldes: esUnidad ? (item.peso_kg || 1) : Math.round(kgItem / 7),
             lote: item.lote || null,
             operario_nombre: item.operario_nombre || null,
             fecha: new Date().toISOString().split('T')[0],
@@ -415,8 +421,9 @@ export default function Produccion() {
 
       let nuevoKg, nuevosBaldes
       if (esUnidad) {
-        nuevosBaldes = (camara.baldes || 0) + 1
-        nuevoKg = camara.kg || 0
+        // impulsivos/postres: sumar unidades a baldes y kg reales a kg
+        nuevosBaldes = (camara.baldes || 0) + (item.peso_kg || 1)
+        nuevoKg = (camara.kg || 0) + (item._pesoTotalKg || 0)
       } else {
         nuevoKg = (camara.kg || 0) + kgItem
         nuevosBaldes = Math.round(nuevoKg / 7)
@@ -436,8 +443,8 @@ export default function Produccion() {
           producto_nombre: item.producto_nombre || 'Sin nombre',
           tipo: 'ingreso',
           tipo_producto: item.categoria || 'helado',
-          kg: kgItem,
-          baldes: item.categoria === 'helado' ? Math.round(kgItem / 7) : 0,
+          kg: esUnidad ? (item._pesoTotalKg || 0) : kgItem,
+          baldes: esUnidad ? (item.peso_kg || 1) : Math.round(kgItem / 7),
           lote: item.lote || null,
           operario_nombre: item.operario_nombre || null,
           fecha: new Date().toISOString().split('T')[0],
@@ -677,7 +684,7 @@ export default function Produccion() {
         ) : (
           <div className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Select label="Producto *" value={manualProducto} onChange={e => setManualProducto(e.target.value)}>
+              <Select label="Producto *" value={manualProducto} onChange={e => { setManualProducto(e.target.value); setManualCantidad(''); setManualPesoTotal('') }}>
                 <option value="">Seleccionar producto...</option>
                 <optgroup label="Helados">
                   {saboresCamara.map(s => <option key={`sabor:${s.id}`} value={`sabor:${s.id}`}>{s.nombre}</option>)}
@@ -686,9 +693,27 @@ export default function Produccion() {
                   {impulsivosList.map(i => <option key={`impulsivo:${i.id}`} value={`impulsivo:${i.id}`}>{i.nombre}</option>)}
                 </optgroup>
               </Select>
-              <Input label={cantidadLabel} type="number" min="0" step="0.01" value={manualCantidad}
+              <Input label={cantidadLabel} type="number" min="0" step={manualTipo === 'impulsivo' ? '1' : '0.001'} value={manualCantidad}
                 onChange={e => setManualCantidad(e.target.value)} placeholder="0" />
             </div>
+            {manualTipo === 'impulsivo' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Input label="Peso total (kg) — opcional" type="number" min="0" step="0.001"
+                  value={manualPesoTotal} onChange={e => setManualPesoTotal(e.target.value)} placeholder="0.000" />
+                {manualCantidad && (
+                  <div className="flex items-end pb-2">
+                    <p className="text-xs font-semibold" style={{ color: colors.brand }}>
+                      Previsualizacion: {manualCantidad} unidades{parseFloat(manualPesoTotal) > 0 ? ` / ${parseFloat(manualPesoTotal).toFixed(1)} kg` : ''}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+            {manualTipo === 'sabor' && parseFloat(manualCantidad) > 0 && (
+              <p className="text-xs font-semibold" style={{ color: colors.brand }}>
+                Baldes estimados: {Math.round(parseFloat(manualCantidad) / 7)} baldes
+              </p>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Input label="Lote" value={manualLote} onChange={e => setManualLote(e.target.value)} />
             </div>
@@ -718,16 +743,23 @@ export default function Produccion() {
           <Table className="min-w-[680px]">
             <Thead>
               <Tr>
-                <Th>Lote</Th><Th>Operario</Th><Th>Producto</Th><Th>Kg</Th><Th>Observaciones</Th><Th></Th>
+                <Th>Lote</Th><Th>Operario</Th><Th>Producto</Th><Th>Cantidad</Th><Th>Observaciones</Th><Th></Th>
               </Tr>
             </Thead>
             <Tbody>
-              {preCarga.map(item => (
+              {preCarga.map(item => {
+                const esU = unidadDe(item) === 'u'
+                const displayCantidad = esU
+                  ? ((item._pesoTotalKg || 0) > 0
+                    ? `${item.peso_kg} unidades / ${Number(item._pesoTotalKg).toFixed(1)} kg`
+                    : `${item.peso_kg} unidades`)
+                  : `${fmtPeso(item.peso_kg, 'kg')} kg`
+                return (
                 <Tr key={item._id}>
                   <Td className="font-bold whitespace-nowrap" style={{ color: colors.brand }}>{item.lote}</Td>
                   <Td className="whitespace-nowrap">{item.operario_nombre}</Td>
                   <Td className="font-medium">{item.producto_nombre}</Td>
-                  <Td className="text-right whitespace-nowrap">{fmtPeso(item.peso_kg, unidadDe(item))} {unidadDe(item)}</Td>
+                  <Td className="text-right whitespace-nowrap">{displayCantidad}</Td>
                   <Td>
                     <input
                       type="text"
@@ -748,7 +780,8 @@ export default function Produccion() {
                     </button>
                   </Td>
                 </Tr>
-              ))}
+                )
+              })}
             </Tbody>
           </Table>
         </div>

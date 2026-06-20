@@ -18,7 +18,7 @@ import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, ClipboardCheck, AlertTriangle, TrendingUp, BarChart2, ChevronRight } from 'lucide-react'
+import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, ClipboardCheck, AlertTriangle, TrendingUp, BarChart2, ChevronRight, Plus, Trash2 } from 'lucide-react'
 const logoUrl = '/logo_delparque.png'
 
 const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
@@ -718,6 +718,61 @@ function ModalMovsCamaraDetalle({ producto, movs, onClose }) {
   )
 }
 
+function ModalNuevoInsumo({ onClose, onSubmit, saving, categorias = TODAS_LAS_CATS }) {
+  const [form, setForm] = useState({
+    nombre: '', categoria: 'OTROS', unidad: 'u',
+    stock_actual: '0', stock_minimo: '0', stock_maximo: '0',
+    costo_unitario: '0', peso_por_unidad: '',
+  })
+  const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const [err, setErr] = useState('')
+
+  function handleGuardar() {
+    if (!form.nombre.trim()) { setErr('El nombre es requerido'); return }
+    setErr('')
+    onSubmit(form)
+  }
+
+  return (
+    <Modal open onClose={onClose} title="＋ Nuevo producto" maxWidth="max-w-sm"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">Cancelar</Button>
+          <Button variant="primary" onClick={handleGuardar} loading={saving} className="flex-1">
+            {saving ? 'Guardando…' : 'Guardar'}
+          </Button>
+        </>
+      }>
+      <div className="space-y-3">
+        <Input label="Nombre *" value={form.nombre} onChange={e => upd('nombre', e.target.value)} placeholder="Nombre del producto" />
+        <div>
+          <label className="block text-sm font-medium text-[#94A3B8] mb-1.5">Categoría</label>
+          <select value={form.categoria} onChange={e => upd('categoria', e.target.value)}
+            className="w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] bg-[#0F172A] outline-none px-3 py-2 focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]">
+            {categorias.map(c => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+        <Select label="Unidad" value={form.unidad} onChange={e => upd('unidad', e.target.value)}>
+          {UNIDADES.map(u => <option key={u}>{u}</option>)}
+        </Select>
+        <div className="grid grid-cols-3 gap-2">
+          <Input label="Stock actual" type="number" min="0" step="0.01" value={form.stock_actual} onChange={e => upd('stock_actual', e.target.value)} />
+          <Input label="Mínimo" type="number" min="0" step="0.01" value={form.stock_minimo} onChange={e => upd('stock_minimo', e.target.value)} />
+          <Input label="Máximo" type="number" min="0" step="0.01" value={form.stock_maximo} onChange={e => upd('stock_maximo', e.target.value)} />
+        </div>
+        <Input label="Costo unitario ($)" type="number" min="0" step="0.01" value={form.costo_unitario} onChange={e => upd('costo_unitario', e.target.value)} />
+        <Input label="Peso por unidad (kg) — opcional" type="number" min="0" step="0.001" value={form.peso_por_unidad} onChange={e => upd('peso_por_unidad', e.target.value)} placeholder="ej: 4.6" />
+        {err && (
+          <p className="text-xs font-semibold text-center py-1.5 rounded-lg"
+            style={{ backgroundColor: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.2)', color: colors.danger }}>
+            {err}
+          </p>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
 function ModalDetMovimiento({ mov, onClose }) {
   if (!mov) return null
   const esIngreso = mov.tipo === 'ingreso'
@@ -794,6 +849,8 @@ export default function Deposito() {
   const [movsCamara, setMovsCamara]         = useState([])
   const [modalMovsCamara, setModalMovsCamara] = useState(null) // { producto }
   const [modalDetMov, setModalDetMov]       = useState(null)
+  const [modalNuevoInsumo, setModalNuevoInsumo] = useState(false)
+  const [savingNuevoInsumo, setSavingNuevoInsumo] = useState(false)
   const [generandoPDFcamara, setGenerandoPDFcamara] = useState(false)
   const tablaDepositoRef = useRef(null)
 
@@ -972,6 +1029,42 @@ export default function Deposito() {
     const { data: todos } = await supabase.from('insumos').select('*').order('nombre')
     if (todos) setInsumos(todos)
     toast2(`Producto "${nombre}" agregado al stock`)
+  }
+
+  async function crearInsumoAdmin(form) {
+    setSavingNuevoInsumo(true)
+    const { data, error } = await supabase.from('insumos').insert({
+      nombre: form.nombre.trim(),
+      categoria: form.categoria,
+      unidad: form.unidad,
+      stock_actual: parseFloat(form.stock_actual) || 0,
+      stock_minimo: parseFloat(form.stock_minimo) || 0,
+      stock_maximo: parseFloat(form.stock_maximo) || 0,
+      costo_unitario: parseFloat(form.costo_unitario) || 0,
+      peso_por_unidad: parseFloat(form.peso_por_unidad) || null,
+    }).select().single()
+    setSavingNuevoInsumo(false)
+    if (error) { toast2(error.message, 'error'); return }
+    const { data: todos } = await supabase.from('insumos').select('*').order('nombre')
+    if (todos) setInsumos(todos)
+    toast2(`Producto "${data.nombre}" creado`)
+    setModalNuevoInsumo(false)
+  }
+
+  async function eliminarInsumo(ins) {
+    const ok = window.confirm(`¿Eliminar "${ins.nombre}"? Esta acción no se puede deshacer.`)
+    if (!ok) return
+    const { count } = await supabase.from('movimientos_deposito')
+      .select('id', { count: 'exact', head: true })
+      .eq('producto_nombre', ins.nombre)
+    if (count > 0) {
+      toast2(`No se puede eliminar: tiene ${count} movimiento${count === 1 ? '' : 's'} registrado${count === 1 ? '' : 's'}`, 'error')
+      return
+    }
+    const { error } = await supabase.from('insumos').delete().eq('id', ins.id)
+    if (error) { toast2(error.message, 'error'); return }
+    setInsumos(prev => prev.filter(i => i.id !== ins.id))
+    toast2(`"${ins.nombre}" eliminado`)
   }
 
   async function guardarInsumo(form) {
@@ -1806,7 +1899,11 @@ export default function Deposito() {
                           <Td className="font-medium">{m.producto_nombre}</Td>
                           <Td className="text-xs" style={{ color: colors.textMuted }}>{[m.marca, m.lote].filter(Boolean).join(' · ') || '—'}</Td>
                           <Td className="font-bold whitespace-nowrap">{m.cantidad} {m.unidad}</Td>
-                          <Td className="text-xs" style={{ color: colors.textSecondary }}>{m.destino || m.proveedor || '—'}</Td>
+                          <Td className="text-xs" style={{ color: colors.textSecondary }}>
+                            {m.tipo === 'ingreso'
+                              ? (m.proveedor && m.proveedor !== 'N/A' ? m.proveedor : '—')
+                              : (m.destino && m.destino !== 'N/A' ? m.destino : '—')}
+                          </Td>
                         </Tr>
                       ))}
                     </Tbody>
@@ -1868,8 +1965,17 @@ export default function Deposito() {
                   )}
                 </div>
               )}
-              <Input type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
-                placeholder="Buscar insumo…" icon={Search} />
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <Input type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
+                    placeholder="Buscar insumo…" icon={Search} />
+                </div>
+                {isAdmin && (
+                  <Button variant="primary" size="sm" onClick={() => setModalNuevoInsumo(true)}>
+                    <Plus size={14} /> Nuevo producto
+                  </Button>
+                )}
+              </div>
               {insumos.length === 0 ? (
                 <EmptyState icon={Warehouse} title="Sin insumos cargados" subtitle="Agrega insumos en la tabla 'insumos' de Supabase" />
               ) : porCategoria.map(([cat, items]) => (
@@ -1915,6 +2021,15 @@ export default function Deposito() {
                             </div>
                           )}
                           <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: SEM[niv] }} />
+                          {isAdmin && (
+                            <button
+                              onClick={e => { e.stopPropagation(); eliminarInsumo(ins) }}
+                              title="Eliminar producto"
+                              className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[rgba(239,68,68,0.12)] transition-colors flex-shrink-0"
+                              style={{ color: colors.danger }}>
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                       )
                     })}
@@ -2557,6 +2672,15 @@ export default function Deposito() {
         <ModalDetMovimiento
           mov={modalDetMov}
           onClose={() => setModalDetMov(null)}
+        />
+      )}
+
+      {modalNuevoInsumo && (
+        <ModalNuevoInsumo
+          onClose={() => setModalNuevoInsumo(false)}
+          onSubmit={crearInsumoAdmin}
+          saving={savingNuevoInsumo}
+          categorias={categoriasSelect}
         />
       )}
     </div>

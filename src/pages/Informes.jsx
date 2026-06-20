@@ -20,6 +20,9 @@ const logoUrl = '/logo_delparque.png'
 
 const TABS = ['Producción', 'Mermas', 'Financiero']
 
+// Productos excluidos del informe de producción
+const NOMBRES_EXCLUIDOS = new Set(['barra helada'])
+
 const PERIODOS = [
   { key: 'semana',    label: 'Semana',    dias: 7  },
   { key: 'mes',       label: 'Mes',       dias: 30 },
@@ -182,45 +185,75 @@ export default function Informes() {
   }
 
   // ── A) Informe de Producción ─────────────────────────────────────────────
+
+  // Clasificación robusta: helado | impulsivo | postre
+  // Busca por nombre en sabores, impulsivos y stock_camaras (tipo_producto).
+  const clasificarRegistro = useMemo(() => {
+    const saboresSet = new Set(sabores.map(s => (s.nombre || '').trim().toLowerCase()))
+    const impulsivosSet = new Set(impulsivos.map(i => (i.nombre || '').trim().toLowerCase()))
+    const camMap = {}
+    stockCamaras.forEach(c => { camMap[(c.nombre || '').trim().toLowerCase()] = c.tipo_producto })
+    return (r) => {
+      const nombre = (r.producto_nombre || '').trim().toLowerCase()
+      const cat = (r.categoria || categoriaPorCodigo[r.producto_codigo] || '').toLowerCase()
+      if (cat === 'helado' || saboresSet.has(nombre)) return 'helado'
+      const tipoCam = camMap[nombre]
+      if (tipoCam === 'postre') return 'postre'
+      if (tipoCam === 'impulsivo') return 'impulsivo'
+      if (impulsivosSet.has(nombre)) return 'impulsivo'
+      if (cat.includes('postre')) return 'postre'
+      if (cat.includes('impulsiv')) return 'impulsivo'
+      return 'helado'
+    }
+  }, [sabores, impulsivos, stockCamaras, categoriaPorCodigo])
+
   const produccionInforme = useMemo(() => {
     function analizar(lista) {
-      let kgHelados = 0
-      let unidadesImpulsivos = 0
+      // Filtrar productos excluidos
+      const filtrada = lista.filter(r =>
+        !NOMBRES_EXCLUIDOS.has((r.producto_nombre || '').trim().toLowerCase())
+      )
+      let kgHelados = 0, unidadesImpulsivos = 0, unidadesPostres = 0
       const porProducto = {}
       const porOperario  = {}
-      lista.forEach(r => {
-        const impulsivo = esImpulsivo(r, categoriaPorCodigo)
+      filtrada.forEach(r => {
+        const tipo = clasificarRegistro(r)
         const nombre = r.producto_nombre || 'Sin nombre'
         const op = r.operario_nombre || 'Sin asignar'
-        if (!porProducto[nombre]) porProducto[nombre] = { nombre, kg: 0, unidades: 0, impulsivo }
+        if (!porProducto[nombre]) porProducto[nombre] = { nombre, kg: 0, unidades: 0, tipo }
         if (!porOperario[op]) porOperario[op] = { nombre: op, kg: 0, unidades: 0, registros: 0 }
         porOperario[op].registros++
-        if (impulsivo) {
-          const u = unidadesDe(r)
-          unidadesImpulsivos += u
-          porProducto[nombre].unidades += u
-          porOperario[op].unidades += u
-        } else {
+        if (tipo === 'helado') {
           kgHelados += r.peso_kg || 0
           porProducto[nombre].kg += r.peso_kg || 0
           porOperario[op].kg += r.peso_kg || 0
+        } else {
+          const u = unidadesDe(r)
+          if (tipo === 'postre') unidadesPostres += u
+          else unidadesImpulsivos += u
+          porProducto[nombre].unidades += u
+          porOperario[op].unidades += u
         }
       })
       return {
-        kgHelados, unidadesImpulsivos,
+        kgHelados,
+        unidadesImpulsivos,
+        unidadesPostres,
+        unidadesTotal: unidadesImpulsivos + unidadesPostres,
         porProducto: Object.values(porProducto),
         porOperario: Object.values(porOperario).sort((a, b) => b.kg - a.kg),
       }
     }
     return { actual: analizar(produccionesActual), anterior: analizar(produccionesAnterior) }
-  }, [produccionesActual, produccionesAnterior, categoriaPorCodigo])
+  }, [produccionesActual, produccionesAnterior, clasificarRegistro])
 
   const productosComparados = useMemo(() => {
     const mapaAnt = Object.fromEntries(produccionInforme.anterior.porProducto.map(p => [p.nombre, p]))
     return produccionInforme.actual.porProducto.map(p => {
       const ant = mapaAnt[p.nombre]
-      const valorActual   = p.impulsivo ? p.unidades : p.kg
-      const valorAnterior = ant ? (ant.impulsivo ? ant.unidades : ant.kg) : 0
+      const esHelado = p.tipo === 'helado'
+      const valorActual   = esHelado ? p.kg : p.unidades
+      const valorAnterior = ant ? (ant.tipo === 'helado' ? ant.kg : ant.unidades) : 0
       return { ...p, valorActual, valorAnterior, variacion: variacionPct(valorActual, valorAnterior) }
     }).sort((a, b) => b.valorActual - a.valorActual)
   }, [produccionInforme])
@@ -331,16 +364,16 @@ export default function Informes() {
     const costoPorNombre = {}
     productosFinancieros.forEach(p => { costoPorNombre[p.nombre.trim().toLowerCase()] = p.costo_total })
     return produccionesActual.reduce((acc, r) => {
-      const impulsivo = esImpulsivo(r, categoriaPorCodigo)
+      const tipo = clasificarRegistro(r)
       const nombre = (r.producto_nombre || '').trim().toLowerCase()
-      if (impulsivo) {
+      if (tipo !== 'helado') {
         const costoUnit = costoPorNombre[nombre] || 0
         return acc + unidadesDe(r) * costoUnit
       }
       const costoKg = costoPorNombre[nombre] ?? costoKgPorProducto[nombre] ?? 0
       return acc + (r.peso_kg || 0) * costoKg
     }, 0)
-  }, [produccionesActual, productosFinancieros, categoriaPorCodigo, costoKgPorProducto])
+  }, [produccionesActual, productosFinancieros, clasificarRegistro, costoKgPorProducto])
 
   // ── Exportación PDF ───────────────────────────────────────────────────────
   function periodoLabel() {
@@ -383,8 +416,9 @@ export default function Informes() {
         startY,
         head: [['Indicador', 'Período actual', 'Período anterior', 'Variación']],
         body: [
-          ['Kg producidos (helados)', `${fmtNum(actual.kgHelados)} kg`, `${fmtNum(anterior.kgHelados)} kg`, fmtVar(variacionPct(actual.kgHelados, anterior.kgHelados))],
-          ['Unidades impulsivos/postres', `${fmtNum(actual.unidadesImpulsivos, 0)} u`, `${fmtNum(anterior.unidadesImpulsivos, 0)} u`, fmtVar(variacionPct(actual.unidadesImpulsivos, anterior.unidadesImpulsivos))],
+          ['Total KG (helados)', `${fmtNum(actual.kgHelados)} kg`, `${fmtNum(anterior.kgHelados)} kg`, fmtVar(variacionPct(actual.kgHelados, anterior.kgHelados))],
+          ['Total unidades (impulsivos)', `${fmtNum(actual.unidadesImpulsivos, 0)} u`, `${fmtNum(anterior.unidadesImpulsivos, 0)} u`, fmtVar(variacionPct(actual.unidadesImpulsivos, anterior.unidadesImpulsivos))],
+          ['Total unidades (postres)', `${fmtNum(actual.unidadesPostres, 0)} u`, `${fmtNum(anterior.unidadesPostres, 0)} u`, fmtVar(variacionPct(actual.unidadesPostres, anterior.unidadesPostres))],
           ['Operarios activos', String(actual.porOperario.length), String(anterior.porOperario.length), '—'],
         ],
         styles, headStyles,
@@ -395,12 +429,15 @@ export default function Informes() {
       autoTable(doc, {
         startY: startY + 3,
         head: [['Producto', 'Cantidad', 'Período anterior', 'Variación']],
-        body: productosComparados.map(p => [
-          p.nombre,
-          `${fmtNum(p.valorActual, p.impulsivo ? 0 : 1)} ${p.impulsivo ? 'u' : 'kg'}`,
-          `${fmtNum(p.valorAnterior, p.impulsivo ? 0 : 1)} ${p.impulsivo ? 'u' : 'kg'}`,
-          fmtVar(p.variacion),
-        ]),
+        body: productosComparados.map(p => {
+          const esHelado = p.tipo === 'helado'
+          return [
+            p.nombre,
+            `${fmtNum(p.valorActual, esHelado ? 1 : 0)} ${esHelado ? 'kg' : 'u'}`,
+            `${fmtNum(p.valorAnterior, esHelado ? 1 : 0)} ${esHelado ? 'kg' : 'u'}`,
+            fmtVar(p.variacion),
+          ]
+        }),
         styles, headStyles,
       })
       startY = doc.lastAutoTable.finalY + 8
@@ -536,13 +573,13 @@ export default function Informes() {
           {tab === 'Producción' && (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <KpiCard label="Kg producidos (helados)" value={`${fmtNum(produccionInforme.actual.kgHelados)} kg`} icon={Scale} color={colors.brand}
+              <KpiCard label="Total KG (helados)" value={`${fmtNum(produccionInforme.actual.kgHelados)} kg`} icon={Scale} color={colors.brand}
                 sub={<VariacionTag pct={variacionPct(produccionInforme.actual.kgHelados, produccionInforme.anterior.kgHelados)} />} />
-              <KpiCard label="Unidades impulsivos/postres" value={`${fmtNum(produccionInforme.actual.unidadesImpulsivos, 0)} u`} icon={Package} color={colors.info}
+              <KpiCard label="Total unidades (impulsivos)" value={`${fmtNum(produccionInforme.actual.unidadesImpulsivos, 0)} u`} icon={Package} color={colors.info}
                 sub={<VariacionTag pct={variacionPct(produccionInforme.actual.unidadesImpulsivos, produccionInforme.anterior.unidadesImpulsivos)} />} />
+              <KpiCard label="Total unidades (postres)" value={`${fmtNum(produccionInforme.actual.unidadesPostres, 0)} u`} icon={Package} color={colors.warning}
+                sub={<VariacionTag pct={variacionPct(produccionInforme.actual.unidadesPostres, produccionInforme.anterior.unidadesPostres)} />} />
               <KpiCard label="Operarios activos" value={produccionInforme.actual.porOperario.length} icon={Users} />
-              <KpiCard label="Registros del período" value={produccionesActual.length} icon={FileText}
-                sub={<VariacionTag pct={variacionPct(produccionesActual.length, produccionesAnterior.length)} />} />
             </div>
 
             {produccionesActual.length === 0 ? (
@@ -576,14 +613,23 @@ export default function Informes() {
                       </Tr>
                     </Thead>
                     <Tbody>
-                      {productosComparados.map(p => (
+                      {productosComparados.map(p => {
+                        const esHelado = p.tipo === 'helado'
+                        const unidad = esHelado ? 'kg' : 'u'
+                        const dec = esHelado ? 1 : 0
+                        const tipoLabel = p.tipo === 'postre' ? 'postre' : p.tipo === 'impulsivo' ? 'impulsivo' : null
+                        return (
                         <Tr key={p.nombre}>
-                          <Td className="font-medium">{p.nombre}</Td>
-                          <Td className="text-right">{fmtNum(p.valorActual, p.impulsivo ? 0 : 1)} {p.impulsivo ? 'u' : 'kg'}</Td>
-                          <Td className="text-right" style={{ color: colors.textMuted }}>{fmtNum(p.valorAnterior, p.impulsivo ? 0 : 1)} {p.impulsivo ? 'u' : 'kg'}</Td>
+                          <Td className="font-medium">
+                            {p.nombre}
+                            {tipoLabel && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: colors.bg, color: colors.textMuted }}>{tipoLabel}</span>}
+                          </Td>
+                          <Td className="text-right font-semibold">{fmtNum(p.valorActual, dec)} {unidad}</Td>
+                          <Td className="text-right" style={{ color: colors.textMuted }}>{fmtNum(p.valorAnterior, dec)} {unidad}</Td>
                           <Td><VariacionTag pct={p.variacion} /></Td>
                         </Tr>
-                      ))}
+                        )
+                      })}
                     </Tbody>
                   </Table>
                 </div>

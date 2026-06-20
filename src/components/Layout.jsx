@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
@@ -328,7 +328,16 @@ export default function Layout() {
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto p-6">
-          <Outlet />
+          <Suspense fallback={
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 240 }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" className="animate-spin" style={{ color: '#D4521A' }}>
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            </div>
+          }>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
 

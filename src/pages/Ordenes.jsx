@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useUser } from '../context/UserContext'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import Spinner from '../components/ui/Spinner'
@@ -16,7 +17,7 @@ import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { finalizarOrdenManual, progresoColor, ESTADO_EN_PROCESO, ESTADO_COMPLETADA } from '../lib/ordenes'
 import { POSTRES } from '../lib/postres'
-import { ClipboardList, Plus, Printer, FileDown, CheckCircle2, Warehouse, X, ChevronDown, ChevronUp, Package, Clock } from 'lucide-react'
+import { ClipboardList, Plus, Printer, FileDown, CheckCircle2, Warehouse, X, ChevronDown, ChevronUp, Package, Clock, BarChart2, AlertTriangle } from 'lucide-react'
 const logoUrl = '/logo_delparque.png'
 
 function toDataURL(url) {
@@ -136,6 +137,33 @@ function computeMateriasPrimas(item, ctx) {
   })
 }
 
+function calcularProyeccionItem(nombre, ingredientes, insumosMap, litrosBase, tipo, itemKey, grupo) {
+  let batchesPosibles = Infinity
+  let ingredienteLimitante = null
+
+  for (const ing of ingredientes) {
+    const nomIng = (ing.insumo_nombre || ing.nombre || '').toLowerCase().trim()
+    if (nomIng.includes('agua')) continue
+    const cantidad = ing.cantidad || 0
+    if (cantidad <= 0) continue
+    const insumo = insumosMap[nomIng]
+    if (!insumo) continue
+    const stockActual = insumo.stock_actual || 0
+    const posible = stockActual / cantidad
+    if (posible < batchesPosibles) {
+      batchesPosibles = posible
+      ingredienteLimitante = { nombre: ing.insumo_nombre || ing.nombre, stockActual, necesita: cantidad, unidad: ing.unidad || '' }
+    }
+  }
+
+  if (!isFinite(batchesPosibles)) batchesPosibles = 0
+  // Redondear hacia abajo al 0.5 más cercano
+  const batchesRedondeado = Math.floor(batchesPosibles * 2) / 2
+  const kgResultante = litrosBase != null ? batchesRedondeado * litrosBase : null
+
+  return { nombre, batchesPosibles: batchesRedondeado, ingredienteLimitante, tipo, litrosBase, kgResultante, _key: itemKey, _grupo: grupo }
+}
+
 export default function Ordenes() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -185,11 +213,20 @@ export default function Ordenes() {
   const [kgBaseAUsar, setKgBaseAUsar] = useState('')
   const [pdfLoadingGrupo, setPdfLoadingGrupo] = useState(null)
 
+  const [modalProyeccion, setModalProyeccion] = useState(false)
+  const [proyeccionData, setProyeccionData]   = useState({})
+  const [loadingProyeccion, setLoadingProyeccion] = useState(false)
+  const [tabProyeccion, setTabProyeccion]     = useState('BASES')
+  const [filtroProyeccion, setFiltroProyeccion] = useState('todos')
+  const [impulsivoIngredientes, setImpulsivoIngredientes] = useState([])
+
   const [modalInicio, setModalInicio] = useState(null) // { orden }
   const [modalFin, setModalFin]       = useState(null) // { orden, fromDetalle }
   const [fechaInicioVal, setFechaInicioVal] = useState('')
   const [fechaFinVal, setFechaFinVal]       = useState('')
   const [savingHora, setSavingHora]         = useState(false)
+
+  const { isAdmin } = useUser()
 
   useEffect(() => { cargar() }, [])
 
@@ -251,6 +288,63 @@ export default function Ordenes() {
   }
 
   function upd(k, v) { setForm(f => ({ ...f, [k]: v })) }
+
+  async function abrirProyeccion() {
+    setModalProyeccion(true)
+    setLoadingProyeccion(true)
+
+    // Cargar impulsivo_ingredientes si no están en memoria
+    let impIngs = impulsivoIngredientes
+    if (impIngs.length === 0) {
+      const { data } = await supabase.from('impulsivo_ingredientes').select('*')
+      impIngs = data || []
+      setImpulsivoIngredientes(impIngs)
+    }
+
+    // Mapa de insumos por nombre (lowercase)
+    const insumosMap = {}
+    insumosStock.forEach(i => { insumosMap[(i.nombre || '').trim().toLowerCase()] = i })
+
+    const basesProy = bases.map(base => calcularProyeccionItem(
+      base.nombre,
+      baseIngredientes.filter(i => i.base_id === base.id),
+      insumosMap, base.litros_batch || LITROS_BATCH, 'base', `base-${base.id}`, 'BASES'
+    ))
+
+    const saboresProy = sabores.map(sabor => calcularProyeccionItem(
+      sabor.nombre,
+      saborIngredientes.filter(i => i.sabor_id === sabor.id),
+      insumosMap, sabor.litros_base || LITROS_BATCH, 'sabor', `sabor-${sabor.id}`, 'SABORES'
+    ))
+
+    const impulsivosProy = impulsivos.map(imp => calcularProyeccionItem(
+      imp.nombre,
+      impIngs.filter(i => i.impulsivo_id === imp.id),
+      insumosMap, null, 'impulsivo', `imp-${imp.id}`, 'IMPULSIVOS'
+    ))
+
+    const postresProy = POSTRES.map((postre, idx) => calcularProyeccionItem(
+      postre.nombre,
+      (postre.ingredientes || []).map(i => ({ insumo_nombre: i.nombre, cantidad: i.cantidad, unidad: i.unidad })),
+      insumosMap, null, 'postre', `postre-${idx}`, 'POSTRES'
+    ))
+
+    const sortDesc = arr => [...arr].sort((a, b) => b.batchesPosibles - a.batchesPosibles)
+    setProyeccionData({
+      bases:      sortDesc(basesProy),
+      sabores:    sortDesc(saboresProy),
+      impulsivos: sortDesc(impulsivosProy),
+      postres:    sortDesc(postresProy),
+    })
+    setLoadingProyeccion(false)
+  }
+
+  function abrirNuevaOrdenConProducto(item) {
+    setModalProyeccion(false)
+    setTabProducto(item._grupo)
+    setLineaSel(item._key)
+    setModal(true)
+  }
 
   const opcionesActivas = [
     ...bases.map(b => ({ ...b, _key: `base-${b.id}`, _tipo: 'base', _grupo: 'BASES' })),
@@ -672,6 +766,26 @@ export default function Ordenes() {
   const kpiEnProceso   = ordenes.filter(o => o.estado === 'en_proceso').length
   const kpiCompletadas = ordenes.filter(o => o.estado === 'completada').length
 
+  const kpisProyeccion = useMemo(() => {
+    const cnt = arr => [arr.filter(i => i.batchesPosibles > 0).length, arr.length]
+    return {
+      bases:      cnt(proyeccionData.bases || []),
+      sabores:    cnt(proyeccionData.sabores || []),
+      impulsivos: cnt(proyeccionData.impulsivos || []),
+      postres:    cnt(proyeccionData.postres || []),
+    }
+  }, [proyeccionData])
+
+  const datosTabProyeccion = useMemo(() => {
+    const raw = ({
+      BASES: proyeccionData.bases || [],
+      SABORES: proyeccionData.sabores || [],
+      IMPULSIVOS: proyeccionData.impulsivos || [],
+      POSTRES: proyeccionData.postres || [],
+    })[tabProyeccion] || []
+    return filtroProyeccion === 'posibles' ? raw.filter(i => i.batchesPosibles > 0) : raw
+  }, [proyeccionData, tabProyeccion, filtroProyeccion])
+
   async function imprimirOrden(grupo) {
     const w = window.open('', '_blank')
     if (!w) { toast2('Popups bloqueados — habilitá popups para imprimir', 'error'); return }
@@ -985,9 +1099,16 @@ export default function Ordenes() {
           <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Órdenes</h1>
           <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Órdenes de producción · {LITROS_BATCH} L/batch</p>
         </div>
-        <Button variant="primary" onClick={() => setModal(true)}>
-          <Plus size={15} /> Nueva orden
-        </Button>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Button variant="secondary" onClick={abrirProyeccion}>
+              <BarChart2 size={15} /> ¿Qué puedo producir?
+            </Button>
+          )}
+          <Button variant="primary" onClick={() => setModal(true)}>
+            <Plus size={15} /> Nueva orden
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
@@ -1758,6 +1879,141 @@ export default function Ordenes() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Modal Proyección de Producción ── */}
+      <Modal
+        open={modalProyeccion}
+        onClose={() => setModalProyeccion(false)}
+        title="Proyección de producción — Stock actual"
+        maxWidth="max-w-5xl"
+        footer={
+          <Button variant="secondary" onClick={() => setModalProyeccion(false)} className="w-full sm:w-auto">
+            Cerrar
+          </Button>
+        }
+      >
+        {loadingProyeccion ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <Spinner size={28} />
+            <p className="text-sm" style={{ color: colors.textMuted }}>Calculando proyección de producción…</p>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {/* Subtítulo */}
+            <p className="text-xs" style={{ color: colors.textMuted }}>
+              Basado en el stock de depósito al {new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+            </p>
+
+            {/* KPIs resumen */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Bases producibles', kpi: kpisProyeccion.bases, color: colors.brand },
+                { label: 'Sabores producibles', kpi: kpisProyeccion.sabores, color: colors.info },
+                { label: 'Impulsivos producibles', kpi: kpisProyeccion.impulsivos, color: colors.warning },
+                { label: 'Postres producibles', kpi: kpisProyeccion.postres, color: colors.success },
+              ].map(({ label, kpi, color }) => (
+                <div key={label} className="p-3 rounded-xl text-center" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+                  <p className="text-xs mb-1" style={{ color: colors.textMuted }}>{label}</p>
+                  <p className="text-2xl font-bold" style={{ color }}>{kpi[0]}</p>
+                  <p className="text-[10px]" style={{ color: colors.textMuted }}>de {kpi[1]} total</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Tabs + filtro */}
+            <div className="flex flex-wrap items-center gap-3 justify-between">
+              <div className="flex gap-1.5 flex-wrap">
+                {['BASES', 'SABORES', 'IMPULSIVOS', 'POSTRES'].map(tab => (
+                  <button key={tab} onClick={() => setTabProyeccion(tab)}
+                    className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all border"
+                    style={{
+                      backgroundColor: tabProyeccion === tab ? colors.brand : 'transparent',
+                      borderColor: tabProyeccion === tab ? colors.brand : colors.border,
+                      color: tabProyeccion === tab ? 'white' : colors.textSecondary,
+                    }}>
+                    {tab}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-1.5">
+                {[{ key: 'todos', label: 'Todos' }, { key: 'posibles', label: 'Solo posibles' }].map(f => (
+                  <button key={f.key} onClick={() => setFiltroProyeccion(f.key)}
+                    className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all border"
+                    style={{
+                      backgroundColor: filtroProyeccion === f.key ? colors.brand : 'transparent',
+                      borderColor: filtroProyeccion === f.key ? colors.brand : colors.border,
+                      color: filtroProyeccion === f.key ? 'white' : colors.textSecondary,
+                    }}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Cards de productos */}
+            {datosTabProyeccion.length === 0 ? (
+              <div className="py-10 text-center">
+                <p className="text-sm" style={{ color: colors.textMuted }}>
+                  {filtroProyeccion === 'posibles' ? 'Ningún producto se puede producir con el stock actual.' : 'Sin productos en esta categoría.'}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[55vh] overflow-y-auto pr-1">
+                {datosTabProyeccion.map((item, idx) => {
+                  const esHelado = item.tipo === 'base' || item.tipo === 'sabor'
+                  const colorValor = item.batchesPosibles === 0 ? colors.danger : item.batchesPosibles >= 2 ? colors.success : colors.warning
+                  const borderColor = item.batchesPosibles === 0 ? `${colors.danger}30` : item.batchesPosibles >= 2 ? `${colors.success}30` : `${colors.warning}30`
+                  const bgColor = item.batchesPosibles === 0 ? 'rgba(239,68,68,0.05)' : item.batchesPosibles >= 2 ? 'rgba(34,197,94,0.05)' : 'rgba(245,158,11,0.05)'
+                  return (
+                    <div key={idx} className="rounded-xl p-4 space-y-3 flex flex-col" style={{ border: `1px solid ${borderColor}`, backgroundColor: bgColor }}>
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="text-sm font-semibold leading-tight" style={{ color: colors.textPrimary }}>{item.nombre}</h3>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0"
+                          style={{ backgroundColor: `${colorValor}20`, color: colorValor }}>
+                          {item.batchesPosibles === 0 ? '🔴 0' : item.batchesPosibles >= 2 ? `🟢 ${item.batchesPosibles}` : `🟡 ${item.batchesPosibles}`}
+                        </span>
+                      </div>
+
+                      <div>
+                        <span className="text-3xl font-extrabold" style={{ color: colorValor }}>
+                          {item.batchesPosibles}
+                        </span>
+                        <span className="text-xs ml-1.5" style={{ color: colors.textMuted }}>
+                          {esHelado ? 'batches posibles' : 'unidades posibles'}
+                        </span>
+                      </div>
+
+                      {item.kgResultante != null && item.kgResultante > 0 && (
+                        <p className="text-xs font-semibold" style={{ color: colors.brand }}>
+                          ≈ {item.kgResultante.toFixed(0)} kg de helado resultante
+                        </p>
+                      )}
+
+                      {item.ingredienteLimitante ? (
+                        <div className="flex items-start gap-1.5 p-2 rounded-lg" style={{ backgroundColor: `${colors.danger}10`, border: `1px solid ${colors.danger}20` }}>
+                          <AlertTriangle size={11} className="flex-shrink-0 mt-0.5" style={{ color: colors.danger }} />
+                          <p className="text-[10px] leading-relaxed" style={{ color: colors.danger }}>
+                            <span className="font-semibold">Limitado por:</span> {item.ingredienteLimitante.nombre}
+                            {' '}(quedan {Number(item.ingredienteLimitante.stockActual).toFixed(1)} {item.ingredienteLimitante.unidad},
+                            necesitás {Number(item.ingredienteLimitante.necesita).toFixed(1)} {item.ingredienteLimitante.unidad}/batch)
+                          </p>
+                        </div>
+                      ) : item.batchesPosibles === 0 ? (
+                        <p className="text-[10px]" style={{ color: colors.textMuted }}>Sin ingredientes registrados</p>
+                      ) : null}
+
+                      <Button variant="secondary" size="sm" onClick={() => abrirNuevaOrdenConProducto(item)}
+                        className="mt-auto w-full">
+                        <Plus size={12} /> Crear orden
+                      </Button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
       </Modal>

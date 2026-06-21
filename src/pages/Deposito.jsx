@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
 import { deduplicarOperarios } from '../lib/operarios'
+import { clasificarVencimiento, esAlertaVencimiento, labelDias } from '../lib/vencimientos'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import {
@@ -19,7 +20,7 @@ import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, ClipboardCheck, AlertTriangle, TrendingUp, BarChart2, ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, ClipboardCheck, AlertTriangle, TrendingUp, BarChart2, ChevronRight, Plus, Trash2, Clock } from 'lucide-react'
 const logoUrl = '/logo_delparque.png'
 
 const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
@@ -861,6 +862,8 @@ export default function Deposito() {
   const [modalDetMov, setModalDetMov]       = useState(null)
   const [modalNuevoInsumo, setModalNuevoInsumo] = useState(false)
   const [savingNuevoInsumo, setSavingNuevoInsumo] = useState(false)
+  const [vencimientosIngresos, setVencimientosIngresos] = useState([])
+  const [filtroVencimiento, setFiltroVencimiento] = useState(false)
   const [generandoPDFcamara, setGenerandoPDFcamara] = useState(false)
   const tablaDepositoRef = useRef(null)
 
@@ -890,6 +893,13 @@ export default function Deposito() {
       supabase.from('conteos_stock').select('*').order('fecha', { ascending: false }).limit(500),
       supabase.from('movimientos_camara').select('id,sabor_nombre,producto_nombre,tipo,kg,baldes,lote,operario_nombre,tipo_producto,motivo,created_at,fecha').order('id', { ascending: false }).limit(300),
     ])
+    // Vencimientos: todos los ingresos con fecha_vencimiento, para badges en Stock
+    const { data: vencData } = await supabase.from('movimientos_deposito')
+      .select('producto_nombre,lote,fecha_vencimiento,created_at')
+      .eq('tipo', 'ingreso').not('fecha_vencimiento', 'is', null)
+      .order('created_at', { ascending: false }).limit(500)
+    setVencimientosIngresos(vencData || [])
+
     setInsumos(i || [])
     setOperarios(deduplicarOperarios(o))
     setStockCamaras(sc || [])
@@ -903,6 +913,20 @@ export default function Deposito() {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3000)
   }
+
+  // Mapa nombre→ clasificación de vencimiento más próxima
+  const vencimientoPorProducto = useMemo(() => {
+    const map = {}
+    vencimientosIngresos.forEach(m => {
+      const key = (m.producto_nombre || '').trim().toLowerCase()
+      if (!map[key] || m.created_at > map[key].created_at) map[key] = m
+    })
+    const result = {}
+    Object.entries(map).forEach(([key, m]) => {
+      result[key] = { ...m, clasif: clasificarVencimiento(m.fecha_vencimiento) }
+    })
+    return result
+  }, [vencimientosIngresos])
 
   const operariosUnicos = useMemo(() => {
     const vistos = new Set()
@@ -1131,8 +1155,14 @@ export default function Deposito() {
     if (filtroCategoria !== 'TODOS') {
       result = result.filter(i => i.categoria === filtroCategoria)
     }
+    if (filtroVencimiento) {
+      result = result.filter(i => {
+        const venc = vencimientoPorProducto[(i.nombre || '').trim().toLowerCase()]
+        return venc && esAlertaVencimiento(venc.clasif)
+      })
+    }
     return result
-  }, [insumos, busqueda, filtroCategoria])
+  }, [insumos, busqueda, filtroCategoria, filtroVencimiento, vencimientoPorProducto])
 
   const sumatoriaCategoria = useMemo(() => {
     if (filtroCategoria === 'TODOS') return null
@@ -1984,6 +2014,28 @@ export default function Deposito() {
                   )}
                 </div>
               )}
+              {/* KPI vencimientos */}
+              {(() => {
+                const cnt = insumos.filter(i => {
+                  const v = vencimientoPorProducto[(i.nombre || '').trim().toLowerCase()]
+                  return v && esAlertaVencimiento(v.clasif)
+                }).length
+                return cnt > 0 ? (
+                  <button
+                    onClick={() => setFiltroVencimiento(f => !f)}
+                    className="flex items-center gap-2 w-full px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
+                    style={{
+                      backgroundColor: filtroVencimiento ? 'rgba(239,68,68,0.15)' : 'rgba(239,68,68,0.08)',
+                      border: `1px solid ${filtroVencimiento ? '#ef4444' : 'rgba(239,68,68,0.3)'}`,
+                      color: '#ef4444',
+                    }}>
+                    <AlertTriangle size={15} />
+                    ⚠️ {cnt} producto{cnt !== 1 ? 's' : ''} con vencimiento próximo
+                    {filtroVencimiento && <span className="ml-auto text-xs">✕ quitar filtro</span>}
+                  </button>
+                ) : null
+              })()}
+
               <div className="flex items-center gap-2">
                 <div className="flex-1">
                   <Input type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
@@ -2017,7 +2069,19 @@ export default function Deposito() {
                           onMouseLeave={isAdmin ? e => e.currentTarget.style.backgroundColor = 'transparent' : undefined}
                         >
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{ins.nombre}</p>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{ins.nombre}</p>
+                              {(() => {
+                                const v = vencimientoPorProducto[(ins.nombre || '').trim().toLowerCase()]
+                                if (!v || !esAlertaVencimiento(v.clasif)) return null
+                                return (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0"
+                                    style={{ backgroundColor: `${v.clasif.color}20`, color: v.clasif.color }}>
+                                    {v.clasif.estado === 'vencido' ? '🔴 VENCIDO' : '⚠️ VENCE PRONTO'}
+                                  </span>
+                                )
+                              })()}
+                            </div>
                             <p className="text-xs" style={{ color: colors.textMuted }}>
                               {ins.stock_actual ?? '—'} {ins.unidad}
                               {ins.unidad === 'u' && (ins.peso_por_unidad || 0) > 0
@@ -2100,8 +2164,11 @@ export default function Deposito() {
                       </Tr>
                     </Thead>
                     <Tbody>
-                      {egresos.map(e => (
-                        <Tr key={e.id}>
+                      {egresos.map(e => {
+                        const claVenc = clasificarVencimiento(e.fecha_vencimiento)
+                        const rowBg = claVenc?.estado === 'vencido' ? 'rgba(239,68,68,0.07)' : claVenc?.estado === 'pronto' || claVenc?.estado === 'hoy_manana' ? 'rgba(245,158,11,0.07)' : 'transparent'
+                        return (
+                        <Tr key={e.id} style={{ backgroundColor: rowBg }}>
                           <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>
                             {formatFechaMov(e)}
                           </Td>
@@ -2110,7 +2177,16 @@ export default function Deposito() {
                           <Td className="text-xs" style={{ color: colors.textSecondary }}>{e.presentacion || '—'}</Td>
                           <Td className="text-xs font-bold text-right">{e.cantidad}</Td>
                           <Td className="text-xs" style={{ color: colors.textSecondary }}>{e.lote || '—'}</Td>
-                          <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{e.fecha_vencimiento || '—'}</Td>
+                          <Td className="text-xs whitespace-nowrap">
+                            <span style={{ color: claVenc?.estado === 'vencido' ? '#ef4444' : claVenc?.estado === 'pronto' || claVenc?.estado === 'hoy_manana' ? '#f59e0b' : colors.textSecondary }}>
+                              {e.fecha_vencimiento || '—'}
+                            </span>
+                            {claVenc && esAlertaVencimiento(claVenc) && (
+                              <p className="text-[9px] font-bold mt-0.5" style={{ color: claVenc.color }}>
+                                {labelDias(claVenc.dias)}
+                              </p>
+                            )}
+                          </Td>
                           <Td className="text-xs" style={{ color: colors.textSecondary }}>{e.controlo || '—'}</Td>
                           <Td className="text-xs max-w-[100px] truncate" style={{ color: colors.textMuted }}>{e.observaciones || '—'}</Td>
                           <Td>
@@ -2119,7 +2195,8 @@ export default function Deposito() {
                               : <span style={{ color: colors.textMuted }}>—</span>}
                           </Td>
                         </Tr>
-                      ))}
+                        )
+                      })}
                     </Tbody>
                   </Table>
                 </div>

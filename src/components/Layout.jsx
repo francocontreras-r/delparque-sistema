@@ -2,6 +2,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
+import { clasificarVencimiento, esAlertaVencimiento } from '../lib/vencimientos'
 import { LOGO_ISOTIPO } from '../assets/logos'
 
 import { colors } from '../styles/design-system'
@@ -64,7 +65,7 @@ function StatusDot() {
 }
 
 // ── Nav item con hover controlado ─────────────────────────────────────────────
-function NavItem({ to, label, Icon, onClick }) {
+function NavItem({ to, label, Icon, onClick, badge }) {
   const [hovered, setHovered] = useState(false)
   return (
     <NavLink
@@ -81,12 +82,18 @@ function NavItem({ to, label, Icon, onClick }) {
     >
       <Icon size={16} />
       {label}
+      {badge > 0 && (
+        <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0"
+          style={{ backgroundColor: '#ef4444', color: 'white' }}>
+          {badge}
+        </span>
+      )}
     </NavLink>
   )
 }
 
 // ── Sidebar content (definido fuera de Layout para evitar remounts) ───────────
-function SidebarContent({ onClose, user, onLogout, navItems }) {
+function SidebarContent({ onClose, user, onLogout, navItems, depositoBadge }) {
   const initial = user?.email?.charAt(0).toUpperCase() || 'U'
   const username = user?.email?.split('@')[0] || 'Usuario'
 
@@ -115,7 +122,8 @@ function SidebarContent({ onClose, user, onLogout, navItems }) {
       {/* Nav */}
       <nav className="flex-1 py-4 space-y-1 overflow-y-auto">
         {navItems.map(n => (
-          <NavItem key={n.to} to={n.to} label={n.label} Icon={n.Icon} onClick={onClose} />
+          <NavItem key={n.to} to={n.to} label={n.label} Icon={n.Icon} onClick={onClose}
+            badge={n.modulo === 'deposito' ? depositoBadge : 0} />
         ))}
       </nav>
 
@@ -254,8 +262,30 @@ function UpdateBanner() {
 // ── Layout principal ──────────────────────────────────────────────────────────
 export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [depositoBadge, setDepositoBadge] = useState(0)
   const { user, tienePermiso } = useUser()
   const location = useLocation()
+
+  useEffect(() => {
+    async function checkVencimientos() {
+      const { data } = await supabase.from('movimientos_deposito')
+        .select('producto_nombre,fecha_vencimiento,created_at')
+        .eq('tipo', 'ingreso').not('fecha_vencimiento', 'is', null)
+        .order('created_at', { ascending: false }).limit(500)
+      if (!data) return
+      // Dedup por producto, tomar más reciente, contar alertas
+      const map = {}
+      data.forEach(m => {
+        const key = (m.producto_nombre || '').trim().toLowerCase()
+        if (!map[key] || m.created_at > map[key].created_at) map[key] = m
+      })
+      const cnt = Object.values(map).filter(m => esAlertaVencimiento(clasificarVencimiento(m.fecha_vencimiento))).length
+      setDepositoBadge(cnt)
+    }
+    checkVencimientos()
+    const id = setInterval(checkVencimientos, 5 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
 
   const navItems = NAV.filter(n => tienePermiso(n.modulo))
   const pageTitle = NAV.find(n => n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to))?.label || 'Del Parque'
@@ -270,7 +300,7 @@ export default function Layout() {
 
       {/* Desktop sidebar */}
       <aside className="hidden md:flex flex-col w-60 flex-shrink-0 shadow-lg">
-        <SidebarContent user={user} onLogout={handleLogout} navItems={navItems} />
+        <SidebarContent user={user} onLogout={handleLogout} navItems={navItems} depositoBadge={depositoBadge} />
       </aside>
 
       {/* Mobile backdrop */}
@@ -287,7 +317,7 @@ export default function Layout() {
         className="fixed inset-y-0 left-0 z-50 w-60 flex flex-col md:hidden shadow-xl"
         style={{ transform: mobileOpen ? 'translateX(0)' : 'translateX(-100%)', transition: 'transform 220ms ease' }}
       >
-        <SidebarContent onClose={() => setMobileOpen(false)} user={user} onLogout={handleLogout} navItems={navItems} />
+        <SidebarContent onClose={() => setMobileOpen(false)} user={user} onLogout={handleLogout} navItems={navItems} depositoBadge={depositoBadge} />
       </aside>
 
       {/* Main */}

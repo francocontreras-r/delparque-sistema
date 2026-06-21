@@ -9,9 +9,10 @@ import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { progresoColor, calcularHorasReales } from '../lib/ordenes'
+import { clasificarVencimiento, esAlertaVencimiento, labelDias } from '../lib/vencimientos'
 import {
   Factory, ClipboardList, Warehouse, Thermometer, Package,
-  ArrowUp, ArrowDown, PlayCircle, CheckCircle2, Activity,
+  ArrowUp, ArrowDown, PlayCircle, CheckCircle2, Activity, AlertTriangle,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -84,6 +85,7 @@ export default function Dashboard() {
   const [camaras, setCamaras] = useState([])
   const [movimientos, setMovimientos] = useState([])
   const [stockBases, setStockBases] = useState([])
+  const [vencimientosData, setVencimientosData] = useState([])
 
   const hoy = hoyISO()
 
@@ -108,6 +110,7 @@ export default function Dashboard() {
       { data: stockCamaras },
       { data: movsHoy },
       { data: basesDisp },
+      { data: vencData },
     ] = await Promise.all([
       supabase.from('producciones').select('*').gte('fecha', inicioSemana).lte('fecha', finSemana),
       supabase.from('ordenes_produccion').select('*').eq('estado', 'en_proceso').order('fecha_inicio', { ascending: true }),
@@ -117,6 +120,7 @@ export default function Dashboard() {
       supabase.from('stock_camaras').select('*'),
       supabase.from('movimientos_deposito').select('*').eq('fecha', hoy).order('created_at', { ascending: false }),
       supabase.from('stock_bases').select('*').gte('kg_disponible', 0).order('fecha', { ascending: false }),
+      supabase.from('movimientos_deposito').select('producto_nombre,lote,fecha_vencimiento,created_at').eq('tipo', 'ingreso').not('fecha_vencimiento', 'is', null).order('created_at', { ascending: false }).limit(500),
     ])
 
     setProducciones(prods || [])
@@ -127,6 +131,7 @@ export default function Dashboard() {
     setCamaras(stockCamaras || [])
     setMovimientos(movsHoy || [])
     setStockBases(basesDisp || [])
+    setVencimientosData(vencData || [])
     setLoading(false)
   }
 
@@ -187,6 +192,19 @@ export default function Dashboard() {
     }
     return list
   }, [insumosCriticos, insumosBajos, ordenesPendientesViejas])
+
+  // Vencimientos: agrupar por producto+lote, tomar el más reciente, filtrar alertas
+  const vencimientosAlerta = useMemo(() => {
+    const map = {}
+    vencimientosData.forEach(m => {
+      const key = `${(m.producto_nombre || '').trim().toLowerCase()}||${(m.lote || '').trim()}`
+      if (!map[key] || m.created_at > map[key].created_at) map[key] = m
+    })
+    return Object.values(map)
+      .map(m => ({ ...m, clasif: clasificarVencimiento(m.fecha_vencimiento) }))
+      .filter(m => esAlertaVencimiento(m.clasif))
+      .sort((a, b) => a.clasif.dias - b.clasif.dias)
+  }, [vencimientosData])
 
   const totalAlertas = alertas.reduce((a, al) => a + al.count, 0)
   const peorVariante = alertas.some(a => a.variant === 'danger') ? 'danger'
@@ -365,6 +383,43 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Sección 3b: Vencimientos */}
+          <div className="overflow-hidden" style={SURFACE}>
+            <div className="px-4 pt-4 pb-2 flex items-center gap-2">
+              <h3 className="text-sm font-semibold" style={{ color: colors.textPrimary }}>⚠️ Vencimientos</h3>
+              {vencimientosAlerta.length > 0 && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#ef4444', color: 'white' }}>
+                  {vencimientosAlerta.length}
+                </span>
+              )}
+            </div>
+            {vencimientosAlerta.length === 0 ? (
+              <div className="px-4 pb-4">
+                <p className="text-sm font-medium" style={{ color: colors.success }}>✅ Sin vencimientos próximos</p>
+              </div>
+            ) : (
+              <div className="px-4 pb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {vencimientosAlerta.map((m, i) => (
+                  <div key={i} className="p-3 rounded-lg" style={{ backgroundColor: colors.bg, border: `1px solid ${m.clasif.color}30` }}>
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: `${m.clasif.color}20`, color: m.clasif.color }}>
+                        {m.clasif.label}
+                      </span>
+                    </div>
+                    <p className="text-sm font-semibold truncate" style={{ color: colors.textPrimary }}>{m.producto_nombre}</p>
+                    {m.lote && <p className="text-xs font-mono mt-0.5" style={{ color: colors.textMuted }}>Lote: {m.lote}</p>}
+                    <p className="text-xs mt-1" style={{ color: colors.textSecondary }}>
+                      Vence: {m.fecha_vencimiento?.slice(0, 10)?.split('-').reverse().join('/')}
+                    </p>
+                    <p className="text-xs font-semibold mt-0.5" style={{ color: m.clasif.color }}>
+                      {labelDias(m.clasif.dias)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Sección 4 y 5: Producción de la semana + Top productos en cámara */}

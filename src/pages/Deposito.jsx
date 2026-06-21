@@ -589,7 +589,11 @@ function ModalMovsDetalle({ tipo, producto, movs, onClose }) {
                   <Td><Badge variant={m.tipo === 'ingreso' ? 'success' : 'danger'}>{m.tipo === 'ingreso' ? '↑ Ingreso' : '↓ Egreso'}</Badge></Td>
                   <Td className="text-right font-bold">{m.cantidad}</Td>
                   <Td>{m.unidad || '—'}</Td>
-                  <Td className="text-xs">{m.proveedor || m.destino || '—'}</Td>
+                  <Td className="text-xs">
+                    {m.tipo === 'ingreso'
+                      ? (m.proveedor && m.proveedor !== 'N/A' ? m.proveedor : '—')
+                      : (m.destino  && m.destino  !== 'N/A' ? m.destino  : '—')}
+                  </Td>
                   <Td className="text-xs">{m.lote || '—'}</Td>
                   <Td className="text-xs whitespace-nowrap">{m.fecha_vencimiento || '—'}</Td>
                   <Td className="text-xs">{m.controlo || '—'}</Td>
@@ -916,7 +920,8 @@ export default function Deposito() {
     ['controlo', 'quién controló'],
   ]
   const CAMPOS_INGRESO = [...CAMPOS_COMUNES, ['proveedor', 'el proveedor']]
-  const CAMPOS_EGRESO = [...CAMPOS_COMUNES, ['destino', 'el destino'], ['operario_recibe', 'quién retira/solicita']]
+  // destino no es requerido siempre (solo para materias primas); operario_recibe sí
+  const CAMPOS_EGRESO = [...CAMPOS_COMUNES, ['operario_recibe', 'quién retira/solicita']]
 
   async function handleSubmit(form) {
     const campos = modal === 'ingreso' ? CAMPOS_INGRESO : CAMPOS_EGRESO
@@ -925,6 +930,12 @@ export default function Deposito() {
         toast2(`Falta completar: ${etiqueta}`, 'error'); return
       }
     }
+    console.log('Guardando movimiento:', {
+      tipo: modal,
+      destino: form.destino,
+      proveedor: form.proveedor,
+      producto_nombre: form.producto_nombre,
+    })
     if (!(parseFloat(form.cantidad) > 0)) {
       toast2('La cantidad debe ser mayor a 0', 'error'); return
     }
@@ -942,9 +953,11 @@ export default function Deposito() {
       unidad: form.unidad,
       lote: form.lote,
       fecha_vencimiento: form.fecha_vencimiento,
-      proveedor: modal === 'ingreso' ? form.proveedor : null,
+      proveedor: modal === 'ingreso' ? (form.proveedor?.trim() || null) : null,
       controlo: form.controlo,
-      destino: modal === 'egreso' ? form.destino : null,
+      destino: modal === 'egreso'
+        ? (form.destino && form.destino !== 'N/A' ? form.destino : null)
+        : null,
       operario_recibe: modal === 'egreso' ? form.operario_recibe : null,
       observaciones: form.observaciones || null,
       peso_por_unidad: pesoPorUnidad || null,

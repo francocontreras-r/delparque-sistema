@@ -144,7 +144,7 @@ export default function Produccion() {
       supabase.from('productos_produccion').select('*').order('nombre'),
       supabase.from('producciones').select('*').eq('fecha', fechaHoy)
         .order('created_at', { ascending: false }).limit(50),
-      supabase.from('stock_camaras').select('id,nombre').order('nombre'),
+      supabase.from('stock_camaras').select('id,nombre,tipo_producto').order('nombre'),
       supabase.from('impulsivos').select('id,nombre').order('nombre'),
     ])
     if (!ops || ops.length === 0) {
@@ -156,12 +156,13 @@ export default function Produccion() {
       const { data: s } = await supabase.from('productos_produccion').insert(PRODUCTOS_SEED).select()
       prods = s || []
     }
-    setOperarios(deduplicarOperarios(ops))
+    const opsDedup = deduplicarOperarios(ops)
+    setOperarios(opsDedup)
     setProductos(prods || [])
     setRegistros(regs || [])
     setSaboresCamara(sab || [])
     setImpulsivosList(imp || [])
-    if (opsUnicos.length > 0) setOperarioSel(String(opsUnicos[0].id))
+    if (opsDedup.length > 0) setOperarioSel(String(opsDedup[0].id))
     setManualLote(lote)
     setLoading(false)
   }
@@ -281,27 +282,36 @@ export default function Produccion() {
     }
     const cantidad = parseFloat(manualCantidad)
     if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
-    const [tipo, id] = manualProducto.split(':')
-    let nombre = '', categoria = ''
-    if (tipo === 'sabor') {
-      nombre = saboresCamara.find(s => String(s.id) === id)?.nombre || ''
-      categoria = 'Helado'
-    } else {
-      nombre = impulsivosList.find(i => String(i.id) === id)?.nombre || ''
-      categoria = 'Impulsivo/Postre'
-    }
+
+    const nombre = manualTipo === 'sabor'
+      ? saboresCamara.find(s => String(s.id) === manualId)?.nombre || ''
+      : impulsivosList.find(i => String(i.id) === manualId)?.nombre || ''
+
     const operario = operarios.find(o => String(o.id) === operarioSel)
-    const esImpulsivo = tipo === 'impulsivo'
-    const pesoTotal = esImpulsivo ? (parseFloat(manualPesoTotal) || 0) : 0
+
+    // Valores según tipo_producto real en stock_camaras
+    let peso_kg = 0, _unidades = null, _pesoTotalKg = 0
+    if (manualTipoCamara === 'helado') {
+      peso_kg = cantidad                              // kg producidos
+    } else if (manualTipoCamara === 'impulsivo') {
+      _unidades = Math.round(cantidad)               // unidades
+      peso_kg   = Math.round(cantidad)               // backward compat en producciones
+    } else {
+      // postre
+      _unidades   = Math.round(cantidad)             // unidades
+      _pesoTotalKg = parseFloat(manualPesoTotal) || 0
+      peso_kg      = _pesoTotalKg                   // kg en producciones
+    }
+
     agregarAPreCarga({
       fecha: fechaHoy,
       producto_codigo: null,
       producto_nombre: nombre,
-      categoria,
+      categoria: manualTipoCamara === 'helado' ? 'Helado' : manualTipoCamara === 'postre' ? 'Postre' : 'Impulsivo',
       origen: 'manual',
-      // helados: peso_kg = kg reales; impulsivos: peso_kg = unidades (convención existente)
-      peso_kg: esImpulsivo ? cantidad : cantidad,
-      _pesoTotalKg: esImpulsivo ? pesoTotal : 0,
+      peso_kg,
+      _unidades,
+      _pesoTotalKg,
       lote: manualLote || lote,
       operario_id: operario?.id || null,
       operario_nombre: operario?.nombre || '—',
@@ -318,8 +328,8 @@ export default function Produccion() {
 
     console.log('Iniciando confirmación, items:', preCarga)
 
-    // 1. Insertar en producciones
-    const payload = preCarga.map(({ _id, _pesoTotalKg, categoria, ...item }) => ({
+    // 1. Insertar en producciones (excluir campos internos)
+    const payload = preCarga.map(({ _id, _pesoTotalKg, _unidades, categoria, ...item }) => ({
       ...item,
       observaciones: item.observaciones?.trim() || null,
     }))
@@ -356,96 +366,78 @@ export default function Produccion() {
     for (const item of preCarga) {
       const nombre = (item.producto_nombre || '').trim()
       if (!nombre) continue
-      const kgItem = item.peso_kg || 0
-      const esUnidad = unidadDe(item) === 'u'
 
-      // Búsqueda exacta (case-insensitive)
-      let { data: camaras, error: errBusq } = await supabase
+      // Búsqueda exacta en stock_camaras (con tipo_producto)
+      let { data: camaras } = await supabase
         .from('stock_camaras')
-        .select('id, nombre, kg, baldes')
+        .select('id, nombre, kg, baldes, tipo_producto')
         .ilike('nombre', nombre)
         .limit(1)
 
-      console.log('Búsqueda exacta en cámaras para:', JSON.stringify(nombre),
-        '→ rows:', camaras?.length ?? 0,
-        errBusq ? '| ERROR: ' + errBusq.message : '')
-
-      // Fallback: búsqueda parcial con wildcards
+      // Fallback: búsqueda parcial
       if (!camaras || camaras.length === 0) {
-        const { data: camarasFlex, error: errFlex } = await supabase
+        const { data: flex } = await supabase
           .from('stock_camaras')
-          .select('id, nombre, kg, baldes')
+          .select('id, nombre, kg, baldes, tipo_producto')
           .ilike('nombre', `%${nombre}%`)
           .limit(1)
-        console.log('Búsqueda flexible "%' + nombre + '%" →', camarasFlex, errFlex ? errFlex.message : '')
-        camaras = camarasFlex
+        camaras = flex
       }
 
       const camara = camaras?.[0]
-      console.log('Cámara encontrada:', camara, 'para producto:', nombre)
+      const tipoCam = camara?.tipo_producto || (item.categoria?.toLowerCase() === 'helado' ? 'helado' : item.categoria?.toLowerCase() === 'postre' ? 'postre' : 'impulsivo')
+
+      // Calcular nuevos valores según tipo_producto real de la cámara
+      let nuevoKg, nuevosBaldes
+      if (tipoCam === 'helado') {
+        nuevoKg      = (Number(camara?.kg) || 0) + (Number(item.peso_kg) || 0)
+        nuevosBaldes = Math.round(nuevoKg / 7)
+      } else if (tipoCam === 'impulsivo') {
+        nuevosBaldes = (Number(camara?.baldes) || 0) + (Number(item._unidades) || Number(item.peso_kg) || 0)
+        nuevoKg      = Number(camara?.kg) || 0
+      } else {
+        // postre
+        nuevosBaldes = (Number(camara?.baldes) || 0) + (Number(item._unidades) || 0)
+        nuevoKg      = (Number(camara?.kg) || 0) + (Number(item._pesoTotalKg) || Number(item.peso_kg) || 0)
+      }
+
+      const movPayload = {
+        sabor_nombre:    nombre,
+        producto_nombre: nombre,
+        tipo:            'ingreso',
+        tipo_producto:   tipoCam,
+        kg:      tipoCam === 'helado' ? (Number(item.peso_kg) || 0) : (Number(item._pesoTotalKg) || 0),
+        baldes:  tipoCam === 'helado' ? Math.round((Number(item.peso_kg) || 0) / 7) : (Number(item._unidades) || Number(item.peso_kg) || 0),
+        lote:            item.lote || null,
+        operario_nombre: item.operario_nombre || null,
+        fecha:           new Date().toISOString().split('T')[0],
+        created_at:      new Date().toISOString(),
+      }
 
       if (!camara) {
-        console.log('Producto NO encontrado en cámaras:', nombre, '→ insertando nuevo registro')
+        // Crear nuevo registro en stock_camaras
         if (!noEncontrados.includes(nombre)) noEncontrados.push(nombre)
-        const kgNuevo = esUnidad ? (item._pesoTotalKg || 0) : kgItem
-        const baldesNuevo = esUnidad ? (item.peso_kg || 1) : Math.round(kgItem / 7)
         const { data: nuevo, error: errIns } = await supabase
           .from('stock_camaras')
-          .insert({ nombre, kg: kgNuevo, baldes: baldesNuevo, operario_nombre: item.operario_nombre || null, ultima_actualizacion: new Date().toISOString() })
-          .select('id, nombre, kg, baldes')
+          .insert({ nombre, kg: nuevoKg, baldes: nuevosBaldes, tipo_producto: tipoCam, operario_nombre: item.operario_nombre || null, ultima_actualizacion: new Date().toISOString() })
+          .select('id')
           .single()
-        console.log('Nuevo registro en cámaras:', nuevo, errIns ? '| ERROR: ' + errIns.message : '')
         if (!errIns && nuevo) {
           camarasActualizadas++
-          const { error: errMov } = await supabase.from('movimientos_camara').insert({
-            sabor_nombre: item.producto_nombre || 'Sin nombre',
-            producto_nombre: item.producto_nombre || 'Sin nombre',
-            tipo: 'ingreso',
-            tipo_producto: item.categoria || 'helado',
-            kg: esUnidad ? (item._pesoTotalKg || 0) : kgItem,
-            baldes: esUnidad ? (item.peso_kg || 1) : Math.round(kgItem / 7),
-            lote: item.lote || null,
-            operario_nombre: item.operario_nombre || null,
-            fecha: new Date().toISOString().split('T')[0],
-            created_at: new Date().toISOString(),
-          })
-          console.log('Movimiento registrado en cámara (nuevo):', errMov ? 'ERROR: ' + errMov.message : 'ok')
+          await supabase.from('movimientos_camara').insert(movPayload)
         }
         continue
       }
-
-      let nuevoKg, nuevosBaldes
-      if (esUnidad) {
-        // impulsivos/postres: sumar unidades a baldes y kg reales a kg
-        nuevosBaldes = (camara.baldes || 0) + (item.peso_kg || 1)
-        nuevoKg = (camara.kg || 0) + (item._pesoTotalKg || 0)
-      } else {
-        nuevoKg = (camara.kg || 0) + kgItem
-        nuevosBaldes = Math.round(nuevoKg / 7)
-      }
-      console.log('Stock actualizado:', nuevoKg, 'kg,', nuevosBaldes, 'baldes')
 
       const { error: errCam } = await supabase.from('stock_camaras')
         .update({ kg: nuevoKg, baldes: nuevosBaldes, operario_nombre: item.operario_nombre, ultima_actualizacion: new Date().toISOString() })
         .eq('id', camara.id)
 
-      if (errCam) {
-        console.log('Error al actualizar cámara:', errCam.message)
-      } else {
+      if (!errCam) {
         camarasActualizadas++
-        const { error: errMov } = await supabase.from('movimientos_camara').insert({
-          sabor_nombre: item.producto_nombre || 'Sin nombre',
-          producto_nombre: item.producto_nombre || 'Sin nombre',
-          tipo: 'ingreso',
-          tipo_producto: item.categoria || 'helado',
-          kg: esUnidad ? (item._pesoTotalKg || 0) : kgItem,
-          baldes: esUnidad ? (item.peso_kg || 1) : Math.round(kgItem / 7),
-          lote: item.lote || null,
-          operario_nombre: item.operario_nombre || null,
-          fecha: new Date().toISOString().split('T')[0],
-          created_at: new Date().toISOString(),
-        })
-        console.log('Movimiento registrado en cámara:', errMov ? 'ERROR: ' + errMov.message : 'ok')
+        await supabase.from('movimientos_camara').insert(movPayload)
+      } else {
+        console.log('Error al actualizar cámara:', errCam.message)
       }
     }
 
@@ -478,11 +470,10 @@ export default function Produccion() {
     setConfirmando(false)
 
     // Toast detallado
-    const partes = [`${cantidad} registro${cantidad === 1 ? '' : 's'} guardado${cantidad === 1 ? '' : 's'}`]
-    if (camarasActualizadas > 0) partes.push(`${camarasActualizadas} stock${camarasActualizadas === 1 ? '' : 's'} de cámara actualizados`)
-    if (noEncontrados.length > 0) partes.push(`Sin match en cámara: ${noEncontrados.join(', ')}`)
-    if (mensajesOrdenes.length > 0) partes.push(...mensajesOrdenes)
-    toast2(partes.join(' · '))
+    toast2(`✅ ${cantidad} registro${cantidad === 1 ? '' : 's'} guardado${cantidad === 1 ? '' : 's'} — ${camarasActualizadas} producto${camarasActualizadas === 1 ? '' : 's'} actualizado${camarasActualizadas === 1 ? '' : 's'} en cámara${mensajesOrdenes.length > 0 ? ' · ' + mensajesOrdenes.join(' · ') : ''}`)
+    if (noEncontrados.length > 0) {
+      setTimeout(() => toast2(`⚠️ No se encontró en cámara: ${noEncontrados.join(', ')}`, 'error'), 1500)
+    }
 
     if (mermaErrores.length > 0) {
       setTimeout(() => toast2(`Error merma: ${mermaErrores.join(' · ')}`, 'error'), 3200)
@@ -519,7 +510,30 @@ export default function Produccion() {
   }, [informeData])
 
   const manualTipo = manualProducto.split(':')[0]
-  const cantidadLabel = manualTipo === 'impulsivo' ? 'Cantidad (unidades) *' : 'Cantidad (kg) *'
+  const manualId   = manualProducto.split(':')[1] || ''
+
+  // Mapa nombre→tipo_producto desde stock_camaras (para lookup rápido)
+  const tipoPorNombre = useMemo(() => {
+    const m = {}
+    saboresCamara.forEach(s => { m[(s.nombre || '').trim().toLowerCase()] = s.tipo_producto || 'helado' })
+    return m
+  }, [saboresCamara])
+
+  // tipo_producto efectivo del producto seleccionado en carga manual
+  const manualTipoCamara = useMemo(() => {
+    if (!manualProducto) return 'helado'
+    if (manualTipo === 'sabor') {
+      const item = saboresCamara.find(s => String(s.id) === manualId)
+      return item?.tipo_producto || 'helado'
+    }
+    // para impulsivos: buscar por nombre en stock_camaras
+    const nombre = (impulsivosList.find(i => String(i.id) === manualId)?.nombre || '').toLowerCase()
+    return tipoPorNombre[nombre] || 'impulsivo'
+  }, [manualProducto, manualTipo, manualId, saboresCamara, impulsivosList, tipoPorNombre])
+
+  const cantidadLabel = manualTipoCamara === 'impulsivo' || manualTipoCamara === 'postre'
+    ? 'Cantidad (unidades) *'
+    : 'Peso (kg) *'
 
   function imprimirInforme() {
     const w = window.open('', '_blank')
@@ -682,31 +696,53 @@ export default function Produccion() {
               <Select label="Producto *" value={manualProducto} onChange={e => { setManualProducto(e.target.value); setManualCantidad(''); setManualPesoTotal('') }}>
                 <option value="">Seleccionar producto...</option>
                 <optgroup label="Helados">
-                  {saboresCamara.map(s => <option key={`sabor:${s.id}`} value={`sabor:${s.id}`}>{s.nombre}</option>)}
+                  {saboresCamara.filter(s => !s.tipo_producto || s.tipo_producto === 'helado').map(s => <option key={`sabor:${s.id}`} value={`sabor:${s.id}`}>{s.nombre}</option>)}
                 </optgroup>
-                <optgroup label="Impulsivos y Postres">
+                <optgroup label="Impulsivos">
                   {impulsivosList.map(i => <option key={`impulsivo:${i.id}`} value={`impulsivo:${i.id}`}>{i.nombre}</option>)}
                 </optgroup>
+                {saboresCamara.filter(s => s.tipo_producto === 'postre').length > 0 && (
+                  <optgroup label="Postres">
+                    {saboresCamara.filter(s => s.tipo_producto === 'postre').map(s => <option key={`sabor:${s.id}`} value={`sabor:${s.id}`}>{s.nombre}</option>)}
+                  </optgroup>
+                )}
               </Select>
-              <Input label={cantidadLabel} type="number" min="0" step={manualTipo === 'impulsivo' ? '1' : '0.001'} value={manualCantidad}
-                onChange={e => setManualCantidad(e.target.value)} placeholder="0" />
+              <Input
+                label={cantidadLabel}
+                type="number" min="0"
+                step={manualTipoCamara === 'helado' ? '0.001' : '1'}
+                value={manualCantidad}
+                onChange={e => setManualCantidad(e.target.value)}
+                placeholder="0"
+              />
             </div>
-            {manualTipo === 'impulsivo' && (
+
+            {/* Peso total — solo para postres */}
+            {manualTipoCamara === 'postre' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Input label="Peso total (kg) — opcional" type="number" min="0" step="0.001"
+                <Input label="Peso total (kg)" type="number" min="0" step="0.001"
                   value={manualPesoTotal} onChange={e => setManualPesoTotal(e.target.value)} placeholder="0.000" />
                 {manualCantidad && (
                   <div className="flex items-end pb-2">
                     <p className="text-xs font-semibold" style={{ color: colors.brand }}>
-                      Previsualizacion: {manualCantidad} unidades{parseFloat(manualPesoTotal) > 0 ? ` / ${parseFloat(manualPesoTotal).toFixed(1)} kg` : ''}
+                      {manualCantidad} unidades{parseFloat(manualPesoTotal) > 0 ? ` / ${parseFloat(manualPesoTotal).toFixed(1)} kg` : ''}
                     </p>
                   </div>
                 )}
               </div>
             )}
-            {manualTipo === 'sabor' && parseFloat(manualCantidad) > 0 && (
+
+            {/* Preview para helados */}
+            {manualTipoCamara === 'helado' && parseFloat(manualCantidad) > 0 && (
               <p className="text-xs font-semibold" style={{ color: colors.brand }}>
-                Baldes estimados: {Math.round(parseFloat(manualCantidad) / 7)} baldes
+                ≈ {Math.round(parseFloat(manualCantidad) / 7)} baldes
+              </p>
+            )}
+
+            {/* Preview para impulsivos */}
+            {manualTipoCamara === 'impulsivo' && manualCantidad && (
+              <p className="text-xs font-semibold" style={{ color: colors.brand }}>
+                {Math.round(parseFloat(manualCantidad) || 0)} unidades
               </p>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

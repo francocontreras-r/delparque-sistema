@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, Component } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { deduplicarOperarios } from '../lib/operarios'
@@ -135,7 +135,26 @@ function agruparPorOperario(ordenes) {
   })
 }
 
-export default function InformeOperarios() {
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null } }
+  static getDerivedStateFromError(e) { return { error: e?.message || String(e) } }
+  componentDidCatch(err, info) { console.error('InformeOperarios crash:', err, info) }
+  render() {
+    if (this.state.error) return (
+      <div style={{ padding: '24px', color: '#ef4444', background: '#1e293b', minHeight: '400px', borderRadius: '12px' }}>
+        <h3 style={{ marginBottom: '8px', fontSize: '16px' }}>⚠️ Error en Rendimiento de Operarios</h3>
+        <p style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '12px' }}>{this.state.error}</p>
+        <button onClick={() => window.location.reload()}
+          style={{ padding: '8px 16px', background: '#D4521A', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
+          Recargar página
+        </button>
+      </div>
+    )
+    return this.props.children
+  }
+}
+
+function InformeOperarios() {
   const navigate = useNavigate()
   const [tab, setTab] = useState('Resumen General')
   const [periodo, setPeriodo] = useState('semana')
@@ -215,37 +234,34 @@ export default function InformeOperarios() {
     }
   }
 
-  const porOperarioActual = useMemo(() => (
-    agruparPorOperario(ordenesActual).sort((a, b) => b.avgRend - a.avgRend)
-  ), [ordenesActual])
+  const porOperarioActual = useMemo(() => {
+    try { return agruparPorOperario(ordenesActual || []).sort((a, b) => (b.avgRend || 0) - (a.avgRend || 0)) }
+    catch { return [] }
+  }, [ordenesActual])
 
   const porOperarioAnterior = useMemo(() => agruparPorOperario(ordenesAnterior), [ordenesAnterior])
 
-  const anteriorPorNombre = useMemo(() => (
-    Object.fromEntries(porOperarioAnterior.map(o => [o.nombre, o]))
-  ), [porOperarioAnterior])
+  const anteriorPorNombre = useMemo(() => {
+    try { return Object.fromEntries((porOperarioAnterior || []).map(o => [o.nombre || '?', o])) }
+    catch { return {} }
+  }, [porOperarioAnterior])
 
   // ── TAB 1 — Resumen General ──────────────────────────────────────────────
   const kpisGlobales = useMemo(() => {
-    const totalOrdenes = ordenesActual.length
-    const rendProm = porOperarioActual.length > 0
-      ? porOperarioActual.reduce((a, o) => a + o.avgRend, 0) / porOperarioActual.length
-      : 0
-    const operarioDestacado = porOperarioActual[0] || null
-
-    const mermaPorProducto = {}
-    mermasActual.forEach(m => {
-      const nombre = m.sabor_nombre || 'Sin especificar'
-      mermaPorProducto[nombre] = (mermaPorProducto[nombre] || 0) + (m.diferencia || 0)
-    })
-    const top = Object.entries(mermaPorProducto).sort((a, b) => b[1] - a[1])[0]
-
-    return {
-      totalOrdenes,
-      rendProm,
-      operarioDestacado,
-      productoMasMerma: top ? { nombre: top[0], kg: top[1] } : null,
-    }
+    try {
+      const totalOrdenes = (ordenesActual || []).length
+      const rendProm = (porOperarioActual || []).length > 0
+        ? porOperarioActual.reduce((a, o) => a + (o.avgRend || 0), 0) / porOperarioActual.length
+        : 0
+      const operarioDestacado = porOperarioActual[0] || null
+      const mermaPorProducto = {}
+      ;(mermasActual || []).forEach(m => {
+        const nombre = m.sabor_nombre || 'Sin especificar'
+        mermaPorProducto[nombre] = (mermaPorProducto[nombre] || 0) + (m.diferencia || 0)
+      })
+      const top = Object.entries(mermaPorProducto).sort((a, b) => (b[1] || 0) - (a[1] || 0))[0]
+      return { totalOrdenes, rendProm: rendProm || 0, operarioDestacado, productoMasMerma: top ? { nombre: top[0], kg: top[1] } : null }
+    } catch { return { totalOrdenes: 0, rendProm: 0, operarioDestacado: null, productoMasMerma: null } }
   }, [ordenesActual, porOperarioActual, mermasActual])
 
   const chartResumen = useMemo(() => {
@@ -296,26 +312,28 @@ export default function InformeOperarios() {
   // Comparativa: para cada producto que trabajó el operario, compara su
   // promedio de rendimiento contra el resto del equipo en ese mismo producto.
   const comparativaProductos = useMemo(() => {
-    if (!operarioActual) return []
-    const productos = [...new Set(operarioActual.items.map(o => o.sabor_nombre || 'Sin especificar'))]
-    return productos.map(producto => {
-      const porOp = {}
-      ordenesActual
-        .filter(o => (o.sabor_nombre || 'Sin especificar') === producto)
-        .forEach(o => {
-          const key = o.operario_nombre || 'Sin asignar'
-          if (!porOp[key]) porOp[key] = []
-          porOp[key].push(o.rendimiento_final || 0)
-        })
-      const promedios = Object.entries(porOp)
-        .map(([nombre, vals]) => ({ nombre, avg: vals.reduce((a, b) => a + b, 0) / vals.length }))
-        .sort((a, b) => b.avg - a.avg)
-      const miPromedio = promedios.find(p => p.nombre === operarioSel)?.avg || 0
-      const promedioEquipo = promedios.reduce((a, p) => a + p.avg, 0) / promedios.length
-      const mejor = promedios[0] || null
-      const posicion = promedios.findIndex(p => p.nombre === operarioSel) + 1
-      return { producto, miPromedio, promedioEquipo, mejor, posicion, total: promedios.length, promedios }
-    }).sort((a, b) => b.miPromedio - a.miPromedio)
+    try {
+      if (!operarioActual?.items?.length) return []
+      const productos = [...new Set(operarioActual.items.map(o => o.sabor_nombre || 'Sin especificar'))]
+      return productos.map(producto => {
+        const porOp = {}
+        ;(ordenesActual || [])
+          .filter(o => (o.sabor_nombre || 'Sin especificar') === producto)
+          .forEach(o => {
+            const key = o.operario_nombre || 'Sin asignar'
+            if (!porOp[key]) porOp[key] = []
+            porOp[key].push(o.rendimiento_final || 0)
+          })
+        const promedios = Object.entries(porOp)
+          .map(([nombre, vals]) => ({ nombre, avg: vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0 }))
+          .sort((a, b) => (b.avg || 0) - (a.avg || 0))
+        const miPromedio = promedios.find(p => p.nombre === operarioSel)?.avg || 0
+        const promedioEquipo = promedios.length > 0 ? promedios.reduce((a, p) => a + (p.avg || 0), 0) / promedios.length : 0
+        const mejor = promedios[0] || null
+        const posicion = promedios.findIndex(p => p.nombre === operarioSel) + 1
+        return { producto, miPromedio, promedioEquipo, mejor, posicion, total: promedios.length, promedios }
+      }).sort((a, b) => (b.miPromedio || 0) - (a.miPromedio || 0))
+    } catch { return [] }
   }, [operarioActual, ordenesActual, operarioSel])
 
   useEffect(() => {
@@ -338,13 +356,15 @@ export default function InformeOperarios() {
   }, [rankingProducto])
 
   // ── TAB 3 — Ranking del Equipo ───────────────────────────────────────────
-  const rankingEquipo = useMemo(() => (
-    porOperarioActual.map((o, idx) => {
-      const ant = anteriorPorNombre[o.nombre]
-      const diff = ant ? o.avgRend - ant.avgRend : null
-      return { ...o, pos: idx + 1, diff }
-    })
-  ), [porOperarioActual, anteriorPorNombre])
+  const rankingEquipo = useMemo(() => {
+    try {
+      return (porOperarioActual || []).map((o, idx) => {
+        const ant = anteriorPorNombre[o.nombre]
+        const diff = ant ? (o.avgRend || 0) - (ant.avgRend || 0) : null
+        return { ...o, pos: idx + 1, diff }
+      })
+    } catch { return [] }
+  }, [porOperarioActual, anteriorPorNombre])
 
   const radarOperarios = useMemo(() => porOperarioActual.slice(0, 6), [porOperarioActual])
 
@@ -525,7 +545,7 @@ export default function InformeOperarios() {
         doc.setTextColor(40, 40, 40)
         doc.text('Historial de órdenes', 14, yy)
 
-        const historial = [...op.items].sort((a, b) => new Date(b.fecha_fin) - new Date(a.fecha_fin))
+        const historial = [...(op.items || [])].sort((a, b) => new Date(b.fecha_fin || 0) - new Date(a.fecha_fin || 0))
         autoTable(doc, {
           startY: yy + 3,
           head: [['Fecha', 'Producto', 'Kg Obj.', 'Kg Prod.', '% Kg', 'Hs Est.', 'Hs Real', '% Tiempo', 'Rend.']],
@@ -989,3 +1009,10 @@ export default function InformeOperarios() {
     </div>
   )
 }
+
+const InformeOperariosWrapped = () => (
+  <ErrorBoundary>
+    <InformeOperarios />
+  </ErrorBoundary>
+)
+export default InformeOperariosWrapped

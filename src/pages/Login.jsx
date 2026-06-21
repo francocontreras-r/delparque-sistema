@@ -40,11 +40,19 @@ export default function Login() {
         <div className="p-8">
           {/* Logo */}
           <div className="flex flex-col items-center mb-8">
-            <img
-              src={LOGO_HORIZONTAL}
-              alt="Del Parque"
-              style={{ width: '220px', objectFit: 'contain', marginBottom: '28px' }}
-            />
+            {LOGO_HORIZONTAL ? (
+              <img
+                src={LOGO_HORIZONTAL}
+                alt="Del Parque"
+                style={{ width: '200px', maxWidth: '100%', objectFit: 'contain', marginBottom: '16px', filter: 'brightness(0) invert(1)' }}
+              />
+            ) : (
+              <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+                <div style={{ fontSize: '38px', fontFamily: 'Georgia, serif', color: 'white', fontWeight: 'bold', letterSpacing: '2px' }}>
+                  Del Parque
+                </div>
+              </div>
+            )}
             <p className="text-sm" style={{ color: '#64748B' }}>Sistema de gestión industrial</p>
           </div>
 

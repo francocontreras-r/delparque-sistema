@@ -26,7 +26,39 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Requiere permisos de administrador' })
   }
 
-  const { email, nombre, rol } = req.body || {}
+  const body = req.body || {}
+
+  // ── Deshabilitar usuario ──────────────────────────────────────────────────
+  if (body.action === 'disable') {
+    const { userId } = body
+    if (!userId) return res.status(400).json({ error: 'Falta userId' })
+    if (userId === caller.id) return res.status(400).json({ error: 'No podés desactivar tu propia cuenta' })
+
+    const [{ error: authDisableErr }, { error: profileErr }] = await Promise.all([
+      supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: '876600h' }),
+      supabaseAdmin.from('user_profiles').update({ activo: false }).eq('id', userId),
+    ])
+    if (authDisableErr) console.error('Error deshabilitando auth:', authDisableErr)
+    if (profileErr) return res.status(400).json({ error: profileErr.message })
+    return res.status(200).json({ ok: true })
+  }
+
+  // ── Reactivar usuario ─────────────────────────────────────────────────────
+  if (body.action === 'reactivate') {
+    const { userId } = body
+    if (!userId) return res.status(400).json({ error: 'Falta userId' })
+
+    const [{ error: authEnableErr }, { error: profileErr }] = await Promise.all([
+      supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: 'none' }),
+      supabaseAdmin.from('user_profiles').update({ activo: true }).eq('id', userId),
+    ])
+    if (authEnableErr) console.error('Error reactivando auth:', authEnableErr)
+    if (profileErr) return res.status(400).json({ error: profileErr.message })
+    return res.status(200).json({ ok: true })
+  }
+
+  // ── Crear usuario (comportamiento original) ───────────────────────────────
+  const { email, nombre, rol } = body
   if (!email || !nombre || !rol) {
     return res.status(400).json({ error: 'Faltan datos: email, nombre, rol' })
   }

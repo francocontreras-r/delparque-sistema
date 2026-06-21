@@ -146,6 +146,7 @@ export default function InformeOperarios() {
   const [ordenesAnterior, setOrdenesAnterior] = useState([])
   const [mermasActual, setMermasActual] = useState([])
 
+  const [errorGlobal, setErrorGlobal] = useState(null)
   const [operarioSel, setOperarioSel] = useState('')
   const [productoComparativaSel, setProductoComparativaSel] = useState('')
 
@@ -189,18 +190,29 @@ export default function InformeOperarios() {
 
   async function cargar() {
     setLoading(true)
-    const { desde, hasta, antDesde, antHasta } = rango
-    const [{ data: ops }, { data: ordAct }, { data: ordAnt }, { data: merAct }] = await Promise.all([
-      supabase.from('operarios').select('*').order('nombre'),
-      supabase.from('ordenes_produccion').select('*').eq('estado', 'completada').gte('fecha_fin', desde).lte('fecha_fin', `${hasta}T23:59:59`),
-      supabase.from('ordenes_produccion').select('*').eq('estado', 'completada').gte('fecha_fin', antDesde).lte('fecha_fin', `${antHasta}T23:59:59`),
-      supabase.from('mermas').select('*').gte('fecha', desde).lte('fecha', hasta),
-    ])
-    setOperarios(deduplicarOperarios(ops))
-    setOrdenesActual(ordAct || [])
-    setOrdenesAnterior(ordAnt || [])
-    setMermasActual(merAct || [])
-    setLoading(false)
+    setErrorGlobal(null)
+    try {
+      const { desde, hasta, antDesde, antHasta } = rango
+      const [{ data: ops, error: e1 }, { data: ordAct, error: e2 }, { data: ordAnt, error: e3 }, { data: merAct, error: e4 }] = await Promise.all([
+        supabase.from('operarios').select('*').order('nombre'),
+        supabase.from('ordenes_produccion').select('*').eq('estado', 'completada').gte('fecha_fin', desde).lte('fecha_fin', `${hasta}T23:59:59`),
+        supabase.from('ordenes_produccion').select('*').eq('estado', 'completada').gte('fecha_fin', antDesde).lte('fecha_fin', `${antHasta}T23:59:59`),
+        supabase.from('mermas').select('*').gte('fecha', desde).lte('fecha', hasta),
+      ])
+      if (e1) console.error('Error operarios:', e1)
+      if (e2) console.error('Error ordenes actuales:', e2)
+      if (e3) console.error('Error ordenes anteriores:', e3)
+      if (e4) console.error('Error mermas:', e4)
+      setOperarios(deduplicarOperarios(ops))
+      setOrdenesActual(ordAct || [])
+      setOrdenesAnterior(ordAnt || [])
+      setMermasActual(merAct || [])
+    } catch (err) {
+      console.error('Error al cargar InformeOperarios:', err)
+      setErrorGlobal(err?.message || 'Error desconocido al cargar datos')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const porOperarioActual = useMemo(() => (
@@ -558,6 +570,18 @@ export default function InformeOperarios() {
     || (pdfPeriodo === 'personalizado' && (!pdfDesde || !pdfHasta))
     || (pdfModo === 'individual' && !pdfOperario)
 
+  if (errorGlobal) return (
+    <div className="flex flex-col items-center justify-center py-20 gap-4">
+      <p className="text-sm font-semibold" style={{ color: colors.danger }}>⚠️ Error: {errorGlobal}</p>
+      <button
+        onClick={() => window.location.reload()}
+        className="px-4 py-2 rounded-lg text-sm font-semibold text-white"
+        style={{ backgroundColor: colors.brand }}>
+        Recargar página
+      </button>
+    </div>
+  )
+
   return (
     <div className="space-y-5">
       <div>
@@ -877,6 +901,7 @@ export default function InformeOperarios() {
                     </Table>
                   </div>
 
+                  {radarData.length > 0 && radarOperarios.length > 0 && (
                   <div className="p-4" style={SURFACE}>
                     <h3 className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>Comparativa multidimensional</h3>
                     <ResponsiveContainer width="100%" height={380}>
@@ -895,6 +920,7 @@ export default function InformeOperarios() {
                       </RadarChart>
                     </ResponsiveContainer>
                   </div>
+                  )}
                 </>
               )}
             </>

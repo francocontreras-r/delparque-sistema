@@ -11,7 +11,7 @@ import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { Users, Plus, Check, X as XIcon, KeyRound } from 'lucide-react'
+import { Users, Plus, Check, X as XIcon, KeyRound, Trash2 } from 'lucide-react'
 
 const MODULOS = [
   { key: 'produccion',   label: 'Producción' },
@@ -42,6 +42,8 @@ export default function Usuarios() {
   const [credenciales, setCredenciales] = useState(null)
   const [editUser, setEditUser] = useState(null)
   const [savingEdit, setSavingEdit] = useState(false)
+  const [modalEliminar, setModalEliminar] = useState(null) // user object
+  const [eliminandoUser, setEliminandoUser] = useState(false)
 
   useEffect(() => { cargar() }, [])
 
@@ -89,6 +91,43 @@ export default function Usuarios() {
     if (error) { toast2(error.message, 'error'); return }
     setUsuarios(prev => prev.map(x => x.id === u.id ? { ...x, activo: !u.activo } : x))
     toast2(u.activo ? 'Usuario desactivado' : 'Usuario activado')
+  }
+
+  async function eliminarUsuario() {
+    if (!modalEliminar) return
+    setEliminandoUser(true)
+    try {
+      const res = await fetch('/api/usuarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ action: 'disable', userId: modalEliminar.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'No se pudo eliminar el usuario')
+      setUsuarios(prev => prev.map(x => x.id === modalEliminar.id ? { ...x, activo: false } : x))
+      toast2(`Usuario "${modalEliminar.nombre}" eliminado`)
+      setModalEliminar(null)
+    } catch (e) {
+      toast2(e.message, 'error')
+    } finally {
+      setEliminandoUser(false)
+    }
+  }
+
+  async function reactivarUsuario(u) {
+    try {
+      const res = await fetch('/api/usuarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ action: 'reactivate', userId: u.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'No se pudo reactivar el usuario')
+      setUsuarios(prev => prev.map(x => x.id === u.id ? { ...x, activo: true } : x))
+      toast2(`Usuario "${u.nombre}" reactivado`)
+    } catch (e) {
+      toast2(e.message, 'error')
+    }
   }
 
   function abrirEdicion(u) {
@@ -158,10 +197,17 @@ export default function Usuarios() {
                   <Td>
                     <div className="flex gap-1.5 flex-wrap">
                       <Button variant="ghost" size="sm" onClick={() => abrirEdicion(u)}>Editar</Button>
-                      <Button variant="ghost" size="sm" onClick={() => toggleActivo(u)}
-                        className="!border" style={{ borderColor: u.activo ? colors.danger : colors.success, color: u.activo ? colors.danger : colors.success }}>
-                        {u.activo ? <XIcon size={12} /> : <Check size={12} />} {u.activo ? 'Desactivar' : 'Activar'}
-                      </Button>
+                      {u.activo ? (
+                        <Button variant="ghost" size="sm" onClick={() => setModalEliminar(u)}
+                          style={{ borderColor: colors.danger, color: colors.danger, border: `1px solid ${colors.danger}` }}>
+                          <Trash2 size={12} /> Eliminar
+                        </Button>
+                      ) : (
+                        <Button variant="ghost" size="sm" onClick={() => reactivarUsuario(u)}
+                          style={{ borderColor: colors.success, color: colors.success, border: `1px solid ${colors.success}` }}>
+                          <Check size={12} /> Reactivar
+                        </Button>
+                      )}
                     </div>
                   </Td>
                 </Tr>
@@ -225,6 +271,38 @@ export default function Usuarios() {
             <div className="px-4 py-3 space-y-1" style={{ backgroundColor: colors.bg, borderRadius: radius.md }}>
               <p className="text-xs" style={{ color: colors.textMuted }}>Contraseña temporal</p>
               <p className="text-sm font-mono font-semibold" style={{ color: colors.brand }}>{credenciales.password}</p>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Confirmar eliminación */}
+      <Modal
+        open={!!modalEliminar}
+        onClose={() => !eliminandoUser && setModalEliminar(null)}
+        title="Eliminar usuario"
+        maxWidth="max-w-sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setModalEliminar(null)} disabled={eliminandoUser} className="flex-1">
+              Cancelar
+            </Button>
+            <Button variant="danger" onClick={eliminarUsuario} loading={eliminandoUser} className="flex-1">
+              {eliminandoUser ? 'Eliminando…' : 'Sí, eliminar'}
+            </Button>
+          </>
+        }
+      >
+        {modalEliminar && (
+          <div className="space-y-3">
+            <div className="p-3 rounded-lg" style={{ backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+              <p className="text-sm font-semibold" style={{ color: colors.danger }}>⚠️ Esta acción no se puede deshacer</p>
+              <p className="text-sm mt-1" style={{ color: colors.textPrimary }}>
+                ¿Eliminar a <strong>{modalEliminar.nombre}</strong> ({modalEliminar.email})?
+              </p>
+              <p className="text-xs mt-1.5" style={{ color: colors.textMuted }}>
+                El usuario perderá acceso inmediatamente. Los datos históricos se conservan.
+              </p>
             </div>
           </div>
         )}

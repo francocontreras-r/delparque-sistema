@@ -177,26 +177,41 @@ function InformeOperarios() {
   const [pdfHasta, setPdfHasta] = useState('')
   const [generandoPDF, setGenerandoPDF] = useState(false)
 
-  const rango = useMemo(() => calcularRangos(periodo), [periodo])
+  console.log('InformeOperarios montando...')
+
+  const rango = useMemo(() => {
+    console.log('Calculando rango...')
+    try { return calcularRangos(periodo) }
+    catch { return calcularRangos('semana') }
+  }, [periodo])
 
   const evolucionSemanal = useMemo(() => {
-    const { desde, hasta } = rango
-    const days = []
-    let cur = new Date(desde)
-    const end = new Date(hasta)
-    while (cur <= end) { days.push(cur.toISOString().split('T')[0]); cur.setDate(cur.getDate() + 1) }
-    const byDay = {}
-    ordenesActual.forEach(o => {
-      const d = (o.fecha_fin || '').split('T')[0]
-      if (!byDay[d]) byDay[d] = { kg: 0, ordenes: 0 }
-      byDay[d].kg += o.kg_producido || 0
-      byDay[d].ordenes++
-    })
-    return days.slice(-14).map(d => ({
-      fecha: `${d.split('-')[2]}/${d.split('-')[1]}`,
-      kg: Number((byDay[d]?.kg || 0).toFixed(1)),
-      ordenes: byDay[d]?.ordenes || 0,
-    }))
+    try {
+      const { desde, hasta } = rango
+      if (!desde || !hasta) return []
+      const days = []
+      let cur = new Date(desde)
+      const end = new Date(hasta)
+      if (isNaN(cur.getTime()) || isNaN(end.getTime())) return []
+      let safety = 0
+      while (cur <= end && safety++ < 400) {
+        days.push(cur.toISOString().split('T')[0])
+        cur.setDate(cur.getDate() + 1)
+      }
+      const byDay = {}
+      ;(ordenesActual || []).forEach(o => {
+        const d = (o.fecha_fin || '').split('T')[0]
+        if (!d) return
+        if (!byDay[d]) byDay[d] = { kg: 0, ordenes: 0 }
+        byDay[d].kg += o.kg_producido || 0
+        byDay[d].ordenes++
+      })
+      return days.slice(-14).map(d => ({
+        fecha: `${d.split('-')[2]}/${d.split('-')[1]}`,
+        kg: Number((byDay[d]?.kg || 0).toFixed(1)),
+        ordenes: byDay[d]?.ordenes || 0,
+      }))
+    } catch (e) { console.error('evolucionSemanal error:', e); return [] }
   }, [ordenesActual, rango])
 
   useEffect(() => { cargar() }, [periodo])
@@ -235,11 +250,15 @@ function InformeOperarios() {
   }
 
   const porOperarioActual = useMemo(() => {
+    console.log('Calculando porOperarioActual...', ordenesActual?.length, 'órdenes')
     try { return agruparPorOperario(ordenesActual || []).sort((a, b) => (b.avgRend || 0) - (a.avgRend || 0)) }
-    catch { return [] }
+    catch (e) { console.error('porOperarioActual error:', e); return [] }
   }, [ordenesActual])
 
-  const porOperarioAnterior = useMemo(() => agruparPorOperario(ordenesAnterior), [ordenesAnterior])
+  const porOperarioAnterior = useMemo(() => {
+    try { return agruparPorOperario(ordenesAnterior || []) }
+    catch (e) { console.error('porOperarioAnterior error:', e); return [] }
+  }, [ordenesAnterior])
 
   const anteriorPorNombre = useMemo(() => {
     try { return Object.fromEntries((porOperarioAnterior || []).map(o => [o.nombre || '?', o])) }
@@ -248,6 +267,7 @@ function InformeOperarios() {
 
   // ── TAB 1 — Resumen General ──────────────────────────────────────────────
   const kpisGlobales = useMemo(() => {
+    console.log('Calculando kpisGlobales...')
     try {
       const totalOrdenes = (ordenesActual || []).length
       const rendProm = (porOperarioActual || []).length > 0
@@ -276,9 +296,10 @@ function InformeOperarios() {
   }, [porOperarioActual])
 
   // ── TAB 2 — Por Operario ──────────────────────────────────────────────────
-  const operarioActual = useMemo(() => (
-    porOperarioActual.find(o => o.nombre === operarioSel) || null
-  ), [porOperarioActual, operarioSel])
+  const operarioActual = useMemo(() => {
+    try { return (porOperarioActual || []).find(o => o.nombre === operarioSel) || null }
+    catch (e) { console.error('operarioActual error:', e); return null }
+  }, [porOperarioActual, operarioSel])
 
   const operarioAnteriorData = anteriorPorNombre[operarioSel]
 
@@ -312,6 +333,7 @@ function InformeOperarios() {
   // Comparativa: para cada producto que trabajó el operario, compara su
   // promedio de rendimiento contra el resto del equipo en ese mismo producto.
   const comparativaProductos = useMemo(() => {
+    console.log('Calculando comparativaProductos...')
     try {
       if (!operarioActual?.items?.length) return []
       const productos = [...new Set(operarioActual.items.map(o => o.sabor_nombre || 'Sin especificar'))]
@@ -357,6 +379,7 @@ function InformeOperarios() {
 
   // ── TAB 3 — Ranking del Equipo ───────────────────────────────────────────
   const rankingEquipo = useMemo(() => {
+    console.log('Calculando rankingEquipo...')
     try {
       return (porOperarioActual || []).map((o, idx) => {
         const ant = anteriorPorNombre[o.nombre]
@@ -369,6 +392,7 @@ function InformeOperarios() {
   const radarOperarios = useMemo(() => porOperarioActual.slice(0, 6), [porOperarioActual])
 
   const radarData = useMemo(() => {
+    console.log('Calculando radarData...')
     try {
       if (!radarOperarios?.length) return []
       const maxTotalKg = Math.max(1, ...radarOperarios.map(o => o.totalKg || 0))

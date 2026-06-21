@@ -258,10 +258,11 @@ export default function Ordenes() {
       supabase.from('base_ingredientes').select('*'),
       supabase.from('stock_bases').select('*').gt('kg_disponible', 0).order('fecha', { ascending: false }),
     ])
+    const operariosDedup = deduplicarOperarios(ops)
     setOrdenes(ord || [])
     setSaboresCamara(sab || [])
     setImpulsivos(imp || [])
-    setOperarios(deduplicarOperarios(ops))
+    setOperarios(operariosDedup)
     setSabores(recetas || [])
     setSaborIngredientes(ingredientes || [])
     setInsumosStock(insumosData || [])
@@ -278,7 +279,7 @@ export default function Ordenes() {
     const primero = GRUPOS_PRODUCTO.map(g => opciones.find(o => o._grupo === g)).find(Boolean)
     if (primero) { setTabProducto(primero._grupo); setLineaSel(primero._key) }
 
-    if (unicos.length > 0) setForm(f => ({ ...f, operario_id: String(unicos[0].id), operario_nombre: unicos[0].nombre }))
+    if (operariosDedup.length > 0) setForm(f => ({ ...f, operario_id: String(operariosDedup[0].id), operario_nombre: operariosDedup[0].nombre }))
     setLoading(false)
   }
 

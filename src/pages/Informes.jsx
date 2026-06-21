@@ -24,6 +24,7 @@ const TABS = ['Producción', 'Mermas', 'Financiero']
 const NOMBRES_EXCLUIDOS = new Set(['barra helada'])
 
 const PERIODOS = [
+  { key: 'dia',       label: 'Día',       dias: 1  },
   { key: 'semana',    label: 'Semana',    dias: 7  },
   { key: 'mes',       label: 'Mes',       dias: 30 },
   { key: 'trimestre', label: 'Trimestre', dias: 90 },
@@ -135,9 +136,10 @@ function toDataURL(url) {
 }
 
 export default function Informes() {
-  const [tab, setTab]         = useState('Producción')
-  const [periodo, setPeriodo] = useState('semana')
-  const [loading, setLoading] = useState(true)
+  const [tab, setTab]               = useState('Producción')
+  const [periodo, setPeriodo]       = useState('semana')
+  const [diaSeleccionado, setDiaSeleccionado] = useState(hoyISO)
+  const [loading, setLoading]       = useState(true)
   const [exportando, setExportando] = useState(false)
 
   const [produccionesActual, setProduccionesActual]     = useState([])
@@ -150,9 +152,15 @@ export default function Informes() {
   const [insumos, setInsumos]           = useState([])
   const [stockCamaras, setStockCamaras] = useState([])
 
-  const rango = useMemo(() => calcularRangos(periodo), [periodo])
+  const rango = useMemo(() => {
+    if (periodo === 'dia') {
+      const antHasta = sumarDias(diaSeleccionado, -1)
+      return { desde: diaSeleccionado, hasta: diaSeleccionado, antDesde: antHasta, antHasta }
+    }
+    return calcularRangos(periodo)
+  }, [periodo, diaSeleccionado])
 
-  useEffect(() => { cargar() }, [periodo])
+  useEffect(() => { cargar() }, [rango]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function cargar() {
     setLoading(true)
@@ -209,58 +217,83 @@ export default function Informes() {
 
   const produccionInforme = useMemo(() => {
     function analizar(lista) {
-      // Filtrar productos excluidos
       const filtrada = lista.filter(r =>
         !NOMBRES_EXCLUIDOS.has((r.producto_nombre || '').trim().toLowerCase())
       )
-      let kgHelados = 0, unidadesImpulsivos = 0, unidadesPostres = 0
+      let kgHelados = 0, regHelados = 0, unidadesImpulsivos = 0, kgPostres = 0, regPostres = 0
       const porProducto = {}
-      const porOperario  = {}
+      const porOperario = {}
+
       filtrada.forEach(r => {
         const tipo = clasificarRegistro(r)
         const nombre = r.producto_nombre || 'Sin nombre'
         const op = r.operario_nombre || 'Sin asignar'
-        if (!porProducto[nombre]) porProducto[nombre] = { nombre, kg: 0, unidades: 0, tipo }
-        if (!porOperario[op]) porOperario[op] = { nombre: op, kg: 0, unidades: 0, registros: 0 }
+
+        if (!porProducto[nombre]) porProducto[nombre] = { nombre, tipo, kg: 0, unidades: 0, registros: 0 }
+        if (!porOperario[op]) porOperario[op] = {
+          nombre: op, registros: 0,
+          kgSabores: 0, regSabores: 0,
+          unidImpulsivos: 0,
+          kgPostres: 0, regPostres: 0,
+        }
+        porProducto[nombre].registros++
         porOperario[op].registros++
+
         if (tipo === 'helado') {
-          kgHelados += r.peso_kg || 0
+          kgHelados += r.peso_kg || 0; regHelados++
           porProducto[nombre].kg += r.peso_kg || 0
-          porOperario[op].kg += r.peso_kg || 0
-        } else {
+          porOperario[op].kgSabores += r.peso_kg || 0; porOperario[op].regSabores++
+        } else if (tipo === 'impulsivo') {
           const u = unidadesDe(r)
-          if (tipo === 'postre') unidadesPostres += u
-          else unidadesImpulsivos += u
+          unidadesImpulsivos += u
           porProducto[nombre].unidades += u
-          porOperario[op].unidades += u
+          porOperario[op].unidImpulsivos += u
+        } else {
+          kgPostres += r.peso_kg || 0; regPostres++
+          porProducto[nombre].kg += r.peso_kg || 0
+          porProducto[nombre].unidades++
+          porOperario[op].kgPostres += r.peso_kg || 0; porOperario[op].regPostres++
         }
       })
+
+      const baldesHelados = Math.round(kgHelados / 7)
+      const promedioKgHelados = regHelados > 0 ? kgHelados / regHelados : 0
+      const unidadesPostres = regPostres
+
       return {
-        kgHelados,
+        kgHelados, regHelados, baldesHelados, promedioKgHelados,
         unidadesImpulsivos,
-        unidadesPostres,
+        kgPostres, unidadesPostres,
+        // Compat legacy
         unidadesTotal: unidadesImpulsivos + unidadesPostres,
         porProducto: Object.values(porProducto),
-        porOperario: Object.values(porOperario).sort((a, b) => b.kg - a.kg),
+        porOperario: Object.values(porOperario).sort((a, b) => b.kgSabores - a.kgSabores),
       }
     }
     return { actual: analizar(produccionesActual), anterior: analizar(produccionesAnterior) }
   }, [produccionesActual, produccionesAnterior, clasificarRegistro])
 
-  const productosComparados = useMemo(() => {
-    const mapaAnt = Object.fromEntries(produccionInforme.anterior.porProducto.map(p => [p.nombre, p]))
-    return produccionInforme.actual.porProducto.map(p => {
-      const ant = mapaAnt[p.nombre]
-      const esHelado = p.tipo === 'helado'
-      const valorActual   = esHelado ? p.kg : p.unidades
-      const valorAnterior = ant ? (ant.tipo === 'helado' ? ant.kg : ant.unidades) : 0
-      return { ...p, valorActual, valorAnterior, variacion: variacionPct(valorActual, valorAnterior) }
-    }).sort((a, b) => b.valorActual - a.valorActual)
+  // Tablas por sección
+  const prodTableData = useMemo(() => {
+    const prods = produccionInforme.actual.porProducto
+    return {
+      sabores: prods
+        .filter(p => p.tipo === 'helado')
+        .map(p => ({ ...p, baldes: Math.round(p.kg / 7), promedio: p.registros > 0 ? p.kg / p.registros : 0 }))
+        .sort((a, b) => b.kg - a.kg),
+      impulsivos: prods
+        .filter(p => p.tipo === 'impulsivo')
+        .sort((a, b) => b.unidades - a.unidades),
+      postres: prods
+        .filter(p => p.tipo === 'postre')
+        .map(p => ({ ...p, promedio: p.registros > 0 ? p.kg / p.registros : 0 }))
+        .sort((a, b) => b.unidades - a.unidades),
+    }
   }, [produccionInforme])
 
   const chartProduccion = useMemo(() => (
     produccionInforme.actual.porProducto
-      .filter(p => !p.impulsivo && p.kg > 0)
+      .filter(p => p.tipo === 'helado' && p.kg > 0)
       .map(p => ({ nombre: p.nombre, kg: Number(p.kg.toFixed(1)) }))
       .sort((a, b) => b.kg - a.kg)
       .slice(0, 8)
@@ -377,6 +410,7 @@ export default function Informes() {
 
   // ── Exportación PDF ───────────────────────────────────────────────────────
   function periodoLabel() {
+    if (periodo === 'dia') return `Día ${fmtFecha(diaSeleccionado)}`
     return PERIODOS.find(p => p.key === periodo)?.label || ''
   }
 
@@ -547,7 +581,7 @@ export default function Informes() {
       </div>
 
       <div className="p-3 flex flex-wrap gap-3 items-center justify-between" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-        <div className="flex gap-1.5">
+        <div className="flex gap-1.5 flex-wrap items-center">
           {PERIODOS.map(p => (
             <button key={p.key} onClick={() => setPeriodo(p.key)}
               className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border"
@@ -559,10 +593,20 @@ export default function Informes() {
               {p.label}
             </button>
           ))}
+          {periodo === 'dia' && (
+            <input
+              type="date"
+              value={diaSeleccionado}
+              onChange={e => setDiaSeleccionado(e.target.value)}
+              className="rounded-lg border text-xs px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+              style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
+            />
+          )}
         </div>
         <p className="text-xs" style={{ color: colors.textMuted }}>
-          {fmtFecha(rango.desde)} – {fmtFecha(rango.hasta)} <span className="mx-1">·</span>
-          vs. {fmtFecha(rango.antDesde)} – {fmtFecha(rango.antHasta)}
+          {periodo === 'dia'
+            ? `${fmtFecha(rango.desde)} · vs. ${fmtFecha(rango.antHasta)}`
+            : `${fmtFecha(rango.desde)} – ${fmtFecha(rango.hasta)} · vs. ${fmtFecha(rango.antDesde)} – ${fmtFecha(rango.antHasta)}`}
         </p>
       </div>
 
@@ -572,14 +616,17 @@ export default function Informes() {
         <>
           {tab === 'Producción' && (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <KpiCard label="Total KG (helados)" value={`${fmtNum(produccionInforme.actual.kgHelados)} kg`} icon={Scale} color={colors.brand}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              <KpiCard label="KG Helados" value={`${fmtNum(produccionInforme.actual.kgHelados)} kg`} icon={Scale} color={colors.brand}
                 sub={<VariacionTag pct={variacionPct(produccionInforme.actual.kgHelados, produccionInforme.anterior.kgHelados)} />} />
-              <KpiCard label="Total unidades (impulsivos)" value={`${fmtNum(produccionInforme.actual.unidadesImpulsivos, 0)} u`} icon={Package} color={colors.info}
+              <KpiCard label="Baldes Helados" value={`${produccionInforme.actual.baldesHelados} bal.`} icon={Scale} color={colors.info}
+                sub={`≈ ${fmtNum(produccionInforme.actual.promedioKgHelados, 2)} kg/reg`} />
+              <KpiCard label="Unidades Impulsivos" value={`${fmtNum(produccionInforme.actual.unidadesImpulsivos, 0)} u`} icon={Package} color={colors.warning}
                 sub={<VariacionTag pct={variacionPct(produccionInforme.actual.unidadesImpulsivos, produccionInforme.anterior.unidadesImpulsivos)} />} />
-              <KpiCard label="Total unidades (postres)" value={`${fmtNum(produccionInforme.actual.unidadesPostres, 0)} u`} icon={Package} color={colors.warning}
+              <KpiCard label="Unidades Postres" value={`${fmtNum(produccionInforme.actual.unidadesPostres, 0)} u`} icon={Package} color="#a855f7"
                 sub={<VariacionTag pct={variacionPct(produccionInforme.actual.unidadesPostres, produccionInforme.anterior.unidadesPostres)} />} />
-              <KpiCard label="Operarios activos" value={produccionInforme.actual.porOperario.length} icon={Users} />
+              <KpiCard label="KG Postres" value={`${fmtNum(produccionInforme.actual.kgPostres, 1)} kg`} icon={Scale} color="#7c3aed"
+                sub={<VariacionTag pct={variacionPct(produccionInforme.actual.kgPostres, produccionInforme.anterior.kgPostres)} />} />
             </div>
 
             {produccionesActual.length === 0 ? (
@@ -601,62 +648,110 @@ export default function Informes() {
                   </div>
                 )}
 
-                <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-                  <h3 className="px-4 pt-4 pb-1 text-sm font-semibold" style={{ color: colors.textPrimary }}>Producción por producto</h3>
-                  <Table className="min-w-[620px]">
-                    <Thead>
-                      <Tr>
-                        <Th>Producto</Th>
-                        <Th>Cantidad</Th>
-                        <Th>Período anterior</Th>
-                        <Th>Variación</Th>
-                      </Tr>
-                    </Thead>
-                    <Tbody>
-                      {productosComparados.map(p => {
-                        const esHelado = p.tipo === 'helado'
-                        const unidad = esHelado ? 'kg' : 'u'
-                        const dec = esHelado ? 1 : 0
-                        const tipoLabel = p.tipo === 'postre' ? 'postre' : p.tipo === 'impulsivo' ? 'impulsivo' : null
-                        return (
-                        <Tr key={p.nombre}>
-                          <Td className="font-medium">
-                            {p.nombre}
-                            {tipoLabel && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: colors.bg, color: colors.textMuted }}>{tipoLabel}</span>}
-                          </Td>
-                          <Td className="text-right font-semibold">{fmtNum(p.valorActual, dec)} {unidad}</Td>
-                          <Td className="text-right" style={{ color: colors.textMuted }}>{fmtNum(p.valorAnterior, dec)} {unidad}</Td>
-                          <Td><VariacionTag pct={p.variacion} /></Td>
-                        </Tr>
-                        )
-                      })}
-                    </Tbody>
-                  </Table>
-                </div>
+                {/* Sección Sabores */}
+                {prodTableData.sabores.length > 0 && (
+                  <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                    <div className="px-4 py-2.5 flex items-center gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.brand }}>🧊 Sabores (Helados)</span>
+                      <span className="text-xs ml-auto" style={{ color: colors.textMuted }}>{fmtNum(produccionInforme.actual.kgHelados)} kg · {produccionInforme.actual.baldesHelados} baldes</span>
+                    </div>
+                    <Table className="min-w-[620px]">
+                      <Thead><Tr><Th>Sabor</Th><Th className="text-right">Registros</Th><Th className="text-right">KG Total</Th><Th className="text-right">Baldes</Th><Th className="text-right">Prom kg/reg</Th></Tr></Thead>
+                      <Tbody>
+                        {prodTableData.sabores.map(p => (
+                          <Tr key={p.nombre}>
+                            <Td className="font-medium">{p.nombre}</Td>
+                            <Td className="text-right" style={{ color: colors.textMuted }}>{p.registros}</Td>
+                            <Td className="text-right font-bold" style={{ color: colors.brand }}>{fmtNum(p.kg, 1)} kg</Td>
+                            <Td className="text-right">{p.baldes}</Td>
+                            <Td className="text-right text-xs" style={{ color: colors.textMuted }}>{fmtNum(p.promedio, 2)} kg</Td>
+                          </Tr>
+                        ))}
+                      </Tbody>
+                    </Table>
+                  </div>
+                )}
 
-                <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-                  <h3 className="px-4 pt-4 pb-1 text-sm font-semibold" style={{ color: colors.textPrimary }}>Producción por operario</h3>
-                  <Table className="min-w-[480px]">
-                    <Thead>
-                      <Tr>
-                        <Th>Operario</Th>
-                        <Th>Kg producidos</Th>
-                        <Th>Unidades</Th>
-                        <Th>Registros</Th>
-                      </Tr>
-                    </Thead>
-                    <Tbody>
+                {/* Sección Impulsivos */}
+                {prodTableData.impulsivos.length > 0 && (
+                  <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                    <div className="px-4 py-2.5 flex items-center gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.warning }}>📦 Impulsivos</span>
+                      <span className="text-xs ml-auto" style={{ color: colors.textMuted }}>{fmtNum(produccionInforme.actual.unidadesImpulsivos, 0)} unidades</span>
+                    </div>
+                    <Table className="min-w-[400px]">
+                      <Thead><Tr><Th>Producto</Th><Th className="text-right">Unidades totales</Th></Tr></Thead>
+                      <Tbody>
+                        {prodTableData.impulsivos.map(p => (
+                          <Tr key={p.nombre}>
+                            <Td className="font-medium">{p.nombre}</Td>
+                            <Td className="text-right font-bold" style={{ color: colors.warning }}>{fmtNum(p.unidades, 0)} u</Td>
+                          </Tr>
+                        ))}
+                      </Tbody>
+                    </Table>
+                  </div>
+                )}
+
+                {/* Sección Postres */}
+                {prodTableData.postres.length > 0 && (
+                  <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                    <div className="px-4 py-2.5 flex items-center gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: '#a855f7' }}>🍰 Postres</span>
+                      <span className="text-xs ml-auto" style={{ color: colors.textMuted }}>{fmtNum(produccionInforme.actual.unidadesPostres, 0)} u · {fmtNum(produccionInforme.actual.kgPostres, 1)} kg</span>
+                    </div>
+                    <Table className="min-w-[560px]">
+                      <Thead><Tr><Th>Producto</Th><Th className="text-right">Unidades</Th><Th className="text-right">KG Total</Th><Th className="text-right">Prom kg/u</Th></Tr></Thead>
+                      <Tbody>
+                        {prodTableData.postres.map(p => (
+                          <Tr key={p.nombre}>
+                            <Td className="font-medium">{p.nombre}</Td>
+                            <Td className="text-right font-bold" style={{ color: '#a855f7' }}>{fmtNum(p.unidades, 0)} u</Td>
+                            <Td className="text-right">{fmtNum(p.kg, 1)} kg</Td>
+                            <Td className="text-right text-xs" style={{ color: colors.textMuted }}>{fmtNum(p.promedio, 2)} kg</Td>
+                          </Tr>
+                        ))}
+                      </Tbody>
+                    </Table>
+                  </div>
+                )}
+
+                {/* Producción por operario — cards con desglose */}
+                {produccionInforme.actual.porOperario.length > 0 && (
+                  <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                    <div className="px-4 py-2.5" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>👤 Producción por operario</span>
+                    </div>
+                    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       {produccionInforme.actual.porOperario.map(o => (
-                        <Tr key={o.nombre}>
-                          <Td className="font-medium">{o.nombre}</Td>
-                          <Td className="text-right">{fmtNum(o.kg)} kg</Td>
-                          <Td className="text-right">{fmtNum(o.unidades, 0)} u</Td>
-                          <Td className="text-right">{o.registros}</Td>
-                        </Tr>
+                        <div key={o.nombre} className="p-3 rounded-lg space-y-1.5" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+                          <p className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textPrimary }}>{o.nombre}</p>
+                          <p className="text-xs" style={{ color: colors.textMuted }}>Registros: <span className="font-semibold" style={{ color: colors.textPrimary }}>{o.registros}</span></p>
+                          {o.kgSabores > 0 && (
+                            <div className="text-xs" style={{ color: colors.brand }}>
+                              <span className="font-semibold">{fmtNum(o.kgSabores, 1)} kg</span>
+                              <span style={{ color: colors.textMuted }}> · {Math.round(o.kgSabores / 7)} baldes</span>
+                              {o.regSabores > 0 && <span style={{ color: colors.textMuted }}> · prom {fmtNum(o.kgSabores / o.regSabores, 2)} kg/reg</span>}
+                            </div>
+                          )}
+                          {o.unidImpulsivos > 0 && (
+                            <p className="text-xs" style={{ color: colors.warning }}>
+                              <span className="font-semibold">{fmtNum(o.unidImpulsivos, 0)} u</span>
+                              <span style={{ color: colors.textMuted }}> impulsivos</span>
+                            </p>
+                          )}
+                          {o.regPostres > 0 && (
+                            <p className="text-xs" style={{ color: '#a855f7' }}>
+                              <span className="font-semibold">{o.regPostres} u</span>
+                              {o.kgPostres > 0 && <span style={{ color: colors.textMuted }}> · {fmtNum(o.kgPostres, 1)} kg</span>}
+                              <span style={{ color: colors.textMuted }}> postres</span>
+                            </p>
+                          )}
+                        </div>
                       ))}
-                    </Tbody>
-                  </Table>
-                </div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </>

@@ -248,14 +248,16 @@ export default function InformeOperarios() {
     }
   }, [ordenesActual, porOperarioActual, mermasActual])
 
-  const chartResumen = useMemo(() => (
-    porOperarioActual.map(o => ({
-      nombre: o.nombre,
-      'Eficiencia Kg': Number(o.avgKg.toFixed(1)),
-      'Eficiencia Tiempo': Number(o.avgTiempo.toFixed(1)),
-      'Rendimiento Final': Number(o.avgRend.toFixed(1)),
-    }))
-  ), [porOperarioActual])
+  const chartResumen = useMemo(() => {
+    try {
+      return (porOperarioActual || []).map(o => ({
+        nombre: o.nombre || '—',
+        'Eficiencia Kg':     Number((o.avgKg     || 0).toFixed(1)),
+        'Eficiencia Tiempo': Number((o.avgTiempo || 0).toFixed(1)),
+        'Rendimiento Final': Number((o.avgRend   || 0).toFixed(1)),
+      }))
+    } catch { return [] }
+  }, [porOperarioActual])
 
   // ── TAB 2 — Por Operario ──────────────────────────────────────────────────
   const operarioActual = useMemo(() => (
@@ -271,20 +273,24 @@ export default function InformeOperarios() {
   }, [operarioActual, operarioAnteriorData])
 
   const lineChartOperario = useMemo(() => {
-    if (!operarioActual) return []
-    return [...operarioActual.items]
-      .sort((a, b) => new Date(a.fecha_fin) - new Date(b.fecha_fin))
-      .map(o => ({
-        fecha: fmtFechaCorta(o.fecha_fin),
-        'Eficiencia Kg': Number((o.eficiencia_kg || 0).toFixed(1)),
-        'Eficiencia Tiempo': Number((o.eficiencia_tiempo || 0).toFixed(1)),
-        'Rendimiento Final': Number((o.rendimiento_final || 0).toFixed(1)),
-      }))
+    try {
+      if (!operarioActual?.items?.length) return []
+      return [...operarioActual.items]
+        .sort((a, b) => new Date(a.fecha_fin || 0) - new Date(b.fecha_fin || 0))
+        .map(o => ({
+          fecha: fmtFechaCorta(o.fecha_fin),
+          'Eficiencia Kg':     Number((o.eficiencia_kg     || 0).toFixed(1)),
+          'Eficiencia Tiempo': Number((o.eficiencia_tiempo || 0).toFixed(1)),
+          'Rendimiento Final': Number((o.rendimiento_final || 0).toFixed(1)),
+        }))
+    } catch { return [] }
   }, [operarioActual])
 
   const historialOperario = useMemo(() => {
-    if (!operarioActual) return []
-    return [...operarioActual.items].sort((a, b) => new Date(b.fecha_fin) - new Date(a.fecha_fin))
+    try {
+      if (!operarioActual?.items?.length) return []
+      return [...operarioActual.items].sort((a, b) => new Date(b.fecha_fin || 0) - new Date(a.fecha_fin || 0))
+    } catch { return [] }
   }, [operarioActual])
 
   // Comparativa: para cada producto que trabajó el operario, compara su
@@ -321,9 +327,15 @@ export default function InformeOperarios() {
 
   const rankingProducto = comparativaProductos.find(p => p.producto === productoComparativaSel) || null
 
-  const chartRankingProducto = useMemo(() => (
-    rankingProducto ? rankingProducto.promedios.map(p => ({ nombre: p.nombre, rendimiento: Number(p.avg.toFixed(1)) })) : []
-  ), [rankingProducto])
+  const chartRankingProducto = useMemo(() => {
+    try {
+      if (!rankingProducto?.promedios?.length) return []
+      return rankingProducto.promedios.map(p => ({
+        nombre: p.nombre || '—',
+        rendimiento: Number((p.avg || 0).toFixed(1)),
+      }))
+    } catch { return [] }
+  }, [rankingProducto])
 
   // ── TAB 3 — Ranking del Equipo ───────────────────────────────────────────
   const rankingEquipo = useMemo(() => (
@@ -337,19 +349,21 @@ export default function InformeOperarios() {
   const radarOperarios = useMemo(() => porOperarioActual.slice(0, 6), [porOperarioActual])
 
   const radarData = useMemo(() => {
-    if (radarOperarios.length === 0) return []
-    const maxTotalKg = Math.max(1, ...radarOperarios.map(o => o.totalKg))
-    const dims = [
-      { key: 'Volumen',          calc: o => (o.totalKg / maxTotalKg) * 100 },
-      { key: 'Eficiencia Kg',     calc: o => Math.min(150, o.avgKg) },
-      { key: 'Eficiencia Tiempo', calc: o => Math.min(150, o.avgTiempo) },
-      { key: 'Consistencia',      calc: o => Math.max(0, 100 - Math.min(100, o.stdDev)) },
-    ]
-    return dims.map(dim => {
-      const row = { dimension: dim.key }
-      radarOperarios.forEach(o => { row[o.nombre] = Number(dim.calc(o).toFixed(1)) })
-      return row
-    })
+    try {
+      if (!radarOperarios?.length) return []
+      const maxTotalKg = Math.max(1, ...radarOperarios.map(o => o.totalKg || 0))
+      const dims = [
+        { key: 'Volumen',          calc: o => ((o.totalKg || 0) / maxTotalKg) * 100 },
+        { key: 'Eficiencia Kg',     calc: o => Math.min(150, o.avgKg     || 0) },
+        { key: 'Eficiencia Tiempo', calc: o => Math.min(150, o.avgTiempo || 0) },
+        { key: 'Consistencia',      calc: o => Math.max(0, 100 - Math.min(100, o.stdDev || 0)) },
+      ]
+      return dims.map(dim => {
+        const row = { dimension: dim.key }
+        radarOperarios.forEach(o => { row[o.nombre || '?'] = Number(dim.calc(o).toFixed(1)) })
+        return row
+      })
+    } catch { return [] }
   }, [radarOperarios])
 
   // ── TAB 4 — Informe PDF exportable ───────────────────────────────────────
@@ -570,13 +584,23 @@ export default function InformeOperarios() {
     || (pdfPeriodo === 'personalizado' && (!pdfDesde || !pdfHasta))
     || (pdfModo === 'individual' && !pdfOperario)
 
+  if (loading) return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px', color: '#D4521A' }}>
+      <div style={{ textAlign: 'center' }}>
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" className="animate-spin" style={{ color: '#D4521A', margin: '0 auto 12px' }}>
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        <div style={{ fontSize: 14, color: '#64748b' }}>Cargando datos de rendimiento…</div>
+      </div>
+    </div>
+  )
+
   if (errorGlobal) return (
-    <div className="flex flex-col items-center justify-center py-20 gap-4">
-      <p className="text-sm font-semibold" style={{ color: colors.danger }}>⚠️ Error: {errorGlobal}</p>
-      <button
-        onClick={() => window.location.reload()}
-        className="px-4 py-2 rounded-lg text-sm font-semibold text-white"
-        style={{ backgroundColor: colors.brand }}>
+    <div style={{ padding: '24px', color: '#ef4444' }}>
+      <p style={{ fontWeight: 600 }}>⚠️ Error al cargar: {errorGlobal}</p>
+      <button onClick={() => window.location.reload()}
+        style={{ marginTop: '12px', padding: '8px 16px', background: '#D4521A', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
         Recargar página
       </button>
     </div>
@@ -625,10 +649,7 @@ export default function InformeOperarios() {
         </div>
       )}
 
-      {tab !== 'Informe PDF' && loading ? (
-        <div className="flex justify-center py-14"><Spinner size={28} /></div>
-      ) : (
-        <>
+      <>
           {/* ── TAB 1 — RESUMEN GENERAL ─────────────────────────────────── */}
           {tab === 'Resumen General' && (
             <>
@@ -815,7 +836,7 @@ export default function InformeOperarios() {
                     </Table>
                   </div>
 
-                  {rankingProducto && (
+                  {rankingProducto && chartRankingProducto.length > 0 && (
                     <div className="p-4" style={SURFACE}>
                       <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
                         <h3 className="text-sm font-semibold" style={{ color: colors.textPrimary }}>
@@ -823,7 +844,7 @@ export default function InformeOperarios() {
                         </h3>
                         <div className="max-w-[220px]">
                           <Select value={productoComparativaSel} onChange={e => setProductoComparativaSel(e.target.value)}>
-                            {comparativaProductos.map(c => <option key={c.producto} value={c.producto}>{c.producto}</option>)}
+                            {(comparativaProductos || []).map(c => <option key={c.producto} value={c.producto}>{c.producto}</option>)}
                           </Select>
                         </div>
                       </div>
@@ -964,8 +985,7 @@ export default function InformeOperarios() {
               </p>
             </div>
           )}
-        </>
-      )}
+      </>
     </div>
   )
 }

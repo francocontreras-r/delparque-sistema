@@ -25,7 +25,7 @@ const logoUrl = '/logo_delparque.png'
 const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 
 const TABS         = ['Movimientos', 'Stock', 'Trazabilidad', 'Informes', 'Control Semanal']
-const DESTINOS     = ['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones']
+const DESTINOS     = ['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones', 'Uso interno', 'Venta', 'Otro']
 const PRESENTACIONES = ['Balde', 'Bolsa', 'Lata', 'Caja', 'Botella', 'Bidón', 'Pomo']
 const UNIDADES     = ['u', 'kg', 'L']
 
@@ -77,6 +77,15 @@ function fmtHora(created_at) {
 function fmtFechaHora(iso) {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+// Usa created_at (o fecha como fallback) para mostrar fecha y hora sin malformatar.
+function formatFechaMov(mov) {
+  const ts = mov.created_at || mov.fecha
+  if (!ts) return '—'
+  const d = new Date(ts)
+  return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    + ' ' + d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) + ' hs'
 }
 
 function formatFecha(ts) {
@@ -162,7 +171,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
         peso_por_unidad: insumoSel.peso_por_unidad > 0 && !f.peso_por_unidad
           ? insumoSel.peso_por_unidad : f.peso_por_unidad,
         destino: !esIngreso
-          ? (esMP ? (f.destino === 'N/A' ? 'Bases' : f.destino) : 'N/A')
+          ? (f.destino && f.destino !== 'N/A' ? f.destino : 'Bases')
           : f.destino,
         motivo: '',
       }
@@ -408,14 +417,10 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
                 {motivosDisponibles.map(m => <option key={m}>{m}</option>)}
               </Select>
               <div className="grid grid-cols-2 gap-3">
-                {/* Destino — solo para Materias Primas */}
-                {esMatPrima ? (
-                  <Select label="Destino *" value={form.destino} onChange={e => upd('destino', e.target.value)}>
-                    {DESTINOS.map(d => <option key={d}>{d}</option>)}
-                  </Select>
-                ) : (
-                  <div />
-                )}
+                <Select label="Destino (opcional)" value={form.destino} onChange={e => upd('destino', e.target.value)}>
+                  <option value="">— Sin especificar —</option>
+                  {DESTINOS.map(d => <option key={d}>{d}</option>)}
+                </Select>
                 <Select label="Retira / Solicita *" value={form.operario_recibe} onChange={e => upd('operario_recibe', e.target.value)}>
                   <option value="">— Seleccionar —</option>
                   {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
@@ -1700,7 +1705,7 @@ export default function Deposito() {
     const w = window.open('', '_blank')
     const filas = egresos.map(e => `
       <tr>
-        <td>${fmtFecha(e.fecha)}${e.created_at ? ' ' + fmtHora(e.created_at) : ''}</td><td>${e.producto_nombre || ''}</td><td>${e.marca || ''}</td>
+        <td>${formatFechaMov(e)}</td><td>${e.producto_nombre || ''}</td><td>${e.marca || ''}</td>
         <td>${e.presentacion || ''}</td><td style="text-align:right">${e.cantidad || ''}</td>
         <td>${e.lote || ''}</td><td>${e.fecha_vencimiento || ''}</td>
         <td>${e.controlo || ''}</td><td>${e.observaciones || ''}</td>
@@ -1764,7 +1769,7 @@ export default function Deposito() {
       startY: 28,
       head: [['Fecha', 'Producto', 'Marca', 'Presentación', 'Cant.', 'Lote', 'Venc.', 'Controló', 'Observ.', 'Destino']],
       body: egresos.map(e => [
-        fmtFecha(e.fecha) + (e.created_at ? ' ' + fmtHora(e.created_at) : ''), e.producto_nombre || '', e.marca || '', e.presentacion || '',
+        formatFechaMov(e), e.producto_nombre || '', e.marca || '', e.presentacion || '',
         `${e.cantidad ?? ''} ${e.unidad || ''}`.trim(), e.lote || '', e.fecha_vencimiento || '',
         e.controlo || '', e.observaciones || '', e.destino || '',
       ]),
@@ -2098,10 +2103,7 @@ export default function Deposito() {
                       {egresos.map(e => (
                         <Tr key={e.id}>
                           <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>
-                            {fmtFecha(e.fecha)}
-                            {e.created_at && (
-                              <p className="text-[10px]" style={{ color: colors.textMuted }}>{fmtHora(e.created_at)}</p>
-                            )}
+                            {formatFechaMov(e)}
                           </Td>
                           <Td className="text-xs font-medium">{e.producto_nombre}</Td>
                           <Td className="text-xs" style={{ color: colors.textSecondary }}>{e.marca || '—'}</Td>
@@ -2111,7 +2113,11 @@ export default function Deposito() {
                           <Td className="text-xs whitespace-nowrap" style={{ color: colors.textSecondary }}>{e.fecha_vencimiento || '—'}</Td>
                           <Td className="text-xs" style={{ color: colors.textSecondary }}>{e.controlo || '—'}</Td>
                           <Td className="text-xs max-w-[100px] truncate" style={{ color: colors.textMuted }}>{e.observaciones || '—'}</Td>
-                          <Td><Badge variant="info">{e.destino}</Badge></Td>
+                          <Td>
+                            {e.destino && e.destino !== 'N/A'
+                              ? <Badge variant="info">{e.destino}</Badge>
+                              : <span style={{ color: colors.textMuted }}>—</span>}
+                          </Td>
                         </Tr>
                       ))}
                     </Tbody>

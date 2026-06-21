@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { deduplicarOperarios } from '../lib/operarios'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
 import KpiCard from '../components/ui/KpiCard'
@@ -155,13 +156,7 @@ export default function Produccion() {
       const { data: s } = await supabase.from('productos_produccion').insert(PRODUCTOS_SEED).select()
       prods = s || []
     }
-    const vistosOp = new Set()
-    const opsUnicos = (ops || []).filter(o => {
-      if (vistosOp.has(o.nombre)) return false
-      vistosOp.add(o.nombre)
-      return true
-    })
-    setOperarios(opsUnicos)
+    setOperarios(deduplicarOperarios(ops))
     setProductos(prods || [])
     setRegistros(regs || [])
     setSaboresCamara(sab || [])

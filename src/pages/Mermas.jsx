@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
+import { deduplicarOperarios } from '../lib/operarios'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
@@ -105,7 +106,7 @@ export default function Mermas() {
     ])
     setMermas(m || [])
     setSabores(s || [])
-    setOperarios(o || [])
+    setOperarios(deduplicarOperarios(o))
     setLoading(false)
   }
 

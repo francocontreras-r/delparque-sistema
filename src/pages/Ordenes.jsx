@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
+import { deduplicarOperarios } from '../lib/operarios'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import Spinner from '../components/ui/Spinner'
@@ -260,8 +261,7 @@ export default function Ordenes() {
     setOrdenes(ord || [])
     setSaboresCamara(sab || [])
     setImpulsivos(imp || [])
-    const unicos = [...new Map((ops || []).map(o => [o.nombre, o])).values()]
-    setOperarios(unicos)
+    setOperarios(deduplicarOperarios(ops))
     setSabores(recetas || [])
     setSaborIngredientes(ingredientes || [])
     setInsumosStock(insumosData || [])

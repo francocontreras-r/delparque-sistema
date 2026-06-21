@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
+import { deduplicarOperarios } from '../lib/operarios'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import {
@@ -568,7 +569,7 @@ function ModalConteo({ tipo, items, onClose, onSubmit, saving }) {
 
 function ModalMovsDetalle({ tipo, producto, movs, onClose }) {
   return (
-    <Modal open onClose={onClose} title={`${tipo === 'ingreso' ? '↑ Ingresos' : '↓ Egresos'} — ${producto}`} maxWidth="max-w-4xl">
+    <Modal open onClose={onClose} title={`${tipo === 'ingreso' ? '↑ Ingresos' : '↓ Egresos'} — ${producto}`} maxWidth="max-w-4xl" disableBackdropClose={false}>
       {movs.length === 0 ? (
         <p className="text-sm text-center py-6" style={{ color: colors.textMuted }}>Sin movimientos en el período</p>
       ) : (
@@ -632,7 +633,7 @@ function ModalEvolucionCS({ insumo, movimientos: allMovs, onClose }) {
     consumos[consumos.length - 2] < consumos[consumos.length - 3]
 
   return (
-    <Modal open onClose={onClose} title={`Evolución de consumo — ${insumo.nombre}`} maxWidth="max-w-2xl">
+    <Modal open onClose={onClose} title={`Evolución de consumo — ${insumo.nombre}`} maxWidth="max-w-2xl" disableBackdropClose={false}>
       <div className="space-y-3">
         <div className="flex items-center gap-3 flex-wrap">
           <p className="text-xs" style={{ color: colors.textMuted }}>Consumo e ingresos por semana — últimas 8 semanas</p>
@@ -681,7 +682,7 @@ function ModalEvolucionCS({ insumo, movimientos: allMovs, onClose }) {
 function ModalMovsCamaraDetalle({ producto, movs, onClose }) {
   const cols = ['FECHA/HORA', 'TIPO', 'KG', 'BALDES', 'LOTE', 'OPERARIO', 'TIPO PROD.', 'MOTIVO']
   return (
-    <Modal open onClose={onClose} title={`Movimientos en cámara — ${producto}`} maxWidth="max-w-3xl">
+    <Modal open onClose={onClose} title={`Movimientos en cámara — ${producto}`} maxWidth="max-w-3xl" disableBackdropClose={false}>
       {movs.length === 0 ? (
         <p className="text-sm text-center py-6" style={{ color: colors.textMuted }}>Sin movimientos registrados para este producto.</p>
       ) : (
@@ -784,7 +785,7 @@ function ModalDetMovimiento({ mov, onClose }) {
     </div>
   ) : null
   return (
-    <Modal open onClose={onClose} title={titulo} maxWidth="max-w-md">
+    <Modal open onClose={onClose} title={titulo} maxWidth="max-w-md" disableBackdropClose={false}>
       <div className="divide-y" style={{ borderColor: colors.border }}>
         {campo('Fecha y hora', formatFecha(mov.created_at))}
         {campo('Producto', mov.producto_nombre)}
@@ -881,7 +882,7 @@ export default function Deposito() {
       supabase.from('movimientos_camara').select('id,sabor_nombre,producto_nombre,tipo,kg,baldes,lote,operario_nombre,tipo_producto,motivo,created_at,fecha').order('id', { ascending: false }).limit(300),
     ])
     setInsumos(i || [])
-    setOperarios(o || [])
+    setOperarios(deduplicarOperarios(o))
     setStockCamaras(sc || [])
     setConteos(ct || [])
     setMovsCamara(mc || [])

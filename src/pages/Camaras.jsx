@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown, FileDown, Plus } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { deduplicarOperarios } from '../lib/operarios'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 const logoUrl = '/logo_delparque.png'
@@ -723,7 +724,7 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
   }, [item.nombre])
 
   return (
-    <Modal open onClose={onClose} title={item.nombre} maxWidth="max-w-lg"
+    <Modal open onClose={onClose} title={item.nombre} maxWidth="max-w-lg" disableBackdropClose={false}
       footer={
         <>
           <Button variant="secondary" onClick={onClose} className="flex-1">Cerrar</Button>
@@ -943,7 +944,7 @@ export default function Camaras() {
         }
       })
       setStock(Object.values(agrupados))
-      setOperarios(ops || [])
+      setOperarios(deduplicarOperarios(ops))
       setLoading(false)
     }
     cargar()

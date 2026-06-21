@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { deduplicarOperarios } from '../lib/operarios'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import Spinner from '../components/ui/Spinner'
@@ -195,7 +196,7 @@ export default function InformeOperarios() {
       supabase.from('ordenes_produccion').select('*').eq('estado', 'completada').gte('fecha_fin', antDesde).lte('fecha_fin', `${antHasta}T23:59:59`),
       supabase.from('mermas').select('*').gte('fecha', desde).lte('fecha', hasta),
     ])
-    setOperarios(ops || [])
+    setOperarios(deduplicarOperarios(ops))
     setOrdenesActual(ordAct || [])
     setOrdenesAnterior(ordAnt || [])
     setMermasActual(merAct || [])

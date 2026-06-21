@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { X } from 'lucide-react'
 import { colors } from '../../styles/design-system'
 
-export default function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg', footer, disableBackdropClose = false }) {
+export default function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg', footer, disableBackdropClose = true }) {
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : ''
     return () => { document.body.style.overflow = '' }

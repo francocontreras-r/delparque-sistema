@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { deduplicarOperarios } from '../lib/operarios'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import Spinner from '../components/ui/Spinner'
+
 import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
 import Badge from '../components/ui/Badge'
@@ -117,20 +117,23 @@ function toDataURL(url) {
 // Agrupa órdenes completadas por operario y calcula sus promedios de
 // rendimiento para el período recibido.
 function agruparPorOperario(ordenes) {
+  if (!Array.isArray(ordenes)) return []
   const mapa = {}
   ordenes.forEach(o => {
+    if (!o || typeof o !== 'object') return
     const key = o.operario_nombre || 'Sin asignar'
     if (!mapa[key]) mapa[key] = []
     mapa[key].push(o)
   })
   return Object.entries(mapa).map(([nombre, items]) => {
-    const n = items.length
-    const avgKg = items.reduce((a, o) => a + (o.eficiencia_kg || 0), 0) / n
-    const avgTiempo = items.reduce((a, o) => a + (o.eficiencia_tiempo || 0), 0) / n
-    const avgRend = items.reduce((a, o) => a + (o.rendimiento_final || 0), 0) / n
-    const totalKg = items.reduce((a, o) => a + (o.kg_producido || 0), 0)
-    const variance = items.reduce((a, o) => a + Math.pow((o.rendimiento_final || 0) - avgRend, 2), 0) / n
-    const stdDev = Math.sqrt(variance)
+    const n = items.length || 1  // evitar división por cero
+    const sum = (fn) => items.reduce((a, o) => a + (Number(fn(o)) || 0), 0)
+    const avgKg     = sum(o => o.eficiencia_kg)     / n
+    const avgTiempo = sum(o => o.eficiencia_tiempo) / n
+    const avgRend   = sum(o => o.rendimiento_final) / n
+    const totalKg   = sum(o => o.kg_producido)
+    const variance  = items.reduce((a, o) => a + Math.pow((Number(o.rendimiento_final) || 0) - avgRend, 2), 0) / n
+    const stdDev    = Math.sqrt(variance || 0)
     return { nombre, items, ordenes: n, avgKg, avgTiempo, avgRend, totalKg, stdDev }
   })
 }
@@ -304,9 +307,14 @@ function InformeOperarios() {
   const operarioAnteriorData = anteriorPorNombre[operarioSel]
 
   const kpisOperario = useMemo(() => {
-    if (!operarioActual) return null
-    const tendenciaDiff = operarioAnteriorData ? operarioActual.avgRend - operarioAnteriorData.avgRend : null
-    return { ...operarioActual, tendenciaDiff }
+    console.log('Calculando kpisOperario...')
+    try {
+      if (!operarioActual) return null
+      const tendenciaDiff = (operarioAnteriorData && typeof operarioAnteriorData.avgRend === 'number')
+        ? (operarioActual.avgRend || 0) - operarioAnteriorData.avgRend
+        : null
+      return { ...operarioActual, tendenciaDiff }
+    } catch (e) { console.error('kpisOperario error:', e); return null }
   }, [operarioActual, operarioAnteriorData])
 
   const lineChartOperario = useMemo(() => {

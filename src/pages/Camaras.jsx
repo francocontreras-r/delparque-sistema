@@ -36,6 +36,7 @@ const TIPOS_PRODUCTO = [
 const MOTIVOS_INGRESO_CAMARA = ['Producción', 'Ajuste de inventario', 'Transferencia']
 const MOTIVOS_EGRESO_CAMARA  = ['Venta', 'Ajuste de inventario', 'Merma', 'Transferencia', 'Baja']
 const ROLES = ['operario', 'admin']
+const CAMARAS_NOMBRES = ['Cámara 1', 'Cámara 2', 'Cámara 3', 'Antecámara', 'Túnel de frío']
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,12 @@ function estadoBadgeVariant(baldes) {
 }
 
 function pesos(n) { return Math.round(n).toLocaleString('es-AR') }
+
+function estadoTemp(grados) {
+  if (grados > -15) return { label: '⚠️ TEMPERATURA ALTA', variant: 'danger',  color: '#ef4444' }
+  if (grados > -18) return { label: '⚠️ ATENCIÓN',         variant: 'warning', color: '#f59e0b' }
+  return                   { label: '✅ OK',                variant: 'success', color: '#22c55e' }
+}
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
@@ -908,11 +915,22 @@ export default function Camaras() {
   const [filtroMovFecha, setFiltroMovFecha] = useState(new Date().toISOString().split('T')[0])
   const [filtroMovTipo, setFiltroMovTipo]   = useState('')
 
+  const [operarios, setOperarios]           = useState([])
+  const [temperaturas, setTemperaturas]     = useState([])
+  const [loadingTemps, setLoadingTemps]     = useState(false)
+  const [savingTemp, setSavingTemp]         = useState(false)
+  const [filtroTempCamara, setFiltroTempCamara] = useState('')
+  const [filtroTempFecha, setFiltroTempFecha]   = useState(new Date().toISOString().split('T')[0])
+  const [tempForm, setTempForm]             = useState({ camara: 'Cámara 1', grados: '', responsable: '', observaciones: '' })
+
   const showVal = userRole === 'admin'
 
   useEffect(() => {
     async function cargar() {
-      const { data, error } = await supabase.from('stock_camaras').select('*').order('tipo', { ascending: true })
+      const [{ data, error }, { data: ops }] = await Promise.all([
+        supabase.from('stock_camaras').select('*').order('tipo', { ascending: true }),
+        supabase.from('operarios').select('id,nombre').eq('activo', true).order('nombre'),
+      ])
       if (error) { setErrorCarga(error.message); setLoading(false); return }
       const agrupados = {}
       ;(data || []).forEach(item => {
@@ -925,6 +943,7 @@ export default function Camaras() {
         }
       })
       setStock(Object.values(agrupados))
+      setOperarios(ops || [])
       setLoading(false)
     }
     cargar()
@@ -937,6 +956,10 @@ export default function Camaras() {
   useEffect(() => {
     if (tabCamara === 'movimientos') cargarMovimientos()
   }, [tabCamara, filtroMovFecha, filtroMovTipo])
+
+  useEffect(() => {
+    if (tabCamara === 'temperaturas') cargarTemperaturas()
+  }, [tabCamara, filtroTempCamara, filtroTempFecha]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function cargarMovimientos() {
     setLoadingMovs(true)
@@ -989,6 +1012,87 @@ export default function Camaras() {
   function mostrarToast(msg, type = 'ok') {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3000)
+  }
+
+  async function cargarTemperaturas() {
+    setLoadingTemps(true)
+    let q = supabase.from('temperaturas_camaras')
+      .select('*').order('created_at', { ascending: false }).limit(50)
+    if (filtroTempCamara) q = q.eq('camara', filtroTempCamara)
+    if (filtroTempFecha) {
+      q = q.gte('created_at', filtroTempFecha + 'T00:00:00')
+            .lte('created_at', filtroTempFecha + 'T23:59:59')
+    }
+    const { data } = await q
+    setTemperaturas(data || [])
+    setLoadingTemps(false)
+  }
+
+  async function registrarTemperatura() {
+    const grados = parseFloat(tempForm.grados)
+    if (isNaN(grados)) { mostrarToast('Ingresá una temperatura válida', 'error'); return }
+    if (!tempForm.responsable) { mostrarToast('Seleccioná un responsable', 'error'); return }
+    setSavingTemp(true)
+    const { error } = await supabase.from('temperaturas_camaras').insert({
+      camara: tempForm.camara,
+      temperatura: grados,
+      responsable: tempForm.responsable,
+      observaciones: tempForm.observaciones || null,
+    })
+    setSavingTemp(false)
+    if (error) { mostrarToast(error.message, 'error'); return }
+    mostrarToast(`Temperatura ${grados}°C registrada en ${tempForm.camara}`)
+    setTempForm(f => ({ ...f, grados: '', observaciones: '' }))
+    cargarTemperaturas()
+  }
+
+  function exportarTemperaturasPDF() {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    const pw = doc.internal.pageSize.getWidth()
+    const fecha = filtroTempFecha || new Date().toISOString().split('T')[0]
+    doc.setFontSize(13); doc.setTextColor(40, 40, 40)
+    doc.text('Del Parque — Registro de Temperaturas de Cámaras', pw / 2, 14, { align: 'center' })
+    doc.setFontSize(8.5); doc.setTextColor(120, 120, 120)
+    doc.text(`Período: ${fecha}  ·  Emitido: ${new Date().toLocaleString('es-AR')}`, pw / 2, 20, { align: 'center' })
+    doc.text('Planilla para control de Salud Pública', pw / 2, 25, { align: 'center' })
+    autoTable(doc, {
+      startY: 30,
+      head: [['Fecha', 'Hora', 'Cámara', 'Temperatura', 'Estado', 'Responsable', 'Observaciones', 'Firma']],
+      body: temperaturas.map(t => {
+        const d = new Date(t.created_at)
+        const est = estadoTemp(t.temperatura)
+        return [
+          d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+          d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+          t.camara,
+          `${t.temperatura}°C`,
+          est.label.replace('⚠️ ', '').replace('✅ ', ''),
+          t.responsable || '—',
+          t.observaciones || '',
+          '',
+        ]
+      }),
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [212, 82, 26], textColor: 255 },
+      columnStyles: { 7: { cellWidth: 22 } },
+      didParseCell(data) {
+        if (data.section !== 'body' || data.column.index !== 4) return
+        const t = temperaturas[data.row.index]
+        if (!t) return
+        const est = estadoTemp(t.temperatura)
+        if (est.variant === 'danger')  data.cell.styles.textColor = [220, 38, 38]
+        else if (est.variant === 'warning') data.cell.styles.textColor = [217, 119, 6]
+        else data.cell.styles.textColor = [22, 163, 74]
+      },
+    })
+    const finalY = (doc.lastAutoTable?.finalY || 30) + 20
+    doc.setFontSize(8); doc.setTextColor(80, 80, 80)
+    ;['Responsable de Cámaras · Firma y fecha', 'Supervisor · Firma y fecha', 'Control de Calidad'].forEach((label, i) => {
+      const x = 14 + i * 62
+      doc.line(x, finalY, x + 54, finalY)
+      doc.text(label, x + 27, finalY + 5, { align: 'center' })
+    })
+    doc.save(`temperaturas_camaras_${fecha}.pdf`)
   }
 
   const stockTipo = useMemo(() => (
@@ -1115,7 +1219,7 @@ export default function Camaras() {
 
       {/* Tabs */}
       <div className="flex gap-1.5">
-        {[{ key: 'stock', label: 'Stock' }, { key: 'movimientos', label: 'Movimientos' }].map(t => (
+        {[{ key: 'stock', label: 'Stock' }, { key: 'movimientos', label: 'Movimientos' }, { key: 'temperaturas', label: '🌡️ Temperaturas' }].map(t => (
           <button key={t.key} onClick={() => setTabCamara(t.key)}
             className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border"
             style={{
@@ -1357,6 +1461,167 @@ export default function Camaras() {
       )}
 
       </>}
+
+      {/* Tab Temperaturas */}
+      {tabCamara === 'temperaturas' && (() => {
+        const hoy = new Date().toISOString().split('T')[0]
+        const tempsHoy = temperaturas.filter(t => (t.created_at || '').startsWith(hoy))
+        const promedioHoy = tempsHoy.length > 0
+          ? (tempsHoy.reduce((a, t) => a + t.temperatura, 0) / tempsHoy.length).toFixed(1)
+          : null
+        const alertasHoy = tempsHoy.filter(t => t.temperatura > -15).length
+        return (
+          <div className="space-y-4">
+
+            {/* Formulario de registro */}
+            <div className="p-4 space-y-3 rounded-xl" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+              <h3 className="text-sm font-semibold" style={{ color: colors.textPrimary }}>Registrar temperatura</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: colors.textMuted }}>Cámara *</label>
+                  <select
+                    value={tempForm.camara}
+                    onChange={e => setTempForm(f => ({ ...f, camara: e.target.value }))}
+                    className="w-full rounded-lg border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+                    style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
+                  >
+                    {CAMARAS_NOMBRES.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: colors.textMuted }}>Temperatura (°C) *</label>
+                  <input
+                    type="number" step="0.1" placeholder="ej: -18.5"
+                    value={tempForm.grados}
+                    onChange={e => setTempForm(f => ({ ...f, grados: e.target.value }))}
+                    className="w-full rounded-lg border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+                    style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
+                  />
+                  {tempForm.grados !== '' && !isNaN(parseFloat(tempForm.grados)) && (() => {
+                    const est = estadoTemp(parseFloat(tempForm.grados))
+                    return (
+                      <p className="text-xs mt-1 font-semibold" style={{ color: est.color }}>
+                        {est.label}
+                      </p>
+                    )
+                  })()}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: colors.textMuted }}>Responsable *</label>
+                  <select
+                    value={tempForm.responsable}
+                    onChange={e => setTempForm(f => ({ ...f, responsable: e.target.value }))}
+                    className="w-full rounded-lg border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+                    style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
+                  >
+                    <option value="">— Seleccionar —</option>
+                    {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: colors.textMuted }}>Observaciones</label>
+                  <input
+                    type="text" placeholder="Opcional"
+                    value={tempForm.observaciones}
+                    onChange={e => setTempForm(f => ({ ...f, observaciones: e.target.value }))}
+                    className="w-full rounded-lg border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+                    style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button variant="primary" onClick={registrarTemperatura} loading={savingTemp} disabled={savingTemp}>
+                  Registrar temperatura
+                </Button>
+              </div>
+            </div>
+
+            {/* KPIs del día */}
+            <div className="grid grid-cols-3 gap-3">
+              <KpiCard label="Registros hoy" value={tempsHoy.length} color={colors.brand} />
+              <KpiCard label="Temperatura promedio" value={promedioHoy !== null ? `${promedioHoy}°C` : '—'}
+                color={promedioHoy !== null ? estadoTemp(parseFloat(promedioHoy)).color : colors.textMuted} />
+              <KpiCard label="Alertas del día" value={alertasHoy}
+                color={alertasHoy > 0 ? colors.danger : colors.success} />
+            </div>
+
+            {/* Filtros + export */}
+            <div className="flex flex-wrap items-center gap-3 justify-between">
+              <div className="flex gap-2 flex-wrap">
+                <select
+                  value={filtroTempCamara}
+                  onChange={e => setFiltroTempCamara(e.target.value)}
+                  className="rounded-lg border text-sm px-3 py-1.5 outline-none"
+                  style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.surface }}
+                >
+                  <option value="">Todas las cámaras</option>
+                  {CAMARAS_NOMBRES.map(c => <option key={c}>{c}</option>)}
+                </select>
+                <input
+                  type="date" value={filtroTempFecha}
+                  onChange={e => setFiltroTempFecha(e.target.value)}
+                  className="rounded-lg border text-sm px-3 py-1.5 outline-none"
+                  style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.surface }}
+                />
+              </div>
+              <Button variant="secondary" size="sm" onClick={exportarTemperaturasPDF} disabled={temperaturas.length === 0}>
+                <FileDown size={14} /> Exportar PDF (Salud Pública)
+              </Button>
+            </div>
+
+            {/* Historial */}
+            {loadingTemps ? (
+              <div className="flex justify-center py-10"><span className="text-sm" style={{ color: colors.textMuted }}>Cargando…</span></div>
+            ) : temperaturas.length === 0 ? (
+              <div className="py-10 text-center text-sm" style={{ color: colors.textMuted }}>Sin registros para el período seleccionado</div>
+            ) : (
+              <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[680px]">
+                    <thead>
+                      <tr style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                        {['Fecha/Hora', 'Cámara', 'Temperatura', 'Estado', 'Responsable', 'Observaciones'].map(h => (
+                          <th key={h} className="py-2.5 px-4 text-left font-semibold uppercase"
+                            style={{ fontSize: 10, color: colors.textMuted, letterSpacing: '0.07em' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {temperaturas.map((t, idx) => {
+                        const est = estadoTemp(t.temperatura)
+                        return (
+                          <tr key={t.id || idx} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                            <td className="py-2.5 px-4 text-xs whitespace-nowrap" style={{ color: colors.textMuted }}>
+                              {t.created_at
+                                ? new Date(t.created_at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                                : '—'}
+                            </td>
+                            <td className="py-2.5 px-4 text-sm font-medium" style={{ color: colors.textPrimary }}>{t.camara}</td>
+                            <td className="py-2.5 px-4 text-sm font-bold" style={{ color: est.color }}>
+                              {t.temperatura}°C
+                            </td>
+                            <td className="py-2.5 px-4">
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
+                                style={{
+                                  backgroundColor: est.variant === 'danger' ? 'rgba(239,68,68,0.12)' : est.variant === 'warning' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
+                                  color: est.color,
+                                }}>
+                                {est.label}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-4 text-xs" style={{ color: colors.textSecondary }}>{t.responsable || '—'}</td>
+                            <td className="py-2.5 px-4 text-xs" style={{ color: colors.textMuted }}>{t.observaciones || '—'}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Modal */}
       {modalDetalle && (

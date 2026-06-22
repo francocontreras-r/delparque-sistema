@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { useUser } from '../context/UserContext'
 import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
 import Input from '../components/ui/Input'
@@ -31,6 +32,51 @@ function pesos(n) { return Math.round(n || 0).toLocaleString('es-AR') }
 function fmtFecha(iso) {
   if (!iso) return null
   return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+// ── Modal renombrar ───────────────────────────────────────────────────────────
+function ModalRenombrar({ receta, onClose, onSubmit, saving }) {
+  const [nombre, setNombre] = useState(receta.nombre)
+  return (
+    <Modal open onClose={onClose} title={`Renombrar — ${receta.nombre}`} maxWidth="max-w-sm"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">Cancelar</Button>
+          <Button variant="primary" onClick={() => onSubmit(nombre.trim())} loading={saving}
+            disabled={!nombre.trim() || nombre.trim() === receta.nombre} className="flex-1">
+            {saving ? 'Guardando…' : 'Guardar nombre'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Input label="Nuevo nombre *" value={nombre} onChange={e => setNombre(e.target.value)} />
+        <p className="text-xs" style={{ color: colors.textMuted }}>
+          También se actualizará en Stock de Cámaras y en Producciones.
+        </p>
+      </div>
+    </Modal>
+  )
+}
+
+function ModalConfEliminar({ receta, onClose, onConfirm, saving }) {
+  return (
+    <Modal open onClose={onClose} title="Eliminar receta" maxWidth="max-w-sm"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">Cancelar</Button>
+          <Button variant="danger" onClick={onConfirm} loading={saving} className="flex-1">
+            {saving ? 'Eliminando…' : 'Sí, eliminar'}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm" style={{ color: colors.textPrimary }}>
+        ¿Eliminar receta <strong>{receta.nombre}</strong>? Se eliminarán todos sus ingredientes.
+        Esta acción no se puede deshacer.
+      </p>
+    </Modal>
+  )
 }
 
 // ── Modal de edición ──────────────────────────────────────────────────────────
@@ -310,6 +356,11 @@ export default function Recetas() {
   const [editando, setEditando] = useState(null)   // { receta, tipo, rawIngs }
   const [recalculando, setRecalculando] = useState(false)
   const [toast, setToast]       = useState(null)
+  const { isAdmin } = useUser()
+  const [renombrando, setRenombrando] = useState(null) // { receta, tipo }
+  const [savingRename, setSavingRename] = useState(false)
+  const [eliminando, setEliminando] = useState(null)   // { receta, tipo }
+  const [savingDelete, setSavingDelete] = useState(false)
 
   useEffect(() => { cargar() }, [])
 
@@ -486,6 +537,38 @@ export default function Recetas() {
     setEditando({ receta, tipo: tab, rawIngs: rawMap[tab] || [] })
   }
 
+  async function renombrarReceta(nuevoNombre) {
+    if (!renombrando) return
+    const { receta, tipo } = renombrando
+    const tablaP = tipo === 'Bases' ? 'bases' : tipo === 'Sabores' ? 'sabores' : 'impulsivos'
+    const nombreAntiguo = receta.nombre
+    setSavingRename(true)
+    const { error } = await supabase.from(tablaP).update({ nombre: nuevoNombre }).eq('id', receta.id)
+    if (error) { setSavingRename(false); showToast(error.message, 'error'); return }
+    await supabase.from('stock_camaras').update({ nombre: nuevoNombre.toUpperCase() }).ilike('nombre', nombreAntiguo)
+    await supabase.from('producciones').update({ producto_nombre: nuevoNombre.toUpperCase() }).ilike('producto_nombre', nombreAntiguo)
+    setSavingRename(false)
+    setRenombrando(null)
+    showToast('Nombre actualizado en recetas y cámaras')
+    cargar()
+  }
+
+  async function eliminarReceta() {
+    if (!eliminando) return
+    const { receta, tipo } = eliminando
+    const tablaIng = tipo === 'Bases' ? 'base_ingredientes' : tipo === 'Sabores' ? 'sabor_ingredientes' : 'impulsivo_ingredientes'
+    const tablaP   = tipo === 'Bases' ? 'bases'             : tipo === 'Sabores' ? 'sabores'             : 'impulsivos'
+    const fk       = tipo === 'Bases' ? 'base_id'           : tipo === 'Sabores' ? 'sabor_id'            : 'impulsivo_id'
+    setSavingDelete(true)
+    await supabase.from(tablaIng).delete().eq(fk, receta.id)
+    const { error } = await supabase.from(tablaP).delete().eq('id', receta.id)
+    setSavingDelete(false)
+    if (error) { showToast(error.message, 'error'); return }
+    setEliminando(null)
+    showToast(`"${receta.nombre}" eliminada`)
+    cargar()
+  }
+
   return (
     <div className="space-y-5">
       <Toast toast={toast} />
@@ -571,6 +654,22 @@ export default function Recetas() {
                         style={{ backgroundColor: '#fff7ed', color: colors.brand, border: `1px solid #fed7aa` }}>
                         <Edit2 size={11} /> Editar
                       </button>
+                    )}
+                    {tab !== 'Postres' && isAdmin && (
+                      <>
+                        <button
+                          onClick={e => { e.stopPropagation(); setRenombrando({ receta: r, tipo: tab }) }}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
+                          style={{ backgroundColor: 'rgba(96,165,250,0.1)', color: '#60A5FA', border: '1px solid rgba(96,165,250,0.3)' }}>
+                          ✏️ Renombrar
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); setEliminando({ receta: r, tipo: tab }) }}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
+                          style={{ backgroundColor: 'rgba(239,68,68,0.1)', color: colors.danger, border: '1px solid rgba(239,68,68,0.3)' }}>
+                          🗑️ Eliminar
+                        </button>
+                      </>
                     )}
                     {abierta
                       ? <ChevronUp size={16} style={{ color: colors.textMuted }} />
@@ -674,6 +773,22 @@ export default function Recetas() {
           onClose={() => setEditando(null)}
           onSaved={() => cargar()}
           showToast={showToast}
+        />
+      )}
+      {renombrando && (
+        <ModalRenombrar
+          receta={renombrando.receta}
+          onClose={() => setRenombrando(null)}
+          onSubmit={renombrarReceta}
+          saving={savingRename}
+        />
+      )}
+      {eliminando && (
+        <ModalConfEliminar
+          receta={eliminando.receta}
+          onClose={() => setEliminando(null)}
+          onConfirm={eliminarReceta}
+          saving={savingDelete}
         />
       )}
     </div>

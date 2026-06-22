@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown, FileDown, Plus } from 'lucide-react'
+import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown, FileDown, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { deduplicarOperarios } from '../lib/operarios'
+import { useUser } from '../context/UserContext'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 const logoUrl = '/logo_delparque.png'
@@ -34,8 +35,8 @@ const TIPOS_PRODUCTO = [
   { key: 'impulsivo', label: 'Impulsivos' },
   { key: 'postre',    label: 'Postres' },
 ]
-const MOTIVOS_INGRESO_CAMARA = ['Producción', 'Ajuste de inventario', 'Transferencia']
-const MOTIVOS_EGRESO_CAMARA  = ['Venta', 'Ajuste de inventario', 'Merma', 'Transferencia', 'Baja']
+const MOTIVOS_INGRESO_CAMARA = ['Producción', 'Ajuste de inventario', 'Transferencia', 'Devolución']
+const MOTIVOS_EGRESO_CAMARA  = ['Venta', 'Ajuste de inventario', 'Merma', 'Transferencia', 'Baja', 'Producción']
 const ROLES = ['operario', 'admin']
 const CAMARAS_NOMBRES = ['Cámara 1', 'Cámara 2', 'Cámara 3', 'Antecámara', 'Túnel de frío']
 
@@ -75,7 +76,7 @@ function SkeletonCard() {
 
 // ── Tarjeta grilla ────────────────────────────────────────────────────────────
 
-function TarjetaSabor({ item, onClick, showVal }) {
+function TarjetaSabor({ item, onClick, showVal, onDelete }) {
   const e    = estadoSabor(item.baldes)
   const tb   = TIPO_BADGE[item.tipo] || { bg: 'rgba(100,116,139,0.12)', color: '#94A3B8' }
   const esImp  = (item.tipo_producto || '') === 'impulsivo'
@@ -88,7 +89,7 @@ function TarjetaSabor({ item, onClick, showVal }) {
       onClick={() => onClick(item)}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
-      className="text-left transition-all duration-150 w-full"
+      className="text-left transition-all duration-150 w-full relative group"
       style={{
         backgroundColor: colors.surface,
         borderRadius: radius.lg,
@@ -140,13 +141,22 @@ function TarjetaSabor({ item, onClick, showVal }) {
         </span>
         <Badge variant={estadoBadgeVariant(item.baldes)} className="!text-[10px] !px-1.5 !py-0.5">{e.label}</Badge>
       </div>
+      {onDelete && (
+        <button
+          onClick={ev => { ev.stopPropagation(); onDelete(item) }}
+          className="absolute top-1.5 right-1.5 w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#ef4444' }}
+          title="Eliminar">
+          <Trash2 size={11} />
+        </button>
+      )}
     </button>
   )
 }
 
 // ── Fila tabla lista ──────────────────────────────────────────────────────────
 
-function FilaLista({ item, onClick, showVal, esImpGrupo, esPostGrupo }) {
+function FilaLista({ item, onClick, showVal, esImpGrupo, esPostGrupo, onDelete }) {
   const e = estadoSabor(item.baldes)
   const precioKg = item.precio_kg || TIPO_PRECIOS[item.tipo]?.precio_kg
   const esUnidades = esImpGrupo || esPostGrupo
@@ -196,13 +206,24 @@ function FilaLista({ item, onClick, showVal, esImpGrupo, esPostGrupo }) {
       <td className="py-3 px-4">
         <Badge variant={estadoBadgeVariant(item.baldes)}>{e.label}</Badge>
       </td>
+      {onDelete && (
+        <td className="py-3 px-2">
+          <button
+            onClick={e => { e.stopPropagation(); onDelete(item) }}
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-[rgba(239,68,68,0.12)] transition-colors"
+            style={{ color: '#ef4444' }}
+            title="Eliminar">
+            <Trash2 size={13} />
+          </button>
+        </td>
+      )}
     </tr>
   )
 }
 
 // ── Grupo lista ───────────────────────────────────────────────────────────────
 
-function GrupoLista({ tipo, items, onSelect, showVal }) {
+function GrupoLista({ tipo, items, onSelect, showVal, onDelete }) {
   const tb         = TIPO_BADGE[tipo] || { bg: 'rgba(100,116,139,0.12)', color: '#94A3B8' }
   const esImpGrupo  = items[0]?.tipo_producto === 'impulsivo'
   const esPostGrupo = items[0]?.tipo_producto === 'postre'
@@ -239,7 +260,7 @@ function GrupoLista({ tipo, items, onSelect, showVal }) {
         </thead>
         <tbody>
           {items.map(item => (
-            <FilaLista key={item.id} item={item} onClick={onSelect} showVal={showVal} esImpGrupo={esImpGrupo} esPostGrupo={esPostGrupo} />
+            <FilaLista key={item.id} item={item} onClick={onSelect} showVal={showVal} esImpGrupo={esImpGrupo} esPostGrupo={esPostGrupo} onDelete={onDelete} />
           ))}
         </tbody>
       </table>
@@ -249,7 +270,7 @@ function GrupoLista({ tipo, items, onSelect, showVal }) {
 
 // ── Modal movimiento ──────────────────────────────────────────────────────────
 
-function ModalMovimiento({ item, onClose, onApply }) {
+function ModalMovimiento({ item, onClose, onApply, operariosDisponibles = [], stockImpPost = [] }) {
   const [tipoMov, setTipoMov]       = useState('ingreso')
   const [cantBaldes, setCantBaldes] = useState('')
   const [cantKg, setCantKg]         = useState('')
@@ -257,6 +278,8 @@ function ModalMovimiento({ item, onClose, onApply }) {
   const [lote, setLote]             = useState(item.lote || '')
   const [saving, setSaving]         = useState(false)
   const [errorMsg, setErrorMsg]     = useState(null)
+  const [operarioSolicita, setOperarioSolicita] = useState('')
+  const [productoElaborado, setProductoElaborado] = useState('')
 
   const esImp  = (item?.tipo_producto || '') === 'impulsivo'
   const esPost = (item?.tipo_producto || '') === 'postre'
@@ -275,10 +298,25 @@ function ModalMovimiento({ item, onClose, onApply }) {
   async function handleApply() {
     const b = parseInt(cantBaldes)
     const k = parseFloat(cantKg)
-    if (!b || b <= 0) return
+    if (!b || b <= 0) { setErrorMsg('La cantidad debe ser mayor a 0'); return }
+    if (!motivo) { setErrorMsg('Seleccioná un motivo'); return }
+    if (tipoMov === 'egreso' && motivo === 'Producción' && !productoElaborado) {
+      setErrorMsg('Seleccioná el producto elaborado'); return
+    }
+    if (tipoMov === 'egreso' && motivo === 'Producción' && !operarioSolicita) {
+      setErrorMsg('Seleccioná el operario que solicita'); return
+    }
     setSaving(true)
     setErrorMsg(null)
-    const err = await onApply({ id: item.id, tipo: tipoMov, baldes: b, kg: isNaN(k) ? 0 : k, motivo, lote: lote.trim() })
+    const motivoFinal = motivo === 'Producción' && productoElaborado
+      ? `Producción → ${productoElaborado}`
+      : motivo
+    const err = await onApply({
+      id: item.id, tipo: tipoMov, baldes: b, kg: isNaN(k) ? 0 : k,
+      motivo: motivoFinal, lote: lote.trim(),
+      operarioNombre: operarioSolicita || null,
+      productoElaborado: productoElaborado || null,
+    })
     if (err) { setErrorMsg(err); setSaving(false) }
   }
 
@@ -298,7 +336,7 @@ function ModalMovimiento({ item, onClose, onApply }) {
             variant="primary"
             onClick={handleApply}
             loading={saving}
-            disabled={!cantBaldes || parseInt(cantBaldes) <= 0}
+            disabled={!cantBaldes || parseInt(cantBaldes) <= 0 || !motivo}
             className="flex-1"
           >
             {saving ? 'Guardando…' : 'Confirmar'}
@@ -351,9 +389,23 @@ function ModalMovimiento({ item, onClose, onApply }) {
         <Input label="Número de lote" type="text" value={lote} disabled={saving}
           onChange={ev => setLote(ev.target.value)} placeholder="Opcional" />
 
-        <Select label="Motivo" value={motivo} onChange={ev => setMotivo(ev.target.value)} disabled={saving}>
+        <Select label="Motivo *" value={motivo} onChange={ev => { setMotivo(ev.target.value); setProductoElaborado(''); setOperarioSolicita('') }} disabled={saving}>
+          <option value="">— Seleccionar —</option>
           {(tipoMov === 'ingreso' ? MOTIVOS_INGRESO_CAMARA : MOTIVOS_EGRESO_CAMARA).map(m => <option key={m}>{m}</option>)}
         </Select>
+
+        {tipoMov === 'egreso' && motivo === 'Producción' && (
+          <div className="space-y-2 p-3 rounded-lg" style={{ backgroundColor: 'rgba(212,82,26,0.06)', border: '1px solid rgba(212,82,26,0.2)' }}>
+            <Select label="Producto elaborado *" value={productoElaborado} onChange={ev => setProductoElaborado(ev.target.value)} disabled={saving}>
+              <option value="">— Seleccionar —</option>
+              {stockImpPost.map(s => <option key={s.id} value={s.nombre}>{s.nombre}</option>)}
+            </Select>
+            <Select label="Operario que solicita *" value={operarioSolicita} onChange={ev => setOperarioSolicita(ev.target.value)} disabled={saving}>
+              <option value="">— Seleccionar —</option>
+              {operariosDisponibles.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+            </Select>
+          </div>
+        )}
 
         {cantBaldes && parseInt(cantBaldes) > 0 && (
           <div className="rounded-lg px-4 py-3 text-sm font-semibold text-center"
@@ -375,6 +427,63 @@ function ModalMovimiento({ item, onClose, onApply }) {
             style={{ backgroundColor: colors.dangerBg, color: colors.danger }}>
             {errorMsg}
           </div>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+function ModalAgregarProducto({ onClose, onSubmit, saving }) {
+  const [form, setForm] = useState({
+    nombre: '', tipo_producto: 'helado', tipo: 'Lisa', baldes: '0', kg: '0', lote: '',
+  })
+  const [err, setErr] = useState('')
+  const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const esImp = form.tipo_producto === 'impulsivo'
+
+  function handleGuardar() {
+    if (!form.nombre.trim()) { setErr('El nombre es requerido'); return }
+    setErr('')
+    onSubmit(form)
+  }
+
+  return (
+    <Modal open onClose={onClose} title="＋ Agregar producto a cámara" maxWidth="max-w-sm"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">Cancelar</Button>
+          <Button variant="primary" onClick={handleGuardar} loading={saving} className="flex-1">
+            {saving ? 'Guardando…' : 'Guardar'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Input label="Nombre *" value={form.nombre} onChange={e => upd('nombre', e.target.value)} placeholder="Se guardará en MAYÚSCULAS" />
+        <Select label="Tipo de producto *" value={form.tipo_producto} onChange={e => upd('tipo_producto', e.target.value)}>
+          <option value="helado">Helado</option>
+          <option value="impulsivo">Impulsivo</option>
+          <option value="postre">Postre</option>
+        </Select>
+        {form.tipo_producto === 'helado' && (
+          <Select label="Tipo elaboración" value={form.tipo} onChange={e => upd('tipo', e.target.value)}>
+            {['Lisa', 'Con Agregado', 'Agua', 'Especial'].map(t => <option key={t}>{t}</option>)}
+          </Select>
+        )}
+        <div className={esImp ? '' : 'grid grid-cols-2 gap-3'}>
+          <Input label={esImp ? 'Stock inicial (unidades)' : 'Stock inicial (baldes)'}
+            type="number" min="0" value={form.baldes} onChange={e => upd('baldes', e.target.value)} />
+          {!esImp && (
+            <Input label="Stock inicial (kg)" type="number" min="0" step="0.1"
+              value={form.kg} onChange={e => upd('kg', e.target.value)} />
+          )}
+        </div>
+        <Input label="Lote (opcional)" value={form.lote} onChange={e => upd('lote', e.target.value)} placeholder="Opcional" />
+        {err && (
+          <p className="text-xs text-center py-1.5 rounded-lg"
+            style={{ color: colors.danger, backgroundColor: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.2)' }}>
+            {err}
+          </p>
         )}
       </div>
     </Modal>
@@ -924,7 +1033,10 @@ export default function Camaras() {
   const [filtroTempFecha, setFiltroTempFecha]   = useState(new Date().toISOString().split('T')[0])
   const [tempForm, setTempForm]             = useState({ camara: 'Cámara 1', grados: '', responsable: '', observaciones: '' })
 
+  const { isAdmin } = useUser()
   const showVal = userRole === 'admin'
+  const [modalAgregar, setModalAgregar] = useState(false)
+  const [savingAgregar, setSavingAgregar] = useState(false)
 
   useEffect(() => {
     async function cargar() {
@@ -1013,6 +1125,55 @@ export default function Camaras() {
   function mostrarToast(msg, type = 'ok') {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3000)
+  }
+
+  async function recargarStock() {
+    const { data } = await supabase.from('stock_camaras').select('*').order('tipo', { ascending: true })
+    if (data) {
+      const agrupados = {}
+      data.forEach(item => {
+        const key = item.nombre.trim().toUpperCase()
+        if (agrupados[key]) { agrupados[key].kg += item.kg || 0; agrupados[key].baldes += item.baldes || 0 }
+        else agrupados[key] = { ...item }
+      })
+      setStock(Object.values(agrupados))
+    }
+  }
+
+  async function agregarProducto(form) {
+    setSavingAgregar(true)
+    const nombre = form.nombre.trim().toUpperCase()
+    const { error } = await supabase.from('stock_camaras').insert({
+      nombre,
+      tipo_producto: form.tipo_producto,
+      tipo: form.tipo_producto === 'helado' ? form.tipo : null,
+      baldes: parseInt(form.baldes) || 0,
+      kg: form.tipo_producto === 'impulsivo' ? 0 : (parseFloat(form.kg) || 0),
+      lote: form.lote?.trim() || null,
+      ultima_actualizacion: new Date().toISOString(),
+    })
+    setSavingAgregar(false)
+    if (error) { mostrarToast(error.message, 'error'); return }
+    mostrarToast(`"${nombre}" agregado a cámaras`)
+    setModalAgregar(false)
+    recargarStock()
+  }
+
+  async function eliminarProducto(item) {
+    if (!window.confirm(`¿Eliminar "${item.nombre}" de cámaras?`)) return
+    const { count } = await supabase.from('movimientos_camara')
+      .select('id', { count: 'exact', head: true })
+      .ilike('sabor_nombre', item.nombre)
+    if ((count || 0) > 0) {
+      const { error } = await supabase.from('stock_camaras').update({ baldes: 0, kg: 0 }).eq('id', item.id)
+      if (error) { mostrarToast(error.message, 'error'); return }
+      mostrarToast(`"${item.nombre}" puesto en cero (tiene movimientos previos)`)
+    } else {
+      const { error } = await supabase.from('stock_camaras').delete().eq('id', item.id)
+      if (error) { mostrarToast(error.message, 'error'); return }
+      mostrarToast(`"${item.nombre}" eliminado`)
+    }
+    recargarStock()
   }
 
   async function cargarTemperaturas() {
@@ -1145,16 +1306,29 @@ export default function Camaras() {
       .filter(g => g.items.length > 0)
   }, [filtrado, filtroTipoProducto])
 
-  async function aplicarMovimiento({ id, tipo, baldes, kg, lote }) {
+  async function aplicarMovimiento({ id, tipo, baldes, kg, lote, motivo, operarioNombre, productoElaborado }) {
     const sabor = stock.find(s => s.id === id)
     if (!sabor) return 'Sabor no encontrado'
     const nuevoBaldes = tipo === 'ingreso' ? sabor.baldes + baldes : Math.max(0, sabor.baldes - baldes)
     const nuevosKg    = tipo === 'ingreso' ? sabor.kg + kg         : Math.max(0, sabor.kg - kg)
     const nuevoLote   = lote || null
     const { error } = await supabase.from('stock_camaras')
-      .update({ baldes: nuevoBaldes, kg: nuevosKg, lote: nuevoLote, updated_at: new Date().toISOString() })
+      .update({ baldes: nuevoBaldes, kg: nuevosKg, lote: nuevoLote, ultima_actualizacion: new Date().toISOString() })
       .eq('id', id)
     if (error) return error.message
+    await supabase.from('movimientos_camara').insert({
+      sabor_nombre:    sabor.nombre,
+      producto_nombre: sabor.nombre,
+      tipo,
+      tipo_producto:   sabor.tipo_producto || 'helado',
+      kg:     kg || 0,
+      baldes,
+      lote:   nuevoLote,
+      operario_nombre: operarioNombre || null,
+      motivo: motivo || null,
+      fecha:  new Date().toISOString().split('T')[0],
+      created_at: new Date().toISOString(),
+    })
     const updated = { ...sabor, baldes: nuevoBaldes, kg: nuevosKg, lote: nuevoLote }
     setStock(prev => prev.map(s => s.id === id ? updated : s))
     setModalDetalle(prev => prev?.id === id ? updated : prev)
@@ -1201,6 +1375,11 @@ export default function Camaras() {
           {userRole === 'admin' && (
             <Button variant="secondary" onClick={imprimirStockActual} disabled={loading || !!errorCarga}>
               <FileDown size={15} /> Stock Actual
+            </Button>
+          )}
+          {isAdmin && (
+            <Button variant="primary" onClick={() => setModalAgregar(true)} disabled={loading}>
+              <Plus size={14} /> Agregar producto
             </Button>
           )}
           <div className="flex items-center rounded-lg overflow-hidden" style={{ border: `1px dashed ${colors.border}` }} title="Vista dev">
@@ -1442,7 +1621,7 @@ export default function Camaras() {
           {loading
             ? Array.from({ length: 18 }).map((_, i) => <SkeletonCard key={i} />)
             : filtrado.map(item => (
-                <TarjetaSabor key={item.id} item={item} onClick={setModalDetalle} showVal={showVal} />
+                <TarjetaSabor key={item.id} item={item} onClick={setModalDetalle} showVal={showVal} onDelete={isAdmin ? eliminarProducto : undefined} />
               ))
           }
         </div>
@@ -1456,7 +1635,7 @@ export default function Camaras() {
             ))}</div>
           : <div>
               {agrupado.map(({ tipo, items }) => (
-                <GrupoLista key={tipo} tipo={tipo} items={items} onSelect={setModalDetalle} showVal={showVal} />
+                <GrupoLista key={tipo} tipo={tipo} items={items} onSelect={setModalDetalle} showVal={showVal} onDelete={isAdmin ? eliminarProducto : undefined} />
               ))}
             </div>
       )}
@@ -1633,7 +1812,20 @@ export default function Camaras() {
         />
       )}
       {modalItem && (
-        <ModalMovimiento item={modalItem} onClose={() => setModalItem(null)} onApply={aplicarMovimiento} />
+        <ModalMovimiento
+          item={modalItem}
+          onClose={() => setModalItem(null)}
+          onApply={aplicarMovimiento}
+          operariosDisponibles={operarios}
+          stockImpPost={stock.filter(s => s.tipo_producto === 'impulsivo' || s.tipo_producto === 'postre')}
+        />
+      )}
+      {modalAgregar && (
+        <ModalAgregarProducto
+          onClose={() => setModalAgregar(false)}
+          onSubmit={agregarProducto}
+          saving={savingAgregar}
+        />
       )}
     </div>
   )

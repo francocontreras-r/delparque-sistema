@@ -715,14 +715,14 @@ export default function Produccion() {
               <Select label="Producto *" value={manualProducto} onChange={e => { setManualProducto(e.target.value); setManualCantidad(''); setManualPesoTotal('') }}>
                 <option value="">Seleccionar producto...</option>
                 <optgroup label="Helados">
-                  {saboresCamara.filter(s => !s.tipo_producto || s.tipo_producto === 'helado').map(s => <option key={`sabor:${s.id}`} value={`sabor:${s.id}`}>{s.nombre}</option>)}
+                  {saboresCamara.filter(s => !s.tipo_producto || s.tipo_producto === 'helado').map(s => <option key={`sabor:${s.id}`} value={`sabor:${s.id}`}>{s.nombre.toUpperCase()}</option>)}
                 </optgroup>
                 <optgroup label="Impulsivos">
-                  {impulsivosList.map(i => <option key={`impulsivo:${i.id}`} value={`impulsivo:${i.id}`}>{i.nombre}</option>)}
+                  {impulsivosList.map(i => <option key={`impulsivo:${i.id}`} value={`impulsivo:${i.id}`}>{i.nombre.toUpperCase()}</option>)}
                 </optgroup>
                 {saboresCamara.filter(s => s.tipo_producto === 'postre').length > 0 && (
                   <optgroup label="Postres">
-                    {saboresCamara.filter(s => s.tipo_producto === 'postre').map(s => <option key={`sabor:${s.id}`} value={`sabor:${s.id}`}>{s.nombre}</option>)}
+                    {saboresCamara.filter(s => s.tipo_producto === 'postre').map(s => <option key={`sabor:${s.id}`} value={`sabor:${s.id}`}>{s.nombre.toUpperCase()}</option>)}
                   </optgroup>
                 )}
               </Select>

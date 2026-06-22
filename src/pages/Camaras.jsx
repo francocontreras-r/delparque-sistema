@@ -1540,7 +1540,13 @@ export default function Camaras() {
             {Object.entries(porTipo).map(([tipo, { baldes, kg }]) => (
               <div key={tipo} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textSecondary }}>
                 <span className="text-[10px] uppercase tracking-wide">{tipo}</span>
-                <span style={{ color: colors.brand }}>{baldes} baldes · {Number(kg).toFixed(1)} kg</span>
+                <span style={{ color: colors.brand }}>
+                  {filtroTipoProducto === 'impulsivo'
+                    ? `${baldes} unidades`
+                    : filtroTipoProducto === 'postre'
+                      ? `${baldes} unidades · ${Number(kg).toFixed(1)} kg`
+                      : `${baldes} baldes · ${Number(kg).toFixed(1)} kg`}
+                </span>
               </div>
             ))}
           </div>

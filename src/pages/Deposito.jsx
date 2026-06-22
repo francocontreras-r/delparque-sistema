@@ -2627,7 +2627,7 @@ export default function Deposito() {
                     <Table className="min-w-[900px]">
                       <Thead>
                         <Tr>
-                          <Th>PRODUCTO</Th><Th>TIPO</Th><Th>STOCK KG</Th><Th>BALDES/U.</Th>
+                          <Th>PRODUCTO</Th><Th>TIPO</Th><Th>STOCK KG</Th><Th>BALDES / UNIDADES</Th>
                           <Th>ING. PER.</Th><Th>EGR. PER.</Th><Th>LOTE</Th><Th>ESTADO</Th>
                         </Tr>
                       </Thead>
@@ -2638,7 +2638,8 @@ export default function Deposito() {
                         }).map(c => {
                           const est = estadoCamara(c)
                           const rowBg = est === 'AGOTADO' ? 'rgba(239,68,68,0.08)' : est === 'BAJO' ? 'rgba(245,158,11,0.08)' : 'transparent'
-                          const esImpC = (c.tipo_producto || '') === 'impulsivo'
+                          const esImpC  = (c.tipo_producto || '') === 'impulsivo'
+                          const esPostC = (c.tipo_producto || '') === 'postre'
                           const statsRow = statsCamaraCS[(c.nombre || '').trim().toLowerCase()] || {}
                           const movsProd = movsCamara.filter(m => {
                             const sn = (m.sabor_nombre || m.producto_nombre || '').trim().toLowerCase()
@@ -2658,14 +2659,18 @@ export default function Deposito() {
                                 </Badge>
                               </Td>
                               <Td className="text-right font-semibold">{esImpC ? '—' : `${(c.kg || 0).toFixed(1)} kg`}</Td>
-                              <Td className="text-right">{c.baldes || 0}{esImpC ? ' u.' : ' bal.'}</Td>
+                              <Td className="text-right">
+                                {c.baldes || 0}
+                                {esImpC ? ' u.' : esPostC ? ' u.' : ' bal.'}
+                                {esPostC && (c.kg || 0) > 0 ? <span className="text-[10px] ml-1" style={{ color: colors.textMuted }}>/ {(c.kg || 0).toFixed(1)} kg</span> : null}
+                              </Td>
                               <Td className="text-right text-xs" style={{ color: colors.success }}>
-                                {esImpC
+                                {(esImpC || esPostC)
                                   ? (statsRow.ingresosU || 0) > 0 ? `+${statsRow.ingresosU} u.` : '—'
                                   : (statsRow.ingresosKg || 0) > 0 ? `+${(statsRow.ingresosKg).toFixed(1)} kg` : '—'}
                               </Td>
                               <Td className="text-right text-xs" style={{ color: colors.danger }}>
-                                {esImpC
+                                {(esImpC || esPostC)
                                   ? (statsRow.egresosU || 0) > 0 ? `-${statsRow.egresosU} u.` : '—'
                                   : (statsRow.egresosKg || 0) > 0 ? `-${(statsRow.egresosKg).toFixed(1)} kg` : '—'}
                               </Td>

@@ -1331,10 +1331,10 @@ export default function Camaras() {
       {tabCamara === 'stock' && !errorCarga && (
         <div className="space-y-2">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <KpiCard label="Total Baldes" value={loading ? '—' : kpiBaldесHelado} />
-            <KpiCard label="Total KG" value={loading ? '—' : `${kpiKgHelado.toFixed(1)} kg`} />
-            <KpiCard label="Total Impulsivos" value={loading ? '—' : `${kpiImpUnidades} u.`} color={colors.warning} />
-            <KpiCard label="Total Postres" value={loading ? '—' : `${kpiPostreUnidades} u. / ${kpiPostreKg.toFixed(1)} kg`} color="#a855f7" />
+            <KpiCard label="Total Baldes (Helados)" value={loading ? '—' : kpiBaldесHelado} />
+            <KpiCard label="Total KG (Helados)" value={loading ? '—' : `${kpiKgHelado.toFixed(1)} kg`} />
+            <KpiCard label="Total Unidades (Impulsivos)" value={loading ? '—' : `${kpiImpUnidades} u.`} color={colors.warning} />
+            <KpiCard label="Total Unidades (Postres)" value={loading ? '—' : `${kpiPostreUnidades} u. / ${kpiPostreKg.toFixed(1)} kg`} color="#a855f7" />
           </div>
           <div className={`grid gap-3 ${showVal ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-3'}`}>
             <KpiCard label="Con stock"  value={loading ? '—' : conStock}  color={colors.success} active={filtroEstado === 'ok'}      onClick={() => setFiltroEstado(prev => prev === 'ok' ? null : 'ok')} />

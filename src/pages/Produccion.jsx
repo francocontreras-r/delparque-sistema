@@ -495,7 +495,12 @@ export default function Produccion() {
     setTimeout(() => setToast(null), 3000)
   }
 
-  const kpiKg  = registros.reduce((a, r) => a + (r.peso_kg || 0), 0)
+  const kpiKgHelados = registros
+    .filter(r => !((r.categoria || '').toLowerCase().includes('impulsiv') || (r.categoria || '').toLowerCase().includes('postre')))
+    .reduce((a, r) => a + (r.peso_kg || 0), 0)
+  const kpiUnidadesImpulsivos = registros
+    .filter(r => (r.categoria || '').toLowerCase().includes('impulsiv'))
+    .reduce((a, r) => a + Math.round(r.peso_kg || 0), 0)
   const kpiOps = new Set(registros.map(r => r.operario_nombre).filter(Boolean)).size
 
   const subtotales = useMemo(() => {
@@ -606,10 +611,10 @@ export default function Produccion() {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard label="Unidades hoy" value={loading ? '—' : registros.length} icon={Package} />
-        <KpiCard label="KG totales"   value={loading ? '—' : kpiKg.toFixed(2)} icon={Scale} />
-        <KpiCard label="Operarios"    value={loading ? '—' : kpiOps}           icon={Users} />
-        <KpiCard label="Lote"         value={lote} color={colors.brand}        icon={Hash} />
+        <KpiCard label="KG Helados" value={loading ? '—' : kpiKgHelados.toFixed(2)} icon={Scale} color={colors.brand} />
+        <KpiCard label="Unidades Impulsivos" value={loading ? '—' : kpiUnidadesImpulsivos} icon={Package} color={colors.warning} />
+        <KpiCard label="Operarios"  value={loading ? '—' : kpiOps} icon={Users} />
+        <KpiCard label="Lote"       value={lote} color={colors.brand} icon={Hash} />
       </div>
 
       {/* Registro */}
@@ -779,12 +784,16 @@ export default function Produccion() {
             </Thead>
             <Tbody>
               {preCarga.map(item => {
-                const esU = unidadDe(item) === 'u'
-                const displayCantidad = esU
-                  ? ((item._pesoTotalKg || 0) > 0
-                    ? `${item.peso_kg} unidades / ${Number(item._pesoTotalKg).toFixed(1)} kg`
-                    : `${item.peso_kg} unidades`)
-                  : `${fmtPeso(item.peso_kg, 'kg')} kg`
+                const catItem = (item.categoria || '').toLowerCase()
+                const esPostre    = catItem === 'postre'
+                const esImpulsivo = catItem.includes('impulsiv')
+                const displayCantidad = esPostre
+                  ? (item._unidades
+                      ? `${Math.round(item._unidades)} u / ${Number(item._pesoTotalKg || 0).toFixed(1)} kg`
+                      : `${Number(item.peso_kg || 0).toFixed(1)} kg`)
+                  : esImpulsivo
+                    ? `${Math.round(item.peso_kg || 0)} u`
+                    : `${fmtPeso(item.peso_kg, 'kg')} kg`
                 return (
                 <Tr key={item._id}>
                   <Td className="font-bold whitespace-nowrap" style={{ color: colors.brand }}>{item.lote}</Td>
@@ -841,7 +850,11 @@ export default function Produccion() {
                   <Td className="font-bold whitespace-nowrap" style={{ color: colors.brand }}>{r.lote || '—'}</Td>
                   <Td className="whitespace-nowrap">{r.operario_nombre || '—'}</Td>
                   <Td className="font-medium">{r.producto_nombre}</Td>
-                  <Td className="text-right whitespace-nowrap">{fmtPeso(r.peso_kg, unidadDe(r))} {unidadDe(r)}</Td>
+                  <Td className="text-right whitespace-nowrap">{(() => {
+                    const c = (r.categoria || '').toLowerCase()
+                    if (c.includes('impulsiv')) return `${Math.round(r.peso_kg || 0)} u`
+                    return `${fmtPeso(r.peso_kg, 'kg')} kg`
+                  })()}</Td>
                   <Td>{r.observaciones || '—'}</Td>
                 </Tr>
               ))}

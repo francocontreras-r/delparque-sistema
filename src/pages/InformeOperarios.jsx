@@ -126,7 +126,7 @@ function agruparPorOperario(ordenes) {
     mapa[key].push(o)
   })
   return Object.entries(mapa).map(([nombre, items]) => {
-    const n = items.length || 1  // evitar división por cero
+    const n = items.length || 1
     const sum = (fn) => items.reduce((a, o) => a + (Number(fn(o)) || 0), 0)
     const avgKg     = sum(o => o.eficiencia_kg)     / n
     const avgTiempo = sum(o => o.eficiencia_tiempo) / n
@@ -134,7 +134,16 @@ function agruparPorOperario(ordenes) {
     const totalKg   = sum(o => o.kg_producido)
     const variance  = items.reduce((a, o) => a + Math.pow((Number(o.rendimiento_final) || 0) - avgRend, 2), 0) / n
     const stdDev    = Math.sqrt(variance || 0)
-    return { nombre, items, ordenes: n, avgKg, avgTiempo, avgRend, totalKg, stdDev }
+    // Desglose por tipo_producto
+    const helados    = items.filter(o => !o.tipo_producto || o.tipo_producto === 'helado')
+    const impulsivos = items.filter(o => o.tipo_producto === 'impulsivo')
+    const postres    = items.filter(o => o.tipo_producto === 'postre')
+    const kgHelados       = helados.reduce((a, o) => a + (Number(o.kg_producido) || 0), 0)
+    const unidImpulsivos  = impulsivos.reduce((a, o) => a + (Number(o.cantidad_unidades) || 0), 0)
+    const unidPostres     = postres.length
+    const kgPostres       = postres.reduce((a, o) => a + (Number(o.kg_producido) || 0), 0)
+    return { nombre, items, ordenes: n, avgKg, avgTiempo, avgRend, totalKg, stdDev,
+             kgHelados, unidImpulsivos, unidPostres, kgPostres }
   })
 }
 
@@ -796,6 +805,30 @@ function InformeOperarios() {
                     <KpiCard label="Rendimiento Final promedio" value={`${fmtNum(kpisOperario.avgRend)}%`}
                       icon={TrendingUp} color={nivelRendimiento(kpisOperario.avgRend).color} />
                   </div>
+                  {/* Desglose producción por tipo */}
+                  {(kpisOperario.kgHelados > 0 || kpisOperario.unidImpulsivos > 0 || kpisOperario.unidPostres > 0) && (
+                    <div className="flex gap-2 flex-wrap">
+                      {kpisOperario.kgHelados > 0 && (
+                        <div className="px-3 py-2 rounded-lg text-xs" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+                          <span className="font-semibold" style={{ color: colors.brand }}>{fmtNum(kpisOperario.kgHelados, 1)} kg</span>
+                          <span style={{ color: colors.textMuted }}> · {Math.round(kpisOperario.kgHelados / 7)} baldes helados</span>
+                        </div>
+                      )}
+                      {kpisOperario.unidImpulsivos > 0 && (
+                        <div className="px-3 py-2 rounded-lg text-xs" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+                          <span className="font-semibold" style={{ color: colors.warning }}>{kpisOperario.unidImpulsivos} u</span>
+                          <span style={{ color: colors.textMuted }}> impulsivos</span>
+                        </div>
+                      )}
+                      {kpisOperario.unidPostres > 0 && (
+                        <div className="px-3 py-2 rounded-lg text-xs" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+                          <span className="font-semibold" style={{ color: '#a855f7' }}>{kpisOperario.unidPostres} u</span>
+                          {kpisOperario.kgPostres > 0 && <span style={{ color: colors.textMuted }}> / {fmtNum(kpisOperario.kgPostres, 1)} kg</span>}
+                          <span style={{ color: colors.textMuted }}> postres</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex items-center gap-2 px-1">
                     <span className="text-xs" style={{ color: colors.textMuted }}>Tendencia vs. período anterior:</span>

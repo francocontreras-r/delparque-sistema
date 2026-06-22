@@ -49,10 +49,24 @@ function fmtFecha(f) {
 
 function hoyISO() { return new Date().toISOString().split('T')[0] }
 
+// Convierte un valor a ISO string de forma segura. Devuelve null si la fecha es inválida.
+function safeToISO(val) {
+  if (!val) return null
+  try {
+    const d = new Date(val)
+    return isNaN(d.getTime()) ? null : d.toISOString()
+  } catch { return null }
+}
+
 function sumarDias(fechaISO, dias) {
-  const d = new Date(fechaISO)
-  d.setDate(d.getDate() + dias)
-  return d.toISOString().split('T')[0]
+  try {
+    if (!fechaISO) return hoyISO()
+    const d = new Date(fechaISO)
+    if (isNaN(d.getTime())) return hoyISO()
+    d.setDate(d.getDate() + dias)
+    const iso = d.toISOString()
+    return iso.split('T')[0]
+  } catch { return hoyISO() }
 }
 
 // Calcula el rango actual y el rango anterior (misma duración, inmediatamente
@@ -156,11 +170,15 @@ export default function Informes() {
   const [stockCamaras, setStockCamaras] = useState([])
 
   const rango = useMemo(() => {
-    if (periodo === 'dia') {
-      const antHasta = sumarDias(diaSeleccionado, -1)
-      return { desde: diaSeleccionado, hasta: diaSeleccionado, antDesde: antHasta, antHasta }
-    }
-    return calcularRangos(periodo)
+    try {
+      if (periodo === 'dia') {
+        const diaValido = diaSeleccionado && !isNaN(new Date(diaSeleccionado).getTime())
+          ? diaSeleccionado : hoyISO()
+        const antHasta = sumarDias(diaValido, -1)
+        return { desde: diaValido, hasta: diaValido, antDesde: antHasta, antHasta }
+      }
+      return calcularRangos(periodo)
+    } catch { return calcularRangos('semana') }
   }, [periodo, diaSeleccionado])
 
   useEffect(() => { cargar() }, [rango]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -663,7 +681,7 @@ export default function Informes() {
                       <Tbody>
                         {prodTableData.sabores.map(p => (
                           <Tr key={p.nombre} style={{ cursor: 'pointer' }}
-                            onClick={() => setModalDetalle({ nombre: p.nombre, tipo: 'helado', registros: produccionesActual.filter(r => (r.producto_nombre || '') === p.nombre).sort((a, b) => new Date(b.created_at || b.fecha) - new Date(a.created_at || a.fecha)) })}>
+                            onClick={() => setModalDetalle({ nombre: p.nombre, tipo: 'helado', registros: produccionesActual.filter(r => (r.producto_nombre || '') === p.nombre).sort((a, b) => { const da = new Date(a.created_at || a.fecha || 0); const db = new Date(b.created_at || b.fecha || 0); return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da) }) })}>
                             <Td className="font-medium" style={{ color: colors.brand }}>{p.nombre}</Td>
                             <Td className="text-right" style={{ color: colors.textMuted }}>{p.registros}</Td>
                             <Td className="text-right font-bold" style={{ color: colors.brand }}>{fmtNum(p.kg, 1)} kg</Td>
@@ -688,7 +706,7 @@ export default function Informes() {
                       <Tbody>
                         {prodTableData.impulsivos.map(p => (
                           <Tr key={p.nombre} style={{ cursor: 'pointer' }}
-                            onClick={() => setModalDetalle({ nombre: p.nombre, tipo: 'impulsivo', registros: produccionesActual.filter(r => (r.producto_nombre || '') === p.nombre).sort((a, b) => new Date(b.created_at || b.fecha) - new Date(a.created_at || a.fecha)) })}>
+                            onClick={() => setModalDetalle({ nombre: p.nombre, tipo: 'impulsivo', registros: produccionesActual.filter(r => (r.producto_nombre || '') === p.nombre).sort((a, b) => { const da = new Date(a.created_at || a.fecha || 0); const db = new Date(b.created_at || b.fecha || 0); return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da) }) })}>
                             <Td className="font-medium" style={{ color: colors.warning }}>{p.nombre}</Td>
                             <Td className="text-right font-bold" style={{ color: colors.warning }}>{fmtNum(p.unidades, 0)} u</Td>
                           </Tr>
@@ -710,7 +728,7 @@ export default function Informes() {
                       <Tbody>
                         {prodTableData.postres.map(p => (
                           <Tr key={p.nombre} style={{ cursor: 'pointer' }}
-                            onClick={() => setModalDetalle({ nombre: p.nombre, tipo: 'postre', registros: produccionesActual.filter(r => (r.producto_nombre || '') === p.nombre).sort((a, b) => new Date(b.created_at || b.fecha) - new Date(a.created_at || a.fecha)) })}>
+                            onClick={() => setModalDetalle({ nombre: p.nombre, tipo: 'postre', registros: produccionesActual.filter(r => (r.producto_nombre || '') === p.nombre).sort((a, b) => { const da = new Date(a.created_at || a.fecha || 0); const db = new Date(b.created_at || b.fecha || 0); return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da) }) })}>
                             <Td className="font-medium" style={{ color: '#a855f7' }}>{p.nombre}</Td>
                             <Td className="text-right font-bold" style={{ color: '#a855f7' }}>{fmtNum(p.unidades, 0)} u</Td>
                             <Td className="text-right">{fmtNum(p.kg, 1)} kg</Td>
@@ -935,7 +953,11 @@ export default function Informes() {
         const fmtTS = (r) => {
           const ts = r.created_at || r.fecha
           if (!ts) return '—'
-          return new Date(ts).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' hs'
+          try {
+            const d = new Date(ts)
+            if (isNaN(d.getTime())) return ts.slice(0, 10) || '—'
+            return d.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' hs'
+          } catch { return '—' }
         }
 
         return (

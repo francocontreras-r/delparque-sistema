@@ -465,11 +465,9 @@ function ModalAgregarProducto({ onClose, onSubmit, saving }) {
           <option value="impulsivo">Impulsivo</option>
           <option value="postre">Postre</option>
         </Select>
-        {form.tipo_producto === 'helado' && (
-          <Select label="Tipo elaboración" value={form.tipo} onChange={e => upd('tipo', e.target.value)}>
-            {['Lisa', 'Con Agregado', 'Agua', 'Especial'].map(t => <option key={t}>{t}</option>)}
-          </Select>
-        )}
+        <Select label="Tipo elaboración *" value={form.tipo} onChange={e => upd('tipo', e.target.value)}>
+          {['Lisa', 'Con Agregado', 'Agua', 'Especial'].map(t => <option key={t}>{t}</option>)}
+        </Select>
         <div className={esImp ? '' : 'grid grid-cols-2 gap-3'}>
           <Input label={esImp ? 'Stock inicial (unidades)' : 'Stock inicial (baldes)'}
             type="number" min="0" value={form.baldes} onChange={e => upd('baldes', e.target.value)} />
@@ -1146,7 +1144,7 @@ export default function Camaras() {
     const payload = {
       nombre,
       tipo_producto: form.tipo_producto,
-      tipo: form.tipo_producto === 'helado' ? (form.tipo || null) : null,
+      tipo: form.tipo || 'Con Agregado',
       baldes: parseInt(form.baldes) || 0,
       kg: form.tipo_producto === 'impulsivo' ? 0 : (parseFloat(form.kg) || 0),
       lote: form.lote?.trim() || null,

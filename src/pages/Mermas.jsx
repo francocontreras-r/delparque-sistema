@@ -80,7 +80,7 @@ function AgrupacionList({ filas }) {
 }
 
 export default function Mermas() {
-  const { isAdmin } = useUser()
+  const { isAdmin, user } = useUser()
   const [tab, setTab]             = useState('Por Sabor')
   const [mermas, setMermas]       = useState([])
   const [sabores, setSabores]     = useState([])
@@ -135,6 +135,7 @@ export default function Mermas() {
       operario_nombre: form.operario_nombre || null,
       kg_teoricos: t, kg_reales: r, diferencia: dif, porcentaje: pct,
       causa: form.causa, observaciones: form.observaciones || null,
+      usuario_email: user?.email || null,
     })
     setSaving(false)
     if (error) { toast2(error.message, 'error'); return }

@@ -38,7 +38,7 @@ function motivosPorCategoria(categoria) {
   if (categoria === 'REVENTA') return ['Venta', 'Muestra', 'Baja por daño', 'Ajuste de inventario']
   return ['Uso en producción', 'Venta', 'Merma', 'Vencimiento', 'Devolución', 'Ajuste de inventario', 'Baja']
 }
-const MOTIVOS_INGRESO_DEPOSITO = ['Normal', 'Ajuste de inventario', 'Devolución de proveedor']
+const MOTIVOS_INGRESO_DEPOSITO = ['Compra a proveedor', 'Sobrante de producción', 'Devolución', 'Ajuste de inventario', 'Transferencia']
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const SEM = { verde: colors.success, amarillo: colors.warning, rojo: colors.danger, gris: colors.textMuted }
 
@@ -406,7 +406,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
             <div className="space-y-3">
               <Input label="Proveedor *" type="text" value={form.proveedor} onChange={e => upd('proveedor', e.target.value)} />
               <Select label="Tipo de ingreso" value={form.motivo} onChange={e => upd('motivo', e.target.value)}>
-                <option value="">Normal</option>
+                <option value="">Compra a proveedor</option>
                 {MOTIVOS_INGRESO_DEPOSITO.slice(1).map(m => <option key={m}>{m}</option>)}
               </Select>
             </div>
@@ -812,6 +812,7 @@ function ModalDetMovimiento({ mov, onClose }) {
         {campo('N° Remito', mov.nro_remito)}
         {campo('Motivo', mov.motivo)}
         {campo('Observaciones', mov.observaciones)}
+        {campo('Registrado por', mov.usuario_email)}
       </div>
     </Modal>
   )
@@ -867,7 +868,7 @@ export default function Deposito() {
   const [generandoPDFcamara, setGenerandoPDFcamara] = useState(false)
   const tablaDepositoRef = useRef(null)
 
-  const { isAdmin, profile } = useUser()
+  const { isAdmin, profile, user } = useUser()
   const showVal = isAdmin
 
   useEffect(() => { cargar() }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -993,6 +994,7 @@ export default function Deposito() {
       peso_total: pesoTotal || null,
       nro_remito: form.nro_remito?.trim() || null,
       motivo: form.motivo || null,
+      usuario_email: user?.email || null,
     }
     const { error } = await supabase.from('movimientos_deposito').insert(payload)
     if (error) { setSaving(false); toast2(error.message, 'error'); return }
@@ -1934,7 +1936,7 @@ export default function Deposito() {
                     </Thead>
                     <Tbody>
                       {movsFiltrados.map(m => (
-                        <Tr key={m.id}>
+                        <Tr key={m.id} onClick={() => setModalDetMov(m)} style={{ cursor: 'pointer' }}>
                           <Td>
                             <Badge variant={m.tipo === 'ingreso' ? 'success' : 'danger'}>
                               {m.tipo === 'ingreso' ? '↑ Ingreso' : '↓ Egreso'}
@@ -1945,7 +1947,15 @@ export default function Deposito() {
                                 : fmtFecha(m.fecha) + ' 00:00 hs'}
                             </p>
                           </Td>
-                          <Td className="font-medium">{m.producto_nombre}</Td>
+                          <Td>
+                            <p className="font-medium" style={{ color: colors.textPrimary }}>{m.producto_nombre}</p>
+                            {m.observaciones && (
+                              <p className="text-[10px] italic mt-0.5" style={{ color: colors.textMuted }}>{m.observaciones}</p>
+                            )}
+                            {m.usuario_email && (
+                              <p className="text-[10px] mt-0.5" style={{ color: colors.textMuted }}>por {m.usuario_email}</p>
+                            )}
+                          </Td>
                           <Td className="text-xs" style={{ color: colors.textMuted }}>{[m.marca, m.lote].filter(Boolean).join(' · ') || '—'}</Td>
                           <Td className="font-bold whitespace-nowrap">{m.cantidad} {m.unidad}</Td>
                           <Td className="text-xs" style={{ color: colors.textSecondary }}>

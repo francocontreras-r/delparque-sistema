@@ -11,6 +11,7 @@ import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { aplicarProduccionAOrden, ESTADO_EN_PROCESO } from '../lib/ordenes'
+import { useUser } from '../context/UserContext'
 import { colors, radius, shadow } from '../styles/design-system'
 import { Package, Users, Scale, Hash, ScanLine, PenLine, FileText, Printer, X, Plus, ClipboardCheck, Settings } from 'lucide-react'
 const logoUrl = '/logo_delparque.png'
@@ -76,6 +77,7 @@ function guardarPreCargaLS(lista) {
 }
 
 export default function Produccion() {
+  const { user } = useUser()
   const [operarios, setOperarios]     = useState([])
   const [productos, setProductos]     = useState([])
   const [registros, setRegistros]     = useState([])
@@ -335,6 +337,7 @@ export default function Produccion() {
     const payload = preCarga.map(({ _id, _pesoTotalKg, _unidades, tipo_producto, categoria, ...item }) => ({
       ...item,
       observaciones: item.observaciones?.trim() || null,
+      usuario_email: user?.email || null,
     }))
     const { error } = await supabase.from('producciones').insert(payload)
     if (error) {
@@ -422,6 +425,7 @@ export default function Produccion() {
         operario_nombre: item.operario_nombre || null,
         fecha:           new Date().toISOString().split('T')[0],
         created_at:      new Date().toISOString(),
+        usuario_email:   user?.email || null,
       }
 
       if (!camara) {
@@ -466,7 +470,7 @@ export default function Produccion() {
         .limit(1)
       const orden = ords?.[0]
       if (!orden) continue
-      const resultado = await aplicarProduccionAOrden(orden, kg)
+      const resultado = await aplicarProduccionAOrden(orden, kg, user?.email || null)
       if (resultado.error) continue
       mensajesOrdenes.push(`Orden ${orden.numero} actualizada: ${resultado.pct.toFixed(1)}% completada`)
       if (resultado.mermaError) mermaErrores.push(`Orden ${orden.numero}: ${resultado.mermaError.message}`)

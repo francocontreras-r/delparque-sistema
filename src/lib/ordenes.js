@@ -50,7 +50,7 @@ export function eficienciaColor(pct, colors) {
 // - Si es SABOR con base: compara kg_producido vs kg_base_teorica (batches × litros_base),
 //   descuenta stock_bases (FIFO) y registra merma si corresponde.
 // - Si no tiene base (base pura u otro): compara kg_producido vs kg_objetivo.
-export async function registrarMermaAutomatica(orden, kgProducidoFinal) {
+export async function registrarMermaAutomatica(orden, kgProducidoFinal, usuarioEmail = null) {
   const fecha = new Date().toISOString().split('T')[0]
   const saborNombre = orden.sabor_nombre || orden.producto_nombre
   const kgObjetivo = orden.kg_objetivo || 0
@@ -111,6 +111,7 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal) {
       porcentaje: (absDif / kgBaseTeorica) * 100,
       causa: 'Merma de elaboración base→sabor',
       observaciones: `Base: ${saborData.base_nombre}. Teórico: ${kgBaseTeorica.toFixed(1)} kg. Real: ${kgProducidoFinal.toFixed(1)} kg.`,
+      usuario_email: usuarioEmail,
     })
     if (error) return { error }
     return {
@@ -143,12 +144,13 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal) {
     porcentaje: (merma / kgObjetivo) * 100,
     causa: 'Merma de elaboración',
     observaciones: `Se produjeron ${merma.toFixed(2)} kg menos de lo esperado. Orden ${orden.numero}`,
+    usuario_email: usuarioEmail,
   })
   if (error) return { error }
   return { error: null, toastMsg: `⚠️ Orden completada — Merma: ${merma.toFixed(2)} kg`, toastType: 'warn' }
 }
 
-export async function aplicarProduccionAOrden(orden, kgIncremento) {
+export async function aplicarProduccionAOrden(orden, kgIncremento, usuarioEmail = null) {
   const kgObjetivo = orden.kg_objetivo || 0
   const kgProducido = (orden.kg_producido || 0) + kgIncremento
   const pct = pctCompletitud(kgProducido, kgObjetivo)
@@ -178,7 +180,7 @@ export async function aplicarProduccionAOrden(orden, kgIncremento) {
 
   let mermaError = null, toastMsg = null, toastType = 'ok'
   if (seFinaliza) {
-    const resultado = await registrarMermaAutomatica(orden, kgProducido)
+    const resultado = await registrarMermaAutomatica(orden, kgProducido, usuarioEmail)
     mermaError = resultado.error
     toastMsg = resultado.toastMsg || null
     toastType = resultado.toastType || 'ok'

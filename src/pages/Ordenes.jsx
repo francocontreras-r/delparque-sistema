@@ -227,7 +227,7 @@ export default function Ordenes() {
   const [fechaFinVal, setFechaFinVal]       = useState('')
   const [savingHora, setSavingHora]         = useState(false)
 
-  const { isAdmin } = useUser()
+  const { isAdmin, user } = useUser()
 
   useEffect(() => { cargar() }, [])
 
@@ -534,6 +534,7 @@ export default function Ordenes() {
       observaciones: form.observaciones || null,
       base_nombre: l.base_nombre || null,
       kg_base_consumida: l.kg_base_consumida || 0,
+      usuario_email: user?.email || null,
     }))
 
     const { error } = await supabase.from('ordenes_produccion').insert(filas)

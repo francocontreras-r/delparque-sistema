@@ -27,7 +27,7 @@ const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, bord
 
 const TABS         = ['Movimientos', 'Stock', 'Trazabilidad', 'Informes', 'Control Semanal']
 const DESTINOS     = ['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones', 'Uso interno', 'Venta', 'Otro']
-const PRESENTACIONES = ['Balde', 'Bolsa', 'Lata', 'Caja', 'Botella', 'Bidón', 'Pomo', 'Pote']
+const PRESENTACIONES = ['Balde', 'Bolsa', 'Lata', 'Caja', 'Botella', 'Bidón', 'Pomo', 'Pote', 'Sin Presentación']
 const UNIDADES     = ['u', 'kg', 'L']
 
 const CATS_MAT_PRIMAS = new Set(['LÁCTEOS', 'AZÚCARES', 'CHOCOLATES', 'PASTAS', 'FRUTAS', 'VARIEGATOS', 'OTROS', 'NUEVO', 'General'])
@@ -35,7 +35,7 @@ const CATS_FILTRO_BASE = ['TODOS', 'BOLSAS', 'CUCURUCHOS', 'LIMPIEZA', 'REVENTA'
 const TODAS_LAS_CATS = ['BOLSAS', 'CUCURUCHOS', 'LIMPIEZA', 'REVENTA', 'TERMICOS', 'LÁCTEOS', 'AZÚCARES', 'CHOCOLATES', 'PASTAS', 'FRUTAS', 'VARIEGATOS', 'OTROS']
 
 function motivosPorCategoria(categoria) {
-  if (categoria === 'REVENTA') return ['Venta a cliente', 'Venta por mayor', 'Venta', 'Muestra', 'Baja por daño', 'Ajuste de inventario']
+  if (categoria === 'REVENTA') return ['Venta', 'Muestra', 'Baja por daño', 'Ajuste de inventario']
   return ['Uso en producción', 'Venta', 'Merma', 'Vencimiento', 'Devolución', 'Ajuste de inventario', 'Baja']
 }
 const MOTIVOS_INGRESO_DEPOSITO = ['Normal', 'Ajuste de inventario', 'Devolución de proveedor']

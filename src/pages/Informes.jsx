@@ -225,8 +225,11 @@ export default function Informes() {
     return (r) => {
       const nombre = (r.producto_nombre || '').trim().toLowerCase()
       const cat = (r.categoria || categoriaPorCodigo[r.producto_codigo] || '').toLowerCase()
-      if (cat === 'helado' || saboresSet.has(nombre)) return 'helado'
+      // Detectar bases primero
+      if (cat === 'base' || nombre.startsWith('base ') || nombre === 'base') return 'base'
       const tipoCam = camMap[nombre]
+      if (tipoCam === 'base') return 'base'
+      if (cat === 'helado' || saboresSet.has(nombre)) return 'helado'
       if (tipoCam === 'postre') return 'postre'
       if (tipoCam === 'impulsivo') return 'impulsivo'
       if (impulsivosSet.has(nombre)) return 'impulsivo'
@@ -241,6 +244,7 @@ export default function Informes() {
       const filtrada = lista.filter(r =>
         !NOMBRES_EXCLUIDOS.has((r.producto_nombre || '').trim().toLowerCase())
       )
+      let kgBases = 0, regBases = 0
       let kgHelados = 0, regHelados = 0, unidadesImpulsivos = 0, kgPostres = 0, regPostres = 0
       const porProducto = {}
       const porOperario = {}
@@ -253,6 +257,7 @@ export default function Informes() {
         if (!porProducto[nombre]) porProducto[nombre] = { nombre, tipo, kg: 0, unidades: 0, registros: 0 }
         if (!porOperario[op]) porOperario[op] = {
           nombre: op, registros: 0,
+          kgBases: 0, regBases: 0,
           kgSabores: 0, regSabores: 0,
           unidImpulsivos: 0,
           kgPostres: 0, regPostres: 0,
@@ -260,7 +265,11 @@ export default function Informes() {
         porProducto[nombre].registros++
         porOperario[op].registros++
 
-        if (tipo === 'helado') {
+        if (tipo === 'base') {
+          kgBases += r.peso_kg || 0; regBases++
+          porProducto[nombre].kg += r.peso_kg || 0
+          porOperario[op].kgBases += r.peso_kg || 0; porOperario[op].regBases++
+        } else if (tipo === 'helado') {
           kgHelados += r.peso_kg || 0; regHelados++
           porProducto[nombre].kg += r.peso_kg || 0
           porOperario[op].kgSabores += r.peso_kg || 0; porOperario[op].regSabores++
@@ -277,15 +286,16 @@ export default function Informes() {
         }
       })
 
-      const baldesHelados = Math.round(kgHelados / 7)
+      const promedioBases   = regBases > 0 ? kgBases / regBases : 0
+      const baldesHelados   = Math.round(kgHelados / 7)
       const promedioKgHelados = regHelados > 0 ? kgHelados / regHelados : 0
       const unidadesPostres = regPostres
 
       return {
+        kgBases, regBases, promedioBases,
         kgHelados, regHelados, baldesHelados, promedioKgHelados,
         unidadesImpulsivos,
         kgPostres, unidadesPostres,
-        // Compat legacy
         unidadesTotal: unidadesImpulsivos + unidadesPostres,
         porProducto: Object.values(porProducto),
         porOperario: Object.values(porOperario).sort((a, b) => b.kgSabores - a.kgSabores),
@@ -298,6 +308,10 @@ export default function Informes() {
   const prodTableData = useMemo(() => {
     const prods = produccionInforme.actual.porProducto
     return {
+      bases: prods
+        .filter(p => p.tipo === 'base')
+        .map(p => ({ ...p, promedio: p.registros > 0 ? p.kg / p.registros : 0 }))
+        .sort((a, b) => b.kg - a.kg),
       sabores: prods
         .filter(p => p.tipo === 'helado')
         .map(p => ({ ...p, baldes: Math.round(p.kg / 7), promedio: p.registros > 0 ? p.kg / p.registros : 0 }))
@@ -337,36 +351,38 @@ export default function Informes() {
 
   const mermasInforme = useMemo(() => {
     function analizar(lista) {
-      const totalDif = lista.reduce((a, m) => a + (m.diferencia || 0), 0)
-      const totalTeo = lista.reduce((a, m) => a + (m.kg_teoricos || 0), 0)
-      const pctGlobal = totalTeo > 0 ? (totalDif / totalTeo) * 100 : 0
-      const costoTotal = lista.reduce((a, m) => a + costoMerma(m), 0)
+      // Solo contabilizar mermas reales (diferencia > 0). Diferencia < 0 = sobrante.
+      const soloMermas = lista.filter(m => (m.diferencia || 0) > 0)
+      const totalDif  = soloMermas.reduce((a, m) => a + m.diferencia, 0)
+      const totalTeo  = soloMermas.reduce((a, m) => a + (m.kg_teoricos || 0), 0)
+      const pctGlobal  = totalTeo > 0 ? (totalDif / totalTeo) * 100 : 0
+      const costoTotal = soloMermas.reduce((a, m) => a + costoMerma(m), 0)
 
       const porProducto = {}
       const porOperario  = {}
       const porCausa     = {}
-      lista.forEach(m => {
+      soloMermas.forEach(m => {
         const prod = m.sabor_nombre || 'Sin especificar'
         if (!porProducto[prod]) porProducto[prod] = { nombre: prod, dif: 0, teo: 0 }
-        porProducto[prod].dif += m.diferencia || 0
+        porProducto[prod].dif += m.diferencia
         porProducto[prod].teo += m.kg_teoricos || 0
 
         const op = m.operario_nombre || 'Sin asignar'
         if (!porOperario[op]) porOperario[op] = { nombre: op, dif: 0, teo: 0 }
-        porOperario[op].dif += m.diferencia || 0
+        porOperario[op].dif += m.diferencia
         porOperario[op].teo += m.kg_teoricos || 0
 
         const causa = m.causa || 'Sin especificar'
         if (!porCausa[causa]) porCausa[causa] = { causa, dif: 0, costo: 0, cnt: 0 }
-        porCausa[causa].dif += m.diferencia || 0
+        porCausa[causa].dif += m.diferencia
         porCausa[causa].costo += costoMerma(m)
         porCausa[causa].cnt++
       })
       return {
         totalDif, totalTeo, pctGlobal, costoTotal,
-        porProducto: Object.values(porProducto).map(p => ({ ...p, pct: p.teo > 0 ? (p.dif / p.teo) * 100 : 0 })).sort((a, b) => b.dif - a.dif),
-        porOperario: Object.values(porOperario).map(o => ({ ...o, pct: o.teo > 0 ? (o.dif / o.teo) * 100 : 0 })).sort((a, b) => b.pct - a.pct),
-        porCausa: Object.values(porCausa).sort((a, b) => b.dif - a.dif),
+        porProducto: Object.values(porProducto).filter(p => p.dif > 0).map(p => ({ ...p, pct: p.teo > 0 ? (p.dif / p.teo) * 100 : 0 })).sort((a, b) => b.dif - a.dif),
+        porOperario: Object.values(porOperario).filter(o => o.dif > 0).map(o => ({ ...o, pct: o.teo > 0 ? (o.dif / o.teo) * 100 : 0 })).sort((a, b) => b.pct - a.pct),
+        porCausa: Object.values(porCausa).filter(c => c.dif > 0).sort((a, b) => b.dif - a.dif),
       }
     }
     return { actual: analizar(mermasActual), anterior: analizar(mermasAnterior) }
@@ -637,7 +653,9 @@ export default function Informes() {
         <>
           {tab === 'Producción' && (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <KpiCard label="KG Bases" value={`${fmtNum(produccionInforme.actual.kgBases, 1)} kg`} icon={Scale} color="#78716c"
+                sub={<VariacionTag pct={variacionPct(produccionInforme.actual.kgBases, produccionInforme.anterior.kgBases)} />} />
               <KpiCard label="KG Helados" value={`${fmtNum(produccionInforme.actual.kgHelados)} kg`} icon={Scale} color={colors.brand}
                 sub={<VariacionTag pct={variacionPct(produccionInforme.actual.kgHelados, produccionInforme.anterior.kgHelados)} />} />
               <KpiCard label="Baldes Helados" value={`${produccionInforme.actual.baldesHelados} bal.`} icon={Scale} color={colors.info}
@@ -666,6 +684,30 @@ export default function Informes() {
                         <Bar dataKey="kg" fill={colors.brand} radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* Sección Bases */}
+                {prodTableData.bases.length > 0 && (
+                  <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                    <div className="px-4 py-2.5 flex items-center gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: '#78716c' }}>🧱 Bases</span>
+                      <span className="text-xs ml-auto" style={{ color: colors.textMuted }}>{fmtNum(produccionInforme.actual.kgBases, 1)} kg · {produccionInforme.actual.regBases} registros</span>
+                    </div>
+                    <Table className="min-w-[500px]">
+                      <Thead><Tr><Th>Base</Th><Th className="text-right">Registros</Th><Th className="text-right">KG Total</Th><Th className="text-right">Prom kg/reg</Th></Tr></Thead>
+                      <Tbody>
+                        {prodTableData.bases.map(p => (
+                          <Tr key={p.nombre} style={{ cursor: 'pointer' }}
+                            onClick={() => setModalDetalle({ nombre: p.nombre, tipo: 'helado', registros: produccionesActual.filter(r => (r.producto_nombre || '') === p.nombre).sort((a, b) => { const da = new Date(a.created_at || a.fecha || 0); const db = new Date(b.created_at || b.fecha || 0); return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da) }) })}>
+                            <Td className="font-medium" style={{ color: '#78716c' }}>{p.nombre}</Td>
+                            <Td className="text-right" style={{ color: colors.textMuted }}>{p.registros}</Td>
+                            <Td className="text-right font-bold" style={{ color: '#78716c' }}>{fmtNum(p.kg, 1)} kg</Td>
+                            <Td className="text-right text-xs" style={{ color: colors.textMuted }}>{fmtNum(p.promedio, 2)} kg</Td>
+                          </Tr>
+                        ))}
+                      </Tbody>
+                    </Table>
                   </div>
                 )}
 

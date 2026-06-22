@@ -290,9 +290,11 @@ export default function Produccion() {
     const operario = operarios.find(o => String(o.id) === operarioSel)
 
     // Valores según tipo_producto real en stock_camaras
-    let peso_kg = 0, _unidades = null, _pesoTotalKg = 0
+    let peso_kg = 0, _unidades = 0, _pesoTotalKg = 0
     if (manualTipoCamara === 'helado') {
-      peso_kg = cantidad                              // kg producidos
+      _unidades   = Math.round(cantidad)              // cantidad de BALDES
+      peso_kg     = parseFloat(manualPesoTotal) || 0 // kg reales producidos
+      _pesoTotalKg = peso_kg
     } else if (manualTipoCamara === 'impulsivo') {
       _unidades = Math.round(cantidad)               // unidades
       peso_kg   = Math.round(cantidad)               // backward compat en producciones
@@ -308,6 +310,7 @@ export default function Produccion() {
       producto_codigo: null,
       producto_nombre: nombre,
       categoria: manualTipoCamara === 'helado' ? 'Helado' : manualTipoCamara === 'postre' ? 'Postre' : 'Impulsivo',
+      tipo_producto: manualTipoCamara,
       origen: 'manual',
       peso_kg,
       _unidades,
@@ -329,7 +332,7 @@ export default function Produccion() {
     console.log('Iniciando confirmación, items:', preCarga)
 
     // 1. Insertar en producciones (excluir campos internos)
-    const payload = preCarga.map(({ _id, _pesoTotalKg, _unidades, categoria, ...item }) => ({
+    const payload = preCarga.map(({ _id, _pesoTotalKg, _unidades, tipo_producto, categoria, ...item }) => ({
       ...item,
       observaciones: item.observaciones?.trim() || null,
     }))
@@ -385,20 +388,27 @@ export default function Produccion() {
       }
 
       const camara = camaras?.[0]
-      const tipoCam = camara?.tipo_producto || (item.categoria?.toLowerCase() === 'helado' ? 'helado' : item.categoria?.toLowerCase() === 'postre' ? 'postre' : 'impulsivo')
+      // Prioridad: tipo del item (manual) > tipo del camara > inferir de categoria
+      const tipoCam = item.tipo_producto
+        || camara?.tipo_producto
+        || (item.categoria?.toLowerCase() === 'helado' ? 'helado' : item.categoria?.toLowerCase() === 'postre' ? 'postre' : 'impulsivo')
 
-      // Calcular nuevos valores según tipo_producto real de la cámara
+      const unidades = Number(item._unidades) || 0
+      const kgItem   = Number(item.peso_kg)   || 0
+
+      // Calcular nuevos valores según tipo_producto
       let nuevoKg, nuevosBaldes
       if (tipoCam === 'helado') {
-        nuevoKg      = (Number(camara?.kg) || 0) + (Number(item.peso_kg) || 0)
-        nuevosBaldes = Math.round(nuevoKg / 7)
+        // baldes explícito + kg explícito
+        nuevosBaldes = (Number(camara?.baldes) || 0) + unidades
+        nuevoKg      = (Number(camara?.kg)     || 0) + kgItem
       } else if (tipoCam === 'impulsivo') {
-        nuevosBaldes = (Number(camara?.baldes) || 0) + (Number(item._unidades) || Number(item.peso_kg) || 0)
-        nuevoKg      = Number(camara?.kg) || 0
+        nuevosBaldes = (Number(camara?.baldes) || 0) + unidades
+        nuevoKg      = Number(camara?.kg) || 0  // no tocar kg para impulsivos
       } else {
         // postre
-        nuevosBaldes = (Number(camara?.baldes) || 0) + (Number(item._unidades) || 0)
-        nuevoKg      = (Number(camara?.kg) || 0) + (Number(item._pesoTotalKg) || Number(item.peso_kg) || 0)
+        nuevosBaldes = (Number(camara?.baldes) || 0) + unidades
+        nuevoKg      = (Number(camara?.kg)     || 0) + kgItem
       }
 
       const movPayload = {
@@ -406,8 +416,8 @@ export default function Produccion() {
         producto_nombre: nombre,
         tipo:            'ingreso',
         tipo_producto:   tipoCam,
-        kg:      tipoCam === 'helado' ? (Number(item.peso_kg) || 0) : (Number(item._pesoTotalKg) || 0),
-        baldes:  tipoCam === 'helado' ? Math.round((Number(item.peso_kg) || 0) / 7) : (Number(item._unidades) || Number(item.peso_kg) || 0),
+        kg:     kgItem,
+        baldes: unidades,
         lote:            item.lote || null,
         operario_nombre: item.operario_nombre || null,
         fecha:           new Date().toISOString().split('T')[0],
@@ -536,9 +546,9 @@ export default function Produccion() {
     return tipoPorNombre[nombre] || 'impulsivo'
   }, [manualProducto, manualTipo, manualId, saboresCamara, impulsivosList, tipoPorNombre])
 
-  const cantidadLabel = manualTipoCamara === 'impulsivo' || manualTipoCamara === 'postre'
-    ? 'Cantidad (unidades) *'
-    : 'Peso (kg) *'
+  const cantidadLabel = manualTipoCamara === 'helado'
+    ? 'Cantidad (baldes) *'
+    : 'Cantidad (unidades) *'
 
   function imprimirInforme() {
     const w = window.open('', '_blank')
@@ -714,34 +724,33 @@ export default function Produccion() {
               </Select>
               <Input
                 label={cantidadLabel}
-                type="number" min="0"
-                step={manualTipoCamara === 'helado' ? '0.001' : '1'}
+                type="number" min="0" step="1"
                 value={manualCantidad}
                 onChange={e => setManualCantidad(e.target.value)}
                 placeholder="0"
               />
             </div>
 
-            {/* Peso total — solo para postres */}
-            {manualTipoCamara === 'postre' && (
+            {/* Peso total (kg) — para helados y postres */}
+            {(manualTipoCamara === 'helado' || manualTipoCamara === 'postre') && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Input label="Peso total (kg)" type="number" min="0" step="0.001"
-                  value={manualPesoTotal} onChange={e => setManualPesoTotal(e.target.value)} placeholder="0.000" />
+                <Input
+                  label={manualTipoCamara === 'helado' ? 'Peso total (kg)' : 'Peso total (kg)'}
+                  type="number" min="0" step="0.001"
+                  value={manualPesoTotal}
+                  onChange={e => setManualPesoTotal(e.target.value)}
+                  placeholder="0.000"
+                />
                 {manualCantidad && (
                   <div className="flex items-end pb-2">
                     <p className="text-xs font-semibold" style={{ color: colors.brand }}>
-                      {manualCantidad} unidades{parseFloat(manualPesoTotal) > 0 ? ` / ${parseFloat(manualPesoTotal).toFixed(1)} kg` : ''}
+                      {manualTipoCamara === 'helado'
+                        ? `${Math.round(parseFloat(manualCantidad) || 0)} baldes${parseFloat(manualPesoTotal) > 0 ? ` / ${parseFloat(manualPesoTotal).toFixed(1)} kg` : ''}`
+                        : `${Math.round(parseFloat(manualCantidad) || 0)} unidades${parseFloat(manualPesoTotal) > 0 ? ` / ${parseFloat(manualPesoTotal).toFixed(1)} kg` : ''}`}
                     </p>
                   </div>
                 )}
               </div>
-            )}
-
-            {/* Preview para helados */}
-            {manualTipoCamara === 'helado' && parseFloat(manualCantidad) > 0 && (
-              <p className="text-xs font-semibold" style={{ color: colors.brand }}>
-                ≈ {Math.round(parseFloat(manualCantidad) / 7)} baldes
-              </p>
             )}
 
             {/* Preview para impulsivos */}
@@ -784,16 +793,20 @@ export default function Produccion() {
             </Thead>
             <Tbody>
               {preCarga.map(item => {
-                const catItem = (item.categoria || '').toLowerCase()
-                const esPostre    = catItem === 'postre'
-                const esImpulsivo = catItem.includes('impulsiv')
-                const displayCantidad = esPostre
-                  ? (item._unidades
-                      ? `${Math.round(item._unidades)} u / ${Number(item._pesoTotalKg || 0).toFixed(1)} kg`
-                      : `${Number(item.peso_kg || 0).toFixed(1)} kg`)
+                const tp = item.tipo_producto || (item.categoria || '').toLowerCase()
+                const esHelado    = tp === 'helado'
+                const esImpulsivo = tp === 'impulsivo' || (!esHelado && (item.categoria || '').toLowerCase().includes('impulsiv'))
+                const esPostre    = tp === 'postre'
+                const baldes  = Math.round(item._unidades || 0)
+                const unid    = Math.round(item._unidades || item.peso_kg || 0)
+                const kgReal  = Number(item.peso_kg || 0)
+                const displayCantidad = esHelado
+                  ? `${baldes} baldes${kgReal > 0 ? ` / ${kgReal.toFixed(1)} kg` : ''}`
                   : esImpulsivo
-                    ? `${Math.round(item.peso_kg || 0)} u`
-                    : `${fmtPeso(item.peso_kg, 'kg')} kg`
+                    ? `${unid} u`
+                    : esPostre
+                      ? `${Math.round(item._unidades || 0)} u${kgReal > 0 ? ` / ${kgReal.toFixed(1)} kg` : ''}`
+                      : `${kgReal.toFixed(3)} kg`
                 return (
                 <Tr key={item._id}>
                   <Td className="font-bold whitespace-nowrap" style={{ color: colors.brand }}>{item.lote}</Td>

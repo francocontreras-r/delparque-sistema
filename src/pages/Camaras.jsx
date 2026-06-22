@@ -1143,15 +1143,20 @@ export default function Camaras() {
   async function agregarProducto(form) {
     setSavingAgregar(true)
     const nombre = form.nombre.trim().toUpperCase()
-    const { error } = await supabase.from('stock_camaras').insert({
+    const payload = {
       nombre,
       tipo_producto: form.tipo_producto,
-      tipo: form.tipo_producto === 'helado' ? form.tipo : null,
+      tipo: form.tipo_producto === 'helado' ? (form.tipo || null) : null,
       baldes: parseInt(form.baldes) || 0,
       kg: form.tipo_producto === 'impulsivo' ? 0 : (parseFloat(form.kg) || 0),
       lote: form.lote?.trim() || null,
+      operario_nombre: null,
       ultima_actualizacion: new Date().toISOString(),
-    })
+    }
+    console.log('Payload enviado a stock_camaras:', payload)
+    const { data, error } = await supabase.from('stock_camaras').insert(payload).select()
+    console.log('Error al crear producto en cámara:', error)
+    console.log('Resultado INSERT:', data)
     setSavingAgregar(false)
     if (error) { mostrarToast(error.message, 'error'); return }
     mostrarToast(`"${nombre}" agregado a cámaras`)

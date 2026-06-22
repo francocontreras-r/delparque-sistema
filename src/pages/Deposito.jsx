@@ -217,7 +217,9 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
     if (!form.producto_nombre.trim()) { setLocalError('Falta seleccionar el producto'); return }
     if (!(parseFloat(form.cantidad) > 0)) { setLocalError('La cantidad debe ser mayor a 0'); return }
     if (!form.marca.trim()) { setLocalError('Falta la marca'); return }
+    if (esIngreso && !form.motivo) { setLocalError('El motivo es obligatorio'); return }
     if (!esIngreso && !form.motivo) { setLocalError('Falta seleccionar el motivo'); return }
+    if (!esIngreso && !form.destino) { setLocalError('El destino es obligatorio'); return }
     setLocalError('')
     setShowResumen(true)
   }
@@ -405,9 +407,9 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
           {esIngreso ? (
             <div className="space-y-3">
               <Input label="Proveedor *" type="text" value={form.proveedor} onChange={e => upd('proveedor', e.target.value)} />
-              <Select label="Tipo de ingreso" value={form.motivo} onChange={e => upd('motivo', e.target.value)}>
-                <option value="">Compra a proveedor</option>
-                {MOTIVOS_INGRESO_DEPOSITO.slice(1).map(m => <option key={m}>{m}</option>)}
+              <Select label="Tipo de ingreso *" value={form.motivo} onChange={e => upd('motivo', e.target.value)}>
+                <option value="">— Seleccionar motivo —</option>
+                {MOTIVOS_INGRESO_DEPOSITO.map(m => <option key={m} value={m}>{m}</option>)}
               </Select>
             </div>
           ) : (
@@ -418,8 +420,8 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
                 {motivosDisponibles.map(m => <option key={m}>{m}</option>)}
               </Select>
               <div className="grid grid-cols-2 gap-3">
-                <Select label="Destino (opcional)" value={form.destino} onChange={e => upd('destino', e.target.value)}>
-                  <option value="">— Sin especificar —</option>
+                <Select label="Destino *" value={form.destino} onChange={e => upd('destino', e.target.value)}>
+                  <option value="">— Seleccionar —</option>
                   {DESTINOS.map(d => <option key={d}>{d}</option>)}
                 </Select>
                 <Select label="Retira / Solicita *" value={form.operario_recibe} onChange={e => upd('operario_recibe', e.target.value)}>
@@ -850,6 +852,7 @@ export default function Deposito() {
   const [modalMovsDet, setModalMovsDet]     = useState(null)
   const [modalEvolCS, setModalEvolCS]       = useState(null)
   const [generandoPDFstock, setGenerandoPDFstock] = useState(false)
+  const [generandoPDFInforme, setGenerandoPDFInforme] = useState(false)
   const [filtroMovDesde, setFiltroMovDesde] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().split('T')[0]
   })
@@ -1828,6 +1831,265 @@ export default function Deposito() {
     doc.save(`trazabilidad_delparque_${new Date().toISOString().split('T')[0]}.pdf`)
   }
 
+  function _periodoLabel() {
+    if (informeMes === 0 && informeAnio === 0) return 'Todo el período'
+    if (informeMes === 0) return String(informeAnio)
+    if (informeAnio === 0) return MESES[informeMes - 1]
+    return `${MESES[informeMes - 1]} ${informeAnio}`
+  }
+
+  async function exportarInformePDF() {
+    setGenerandoPDFInforme(true)
+    try {
+      if (informeVista === 'proveedores') await _pdfProveedores()
+      else if (informeVista === 'destinos') await _pdfDestinos()
+      else await _pdfOperarios()
+    } finally {
+      setGenerandoPDFInforme(false)
+    }
+  }
+
+  async function _pdfProveedores() {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    const pw = doc.internal.pageSize.getWidth()
+    const HS = { fillColor: [212, 82, 26], textColor: 255 }
+    const ST = { fontSize: 8, cellPadding: 2 }
+    const hoy = new Date().toLocaleString('es-AR')
+    const periodo = _periodoLabel()
+    const totalIngresos = comprasPorProveedor.reduce((a, g) => a + g.items.length, 0)
+    const totalUnidades = comprasPorProveedor.reduce((a, g) => a + g.total, 0)
+    const productoCounts = {}
+    movsInforme.filter(m => m.tipo === 'ingreso').forEach(m => {
+      const k = m.producto_nombre || 'Sin nombre'
+      productoCounts[k] = (productoCounts[k] || 0) + (Number(m.cantidad) || 0)
+    })
+    const masComprado = Object.entries(productoCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '—'
+
+    // P1 — Portada
+    try { const ld = await toDataURL(logoUrl); doc.addImage(ld, 'PNG', (pw - 50) / 2, 35, 50, 18) } catch {}
+    doc.setFontSize(20); doc.setTextColor(17, 24, 39)
+    doc.text('INFORME DE COMPRAS POR PROVEEDOR', pw / 2, 80, { align: 'center' })
+    doc.setDrawColor(212, 82, 26); doc.setLineWidth(1); doc.line(30, 86, pw - 30, 86)
+    doc.setFontSize(12); doc.setTextColor(100, 100, 100)
+    doc.text(`Período: ${periodo}`, pw / 2, 96, { align: 'center' })
+    doc.setFontSize(9); doc.text(`Fecha de emisión: ${hoy}`, pw / 2, 104, { align: 'center' })
+    doc.setFontSize(7.5); doc.setTextColor(212, 82, 26)
+    doc.text('Confidencial — Del Parque', pw / 2, 114, { align: 'center' })
+
+    // P2 — Resumen ejecutivo
+    doc.addPage()
+    doc.setFontSize(14); doc.setTextColor(17, 24, 39)
+    doc.text('Resumen ejecutivo', 14, 16)
+    doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
+    autoTable(doc, {
+      startY: 24,
+      body: [
+        ['Total ingresos', String(totalIngresos), 'Proveedores activos', String(comprasPorProveedor.length)],
+        ['Total unidades/kg', totalUnidades.toLocaleString('es-AR', { maximumFractionDigits: 2 }), 'Producto más comprado', masComprado],
+      ],
+      styles: { ...ST, fontSize: 9 }, theme: 'grid',
+      columnStyles: { 0: { textColor: [100, 100, 100] }, 1: { fontStyle: 'bold', textColor: [17, 24, 39] }, 2: { textColor: [100, 100, 100] }, 3: { fontStyle: 'bold', textColor: [17, 24, 39] } },
+    })
+    let y = doc.lastAutoTable.finalY + 10
+    doc.setFontSize(9); doc.setTextColor(70, 70, 70)
+    const p1 = `Durante el período ${periodo}, se registraron ${totalIngresos} ingreso${totalIngresos !== 1 ? 's' : ''} provenientes de ${comprasPorProveedor.length} proveedor${comprasPorProveedor.length !== 1 ? 'es' : ''} distinto${comprasPorProveedor.length !== 1 ? 's' : ''}, totalizando ${totalUnidades.toLocaleString('es-AR', { maximumFractionDigits: 2 })} unidades/kg de mercadería.`
+    doc.text(doc.splitTextToSize(`• ${p1}`, pw - 28), 14, y)
+
+    // P3+ — Detalle por proveedor
+    for (const grupo of comprasPorProveedor) {
+      doc.addPage()
+      doc.setFontSize(13); doc.setTextColor(17, 24, 39)
+      doc.text(`Proveedor: ${grupo.proveedor}`, 14, 16)
+      doc.setFontSize(9); doc.setTextColor(100, 100, 100)
+      doc.text(`${grupo.items.length} ingreso${grupo.items.length !== 1 ? 's' : ''} · Total: ${grupo.total.toLocaleString('es-AR', { maximumFractionDigits: 2 })}`, 14, 22)
+      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 25, pw - 14, 25)
+      autoTable(doc, {
+        startY: 29,
+        head: [['FECHA', 'PRODUCTO', 'CANTIDAD', 'UNIDAD', 'LOTE', 'VENCIMIENTO']],
+        body: grupo.items.map(m => [
+          formatFecha(m.created_at), m.producto_nombre || '—',
+          String(m.cantidad ?? '—'), m.unidad || '—', m.lote || '—',
+          m.fecha_vencimiento ? fmtFecha(m.fecha_vencimiento) : '—',
+        ]),
+        styles: { ...ST, fontSize: 7.5 }, headStyles: HS,
+        foot: [[{ content: `SUBTOTAL: ${grupo.items.length} ingresos · ${grupo.total.toFixed(2)} uds/kg`, colSpan: 6, styles: { fontStyle: 'bold', halign: 'right', fillColor: [255, 247, 237], textColor: [212, 82, 26] } }]],
+      })
+    }
+
+    // Última — Firmas
+    doc.addPage()
+    doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text('Conformidad y Firmas', 14, 20)
+    doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.8); doc.line(14, 24, pw - 14, 24)
+    doc.setFontSize(9); doc.setTextColor(100, 100, 100)
+    doc.text(doc.splitTextToSize(`Informe de compras por proveedor — período ${periodo} — generado el ${hoy}.`, pw - 28), 14, 34)
+    let yF = 60
+    ;['Responsable de Compras', 'Gerencia', 'Fecha'].forEach(rol => {
+      doc.setDrawColor(100, 100, 100); doc.setLineWidth(0.3); doc.line(14, yF, 80, yF)
+      doc.setFontSize(8); doc.setTextColor(100, 100, 100)
+      doc.text(rol, 14, yF + 5); doc.text('Nombre y apellido: ___________________________', 14, yF + 11)
+      yF += 30
+    })
+    doc.save(`compras_proveedor_${new Date().toISOString().split('T')[0]}.pdf`)
+  }
+
+  async function _pdfDestinos() {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    const pw = doc.internal.pageSize.getWidth()
+    const HS = { fillColor: [30, 41, 59], textColor: 255 }
+    const ST = { fontSize: 8, cellPadding: 2 }
+    const hoy = new Date().toLocaleString('es-AR')
+    const periodo = _periodoLabel()
+    const totalEgresos = destinoMercaderia.reduce((a, g) => a + g.items.length, 0)
+    const totalUnidades = destinoMercaderia.reduce((a, g) => a + g.total, 0)
+
+    // P1 — Portada
+    try { const ld = await toDataURL(logoUrl); doc.addImage(ld, 'PNG', (pw - 50) / 2, 35, 50, 18) } catch {}
+    doc.setFontSize(20); doc.setTextColor(17, 24, 39)
+    doc.text('INFORME DE DESTINO DE MERCADERÍA', pw / 2, 80, { align: 'center' })
+    doc.setDrawColor(212, 82, 26); doc.setLineWidth(1); doc.line(30, 86, pw - 30, 86)
+    doc.setFontSize(12); doc.setTextColor(100, 100, 100)
+    doc.text(`Período: ${periodo}`, pw / 2, 96, { align: 'center' })
+    doc.setFontSize(9); doc.text(`Fecha de emisión: ${hoy}`, pw / 2, 104, { align: 'center' })
+    doc.setFontSize(7.5); doc.setTextColor(212, 82, 26)
+    doc.text('Confidencial — Del Parque', pw / 2, 114, { align: 'center' })
+
+    // P2 — Resumen
+    doc.addPage()
+    doc.setFontSize(14); doc.setTextColor(17, 24, 39)
+    doc.text('Resumen ejecutivo', 14, 16)
+    doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
+    autoTable(doc, {
+      startY: 24,
+      body: [
+        ['Total egresos', String(totalEgresos), 'Destinos distintos', String(destinoMercaderia.length)],
+        ['Total unidades/kg', totalUnidades.toLocaleString('es-AR', { maximumFractionDigits: 2 }), '', ''],
+      ],
+      styles: { ...ST, fontSize: 9 }, theme: 'grid',
+      columnStyles: { 0: { textColor: [100, 100, 100] }, 1: { fontStyle: 'bold', textColor: [17, 24, 39] }, 2: { textColor: [100, 100, 100] }, 3: { fontStyle: 'bold', textColor: [17, 24, 39] } },
+    })
+    let y = doc.lastAutoTable.finalY + 10
+    doc.setFontSize(9); doc.setTextColor(70, 70, 70)
+    const p1 = `Durante el período ${periodo}, se registraron ${totalEgresos} egreso${totalEgresos !== 1 ? 's' : ''} distribuidos en ${destinoMercaderia.length} destino${destinoMercaderia.length !== 1 ? 's' : ''} distintos, totalizando ${totalUnidades.toLocaleString('es-AR', { maximumFractionDigits: 2 })} unidades/kg de mercadería entregada.`
+    doc.text(doc.splitTextToSize(`• ${p1}`, pw - 28), 14, y)
+
+    // P3+ — Detalle por destino
+    for (const grupo of destinoMercaderia) {
+      doc.addPage()
+      doc.setFontSize(13); doc.setTextColor(17, 24, 39)
+      doc.text(`Destino: ${grupo.destino}`, 14, 16)
+      doc.setFontSize(9); doc.setTextColor(100, 100, 100)
+      doc.text(`${grupo.items.length} egreso${grupo.items.length !== 1 ? 's' : ''} · Total: ${grupo.total.toLocaleString('es-AR', { maximumFractionDigits: 2 })}`, 14, 22)
+      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 25, pw - 14, 25)
+      autoTable(doc, {
+        startY: 29,
+        head: [['FECHA', 'PRODUCTO', 'CANTIDAD', 'LOTE', 'RECIBIÓ']],
+        body: grupo.items.map(m => [
+          formatFecha(m.created_at), m.producto_nombre || '—',
+          formatCantidad(m), m.lote || '—', m.operario_recibe || '—',
+        ]),
+        styles: { ...ST, fontSize: 7.5 }, headStyles: HS,
+        foot: [[{ content: `SUBTOTAL: ${grupo.items.length} egresos · ${grupo.total.toFixed(2)} uds/kg`, colSpan: 5, styles: { fontStyle: 'bold', halign: 'right', fillColor: [241, 245, 249], textColor: [30, 41, 59] } }]],
+      })
+    }
+
+    // Última — Firmas
+    doc.addPage()
+    doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text('Conformidad y Firmas', 14, 20)
+    doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.8); doc.line(14, 24, pw - 14, 24)
+    doc.setFontSize(9); doc.setTextColor(100, 100, 100)
+    doc.text(doc.splitTextToSize(`Informe de destino de mercadería — período ${periodo} — generado el ${hoy}.`, pw - 28), 14, 34)
+    let yF = 60
+    ;['Responsable de Depósito', 'Gerencia', 'Fecha'].forEach(rol => {
+      doc.setDrawColor(100, 100, 100); doc.setLineWidth(0.3); doc.line(14, yF, 80, yF)
+      doc.setFontSize(8); doc.setTextColor(100, 100, 100)
+      doc.text(rol, 14, yF + 5); doc.text('Nombre y apellido: ___________________________', 14, yF + 11)
+      yF += 30
+    })
+    doc.save(`destino_mercaderia_${new Date().toISOString().split('T')[0]}.pdf`)
+  }
+
+  async function _pdfOperarios() {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    const pw = doc.internal.pageSize.getWidth()
+    const HS = { fillColor: [212, 82, 26], textColor: 255 }
+    const ST = { fontSize: 8, cellPadding: 2 }
+    const hoy = new Date().toLocaleString('es-AR')
+    const periodo = _periodoLabel()
+    const totalRetiros = entregasPorOperario.reduce((a, g) => a + g.items.length, 0)
+    const totalUnidades = entregasPorOperario.reduce((a, g) => a + g.total, 0)
+
+    // P1 — Portada
+    try { const ld = await toDataURL(logoUrl); doc.addImage(ld, 'PNG', (pw - 50) / 2, 35, 50, 18) } catch {}
+    doc.setFontSize(20); doc.setTextColor(17, 24, 39)
+    doc.text('INFORME DE ENTREGAS POR OPERARIO', pw / 2, 80, { align: 'center' })
+    doc.setDrawColor(212, 82, 26); doc.setLineWidth(1); doc.line(30, 86, pw - 30, 86)
+    doc.setFontSize(12); doc.setTextColor(100, 100, 100)
+    doc.text(`Período: ${periodo}`, pw / 2, 96, { align: 'center' })
+    doc.setFontSize(9); doc.text(`Fecha de emisión: ${hoy}`, pw / 2, 104, { align: 'center' })
+    doc.setFontSize(7.5); doc.setTextColor(212, 82, 26)
+    doc.text('Confidencial — Del Parque', pw / 2, 114, { align: 'center' })
+
+    // P2 — Ranking
+    doc.addPage()
+    doc.setFontSize(14); doc.setTextColor(17, 24, 39)
+    doc.text('Ranking de operarios', 14, 16)
+    doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
+    autoTable(doc, {
+      startY: 24,
+      head: [['#', 'OPERARIO', 'N° RETIROS', 'TOTAL UDS/KG', '% DEL TOTAL']],
+      body: entregasPorOperario.map((g, i) => [
+        String(i + 1), g.operario, String(g.items.length),
+        g.total.toLocaleString('es-AR', { maximumFractionDigits: 2 }),
+        totalUnidades > 0 ? `${((g.total / totalUnidades) * 100).toFixed(1)}%` : '—',
+      ]),
+      styles: { ...ST, fontSize: 8 }, headStyles: HS,
+      didParseCell(data) {
+        if (data.section === 'body' && data.row.index === 0 && data.column.index === 0)
+          data.cell.styles.textColor = [212, 82, 26]
+      },
+      foot: [[{ content: `TOTAL: ${totalRetiros} retiros · ${totalUnidades.toFixed(2)} uds/kg`, colSpan: 5, styles: { fontStyle: 'bold', halign: 'right', fillColor: [255, 247, 237], textColor: [212, 82, 26] } }]],
+    })
+    let y2 = doc.lastAutoTable.finalY + 10
+    doc.setFontSize(9); doc.setTextColor(70, 70, 70)
+    const p1 = `Durante el período ${periodo}, ${entregasPorOperario.length} operario${entregasPorOperario.length !== 1 ? 's' : ''} realizaron ${totalRetiros} retiro${totalRetiros !== 1 ? 's' : ''} de mercadería, totalizando ${totalUnidades.toLocaleString('es-AR', { maximumFractionDigits: 2 })} unidades/kg.`
+    doc.text(doc.splitTextToSize(`• ${p1}`, pw - 28), 14, y2)
+
+    // P3+ — Detalle por operario
+    for (const grupo of entregasPorOperario) {
+      doc.addPage()
+      doc.setFontSize(13); doc.setTextColor(17, 24, 39)
+      doc.text(`Operario: ${grupo.operario}`, 14, 16)
+      doc.setFontSize(9); doc.setTextColor(100, 100, 100)
+      doc.text(`${grupo.items.length} retiro${grupo.items.length !== 1 ? 's' : ''} · Total: ${grupo.total.toLocaleString('es-AR', { maximumFractionDigits: 2 })}`, 14, 22)
+      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 25, pw - 14, 25)
+      autoTable(doc, {
+        startY: 29,
+        head: [['FECHA', 'PRODUCTO', 'CANTIDAD', 'DESTINO', 'MOTIVO']],
+        body: grupo.items.map(m => [
+          formatFecha(m.created_at), m.producto_nombre || '—',
+          formatCantidad(m), m.destino || '—', m.motivo || '—',
+        ]),
+        styles: { ...ST, fontSize: 7.5 }, headStyles: HS,
+        foot: [[{ content: `SUBTOTAL: ${grupo.items.length} retiros · ${grupo.total.toFixed(2)} uds/kg`, colSpan: 5, styles: { fontStyle: 'bold', halign: 'right', fillColor: [255, 247, 237], textColor: [212, 82, 26] } }]],
+      })
+    }
+
+    // Última — Firmas
+    doc.addPage()
+    doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text('Conformidad y Firmas', 14, 20)
+    doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.8); doc.line(14, 24, pw - 14, 24)
+    doc.setFontSize(9); doc.setTextColor(100, 100, 100)
+    doc.text(doc.splitTextToSize(`Informe de entregas por operario — período ${periodo} — generado el ${hoy}.`, pw - 28), 14, 34)
+    let yF = 60
+    ;['Responsable de Depósito', 'Gerencia', 'Fecha'].forEach(rol => {
+      doc.setDrawColor(100, 100, 100); doc.setLineWidth(0.3); doc.line(14, yF, 80, yF)
+      doc.setFontSize(8); doc.setTextColor(100, 100, 100)
+      doc.text(rol, 14, yF + 5); doc.text('Nombre y apellido: ___________________________', 14, yF + 11)
+      yF += 30
+    })
+    doc.save(`entregas_operario_${new Date().toISOString().split('T')[0]}.pdf`)
+  }
+
   return (
     <div className="space-y-5">
       <Toast toast={toast} />
@@ -2234,7 +2496,10 @@ export default function Deposito() {
                     </button>
                   ))}
                 </div>
-                <div className="ml-auto flex gap-2">
+                <div className="ml-auto flex gap-2 items-center flex-wrap">
+                  <Button variant="secondary" size="sm" onClick={exportarInformePDF} loading={generandoPDFInforme}>
+                    <FileDown size={14} /> Exportar PDF
+                  </Button>
                   <div className="w-40">
                     <Select value={informeMes} onChange={e => setInformeMes(Number(e.target.value))}>
                       <option value={0}>Todos los meses</option>

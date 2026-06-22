@@ -6,6 +6,7 @@ import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
 import Button from '../components/ui/Button'
+import Modal from '../components/ui/Modal'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
@@ -141,6 +142,8 @@ export default function Informes() {
   const [diaSeleccionado, setDiaSeleccionado] = useState(hoyISO)
   const [loading, setLoading]       = useState(true)
   const [exportando, setExportando] = useState(false)
+
+  const [modalDetalle, setModalDetalle] = useState(null) // { nombre, tipo, registros }
 
   const [produccionesActual, setProduccionesActual]     = useState([])
   const [produccionesAnterior, setProduccionesAnterior] = useState([])
@@ -659,8 +662,9 @@ export default function Informes() {
                       <Thead><Tr><Th>Sabor</Th><Th className="text-right">Registros</Th><Th className="text-right">KG Total</Th><Th className="text-right">Baldes</Th><Th className="text-right">Prom kg/reg</Th></Tr></Thead>
                       <Tbody>
                         {prodTableData.sabores.map(p => (
-                          <Tr key={p.nombre}>
-                            <Td className="font-medium">{p.nombre}</Td>
+                          <Tr key={p.nombre} style={{ cursor: 'pointer' }}
+                            onClick={() => setModalDetalle({ nombre: p.nombre, tipo: 'helado', registros: produccionesActual.filter(r => (r.producto_nombre || '') === p.nombre).sort((a, b) => new Date(b.created_at || b.fecha) - new Date(a.created_at || a.fecha)) })}>
+                            <Td className="font-medium" style={{ color: colors.brand }}>{p.nombre}</Td>
                             <Td className="text-right" style={{ color: colors.textMuted }}>{p.registros}</Td>
                             <Td className="text-right font-bold" style={{ color: colors.brand }}>{fmtNum(p.kg, 1)} kg</Td>
                             <Td className="text-right">{p.baldes}</Td>
@@ -683,8 +687,9 @@ export default function Informes() {
                       <Thead><Tr><Th>Producto</Th><Th className="text-right">Unidades totales</Th></Tr></Thead>
                       <Tbody>
                         {prodTableData.impulsivos.map(p => (
-                          <Tr key={p.nombre}>
-                            <Td className="font-medium">{p.nombre}</Td>
+                          <Tr key={p.nombre} style={{ cursor: 'pointer' }}
+                            onClick={() => setModalDetalle({ nombre: p.nombre, tipo: 'impulsivo', registros: produccionesActual.filter(r => (r.producto_nombre || '') === p.nombre).sort((a, b) => new Date(b.created_at || b.fecha) - new Date(a.created_at || a.fecha)) })}>
+                            <Td className="font-medium" style={{ color: colors.warning }}>{p.nombre}</Td>
                             <Td className="text-right font-bold" style={{ color: colors.warning }}>{fmtNum(p.unidades, 0)} u</Td>
                           </Tr>
                         ))}
@@ -704,8 +709,9 @@ export default function Informes() {
                       <Thead><Tr><Th>Producto</Th><Th className="text-right">Unidades</Th><Th className="text-right">KG Total</Th><Th className="text-right">Prom kg/u</Th></Tr></Thead>
                       <Tbody>
                         {prodTableData.postres.map(p => (
-                          <Tr key={p.nombre}>
-                            <Td className="font-medium">{p.nombre}</Td>
+                          <Tr key={p.nombre} style={{ cursor: 'pointer' }}
+                            onClick={() => setModalDetalle({ nombre: p.nombre, tipo: 'postre', registros: produccionesActual.filter(r => (r.producto_nombre || '') === p.nombre).sort((a, b) => new Date(b.created_at || b.fecha) - new Date(a.created_at || a.fecha)) })}>
+                            <Td className="font-medium" style={{ color: '#a855f7' }}>{p.nombre}</Td>
                             <Td className="text-right font-bold" style={{ color: '#a855f7' }}>{fmtNum(p.unidades, 0)} u</Td>
                             <Td className="text-right">{fmtNum(p.kg, 1)} kg</Td>
                             <Td className="text-right text-xs" style={{ color: colors.textMuted }}>{fmtNum(p.promedio, 2)} kg</Td>
@@ -913,6 +919,119 @@ export default function Informes() {
           )}
         </>
       )}
+
+      {/* ── Modal detalle de producción por producto ── */}
+      {modalDetalle && (() => {
+        const { nombre, tipo, registros } = modalDetalle
+        const esHelado    = tipo === 'helado'
+        const esImpulsivo = tipo === 'impulsivo'
+        const esPostre    = tipo === 'postre'
+
+        const totalKg      = registros.reduce((a, r) => a + (r.peso_kg || 0), 0)
+        const totalUnidades = registros.reduce((a, r) => a + (r.peso_kg || 0), 0) // para impulsivos peso_kg = unidades
+        const totalBaldes  = Math.round(totalKg / 7)
+        const promedio     = registros.length > 0 ? totalKg / registros.length : 0
+
+        const fmtTS = (r) => {
+          const ts = r.created_at || r.fecha
+          if (!ts) return '—'
+          return new Date(ts).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' hs'
+        }
+
+        return (
+          <Modal
+            open
+            onClose={() => setModalDetalle(null)}
+            title={`Detalle de producción — ${nombre}`}
+            maxWidth="max-w-3xl"
+            disableBackdropClose={false}
+            footer={<Button variant="secondary" onClick={() => setModalDetalle(null)} className="w-full sm:w-auto">Cerrar</Button>}
+          >
+            <div className="space-y-4">
+              {registros.length === 0 ? (
+                <p className="text-sm text-center py-6" style={{ color: colors.textMuted }}>Sin registros en este período</p>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full" style={{ minWidth: esHelado ? 580 : 480 }}>
+                      <thead>
+                        <tr style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                          {['Fecha/Hora', 'Operario',
+                            esHelado ? 'KG' : 'Unidades',
+                            esPostre ? 'KG' : null,
+                            'Lote', 'Observaciones',
+                          ].filter(Boolean).map(h => (
+                            <th key={h} className="py-2.5 px-4 text-left font-semibold uppercase"
+                              style={{ fontSize: 10, color: colors.textMuted, letterSpacing: '0.07em' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {registros.map((r, i) => (
+                          <tr key={r.id || i} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                            <td className="py-2.5 px-4 text-xs whitespace-nowrap" style={{ color: colors.textMuted }}>{fmtTS(r)}</td>
+                            <td className="py-2.5 px-4 text-sm" style={{ color: colors.textSecondary }}>{r.operario_nombre || '—'}</td>
+                            <td className="py-2.5 px-4 text-sm font-semibold text-right" style={{ color: esHelado ? colors.brand : esImpulsivo ? colors.warning : '#a855f7' }}>
+                              {fmtNum(r.peso_kg, esHelado ? 3 : 0)} {esHelado ? 'kg' : 'u'}
+                            </td>
+                            {esPostre && (
+                              <td className="py-2.5 px-4 text-sm text-right" style={{ color: colors.textSecondary }}>{fmtNum(r.peso_kg, 1)} kg</td>
+                            )}
+                            <td className="py-2.5 px-4 text-xs font-mono" style={{ color: colors.textMuted }}>{r.lote || '—'}</td>
+                            <td className="py-2.5 px-4 text-xs max-w-[140px] truncate" style={{ color: colors.textMuted }}>{r.observaciones || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Totales al pie */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2" style={{ borderTop: `1px solid ${colors.border}` }}>
+                    <div className="text-center p-2 rounded-lg" style={{ backgroundColor: colors.bg }}>
+                      <p className="text-xs" style={{ color: colors.textMuted }}>Registros</p>
+                      <p className="text-lg font-bold" style={{ color: colors.textPrimary }}>{registros.length}</p>
+                    </div>
+                    {esHelado && <>
+                      <div className="text-center p-2 rounded-lg" style={{ backgroundColor: colors.bg }}>
+                        <p className="text-xs" style={{ color: colors.textMuted }}>Total KG</p>
+                        <p className="text-lg font-bold" style={{ color: colors.brand }}>{fmtNum(totalKg, 2)} kg</p>
+                      </div>
+                      <div className="text-center p-2 rounded-lg" style={{ backgroundColor: colors.bg }}>
+                        <p className="text-xs" style={{ color: colors.textMuted }}>Total Baldes</p>
+                        <p className="text-lg font-bold" style={{ color: colors.info }}>{totalBaldes}</p>
+                      </div>
+                      <div className="text-center p-2 rounded-lg" style={{ backgroundColor: colors.bg }}>
+                        <p className="text-xs" style={{ color: colors.textMuted }}>Prom kg/reg</p>
+                        <p className="text-lg font-bold" style={{ color: colors.textSecondary }}>{fmtNum(promedio, 3)}</p>
+                      </div>
+                    </>}
+                    {esImpulsivo && (
+                      <div className="text-center p-2 rounded-lg" style={{ backgroundColor: colors.bg }}>
+                        <p className="text-xs" style={{ color: colors.textMuted }}>Total Unidades</p>
+                        <p className="text-lg font-bold" style={{ color: colors.warning }}>{Math.round(totalUnidades)} u</p>
+                      </div>
+                    )}
+                    {esPostre && <>
+                      <div className="text-center p-2 rounded-lg" style={{ backgroundColor: colors.bg }}>
+                        <p className="text-xs" style={{ color: colors.textMuted }}>Total Unidades</p>
+                        <p className="text-lg font-bold" style={{ color: '#a855f7' }}>{Math.round(totalUnidades)} u</p>
+                      </div>
+                      <div className="text-center p-2 rounded-lg" style={{ backgroundColor: colors.bg }}>
+                        <p className="text-xs" style={{ color: colors.textMuted }}>Total KG</p>
+                        <p className="text-lg font-bold" style={{ color: '#7c3aed' }}>{fmtNum(totalKg, 2)} kg</p>
+                      </div>
+                      <div className="text-center p-2 rounded-lg" style={{ backgroundColor: colors.bg }}>
+                        <p className="text-xs" style={{ color: colors.textMuted }}>Prom kg/u</p>
+                        <p className="text-lg font-bold" style={{ color: colors.textSecondary }}>{fmtNum(promedio, 3)}</p>
+                      </div>
+                    </>}
+                  </div>
+                </>
+              )}
+            </div>
+          </Modal>
+        )
+      })()}
     </div>
   )
 }

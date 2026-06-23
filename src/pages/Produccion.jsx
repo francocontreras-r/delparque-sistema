@@ -284,6 +284,9 @@ export default function Produccion() {
     }
     const cantidad = parseFloat(manualCantidad)
     if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
+    if (manualTipoCamara === 'helado' && !(parseFloat(manualPesoTotal) > 0)) {
+      toast2('El peso total (kg) es obligatorio para helados', 'error'); return
+    }
 
     const nombre = manualTipo === 'sabor'
       ? saboresCamara.find(s => String(s.id) === manualId)?.nombre || ''
@@ -396,8 +399,9 @@ export default function Produccion() {
         || camara?.tipo_producto
         || (item.categoria?.toLowerCase() === 'helado' ? 'helado' : item.categoria?.toLowerCase() === 'postre' ? 'postre' : 'impulsivo')
 
-      const unidades = Number(item._unidades) || 0
-      const kgItem   = Number(item.peso_kg)   || 0
+      // escaneo: cada código escaneado = 1 balde; manual: usar _unidades explícito
+      const unidades = item.origen === 'escaneo' ? 1 : (Number(item._unidades) || 0)
+      const kgItem   = Number(item.peso_kg) || 0
 
       // Calcular nuevos valores según tipo_producto
       let nuevoKg, nuevosBaldes
@@ -739,7 +743,7 @@ export default function Produccion() {
             {(manualTipoCamara === 'helado' || manualTipoCamara === 'postre') && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Input
-                  label={manualTipoCamara === 'helado' ? 'Peso total (kg)' : 'Peso total (kg)'}
+                  label={manualTipoCamara === 'helado' ? 'Peso total (kg) *' : 'Peso total (kg)'}
                   type="number" min="0" step="0.001"
                   value={manualPesoTotal}
                   onChange={e => setManualPesoTotal(e.target.value)}

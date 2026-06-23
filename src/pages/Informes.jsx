@@ -309,7 +309,7 @@ export default function Informes() {
       })
 
       const promedioBases   = regBases > 0 ? kgBases / regBases : 0
-      const baldesHelados   = Math.round(kgHelados / 7)
+      const baldesHelados   = regHelados
       const promedioKgHelados = regHelados > 0 ? kgHelados / regHelados : 0
       const unidadesPostres = regPostres
 
@@ -336,7 +336,7 @@ export default function Informes() {
         .sort((a, b) => b.kg - a.kg),
       sabores: prods
         .filter(p => p.tipo === 'helado')
-        .map(p => ({ ...p, baldes: Math.round(p.kg / 7), promedio: p.registros > 0 ? p.kg / p.registros : 0 }))
+        .map(p => ({ ...p, baldes: p.registros, promedio: p.registros > 0 ? p.kg / p.registros : 0 }))
         .sort((a, b) => b.kg - a.kg),
       impulsivos: prods
         .filter(p => p.tipo === 'impulsivo')
@@ -818,7 +818,7 @@ export default function Informes() {
                           {o.kgSabores > 0 && (
                             <div className="text-xs" style={{ color: colors.brand }}>
                               <span className="font-semibold">{fmtNum(o.kgSabores, 1)} kg</span>
-                              <span style={{ color: colors.textMuted }}> · {Math.round(o.kgSabores / 7)} baldes</span>
+                              <span style={{ color: colors.textMuted }}> · {o.regSabores} baldes</span>
                               {o.regSabores > 0 && <span style={{ color: colors.textMuted }}> · prom {fmtNum(o.kgSabores / o.regSabores, 2)} kg/reg</span>}
                             </div>
                           )}
@@ -1011,7 +1011,7 @@ export default function Informes() {
 
         const totalKg      = registros.reduce((a, r) => a + (r.peso_kg || 0), 0)
         const totalUnidades = registros.reduce((a, r) => a + (r.peso_kg || 0), 0) // para impulsivos peso_kg = unidades
-        const totalBaldes  = Math.round(totalKg / 7)
+        const totalBaldes  = registros.length
         const promedio     = registros.length > 0 ? totalKg / registros.length : 0
 
         const fmtTS = (r) => {

@@ -283,6 +283,7 @@ function ModalMovimiento({ item, onClose, onApply, operariosDisponibles = [], st
   const [saving, setSaving]         = useState(false)
   const [errorMsg, setErrorMsg]     = useState(null)
   const [operarioSolicita, setOperarioSolicita] = useState('')
+  const [operarioElabora, setOperarioElabora]   = useState('')
   const [productoElaborado, setProductoElaborado] = useState('')
 
   const esImp  = (item?.tipo_producto || '') === 'impulsivo'
@@ -304,6 +305,9 @@ function ModalMovimiento({ item, onClose, onApply, operariosDisponibles = [], st
     const k = parseFloat(cantKg)
     if (!b || b <= 0) { setErrorMsg('La cantidad debe ser mayor a 0'); return }
     if (!motivo) { setErrorMsg('Seleccioná un motivo'); return }
+    if (tipoMov === 'ingreso' && motivo === 'Producción' && !operarioElabora) {
+      setErrorMsg('Seleccioná el operario que elaboró'); return
+    }
     if (tipoMov === 'egreso' && motivo === 'Producción' && !productoElaborado) {
       setErrorMsg('Seleccioná el producto elaborado'); return
     }
@@ -318,7 +322,7 @@ function ModalMovimiento({ item, onClose, onApply, operariosDisponibles = [], st
     const err = await onApply({
       id: item.id, tipo: tipoMov, baldes: b, kg: isNaN(k) ? 0 : k,
       motivo: motivoFinal, lote: lote.trim(),
-      operarioNombre: operarioSolicita || null,
+      operarioNombre: tipoMov === 'ingreso' ? (operarioElabora || null) : (operarioSolicita || null),
       productoElaborado: productoElaborado || null,
     })
     if (err) { setErrorMsg(err); setSaving(false) }
@@ -395,10 +399,19 @@ function ModalMovimiento({ item, onClose, onApply, operariosDisponibles = [], st
         <Input label="Número de lote" type="text" value={lote} disabled={saving}
           onChange={ev => setLote(ev.target.value)} placeholder="Opcional" />
 
-        <Select label="Motivo *" value={motivo} onChange={ev => { setMotivo(ev.target.value); setProductoElaborado(''); setOperarioSolicita('') }} disabled={saving}>
+        <Select label="Motivo *" value={motivo} onChange={ev => { setMotivo(ev.target.value); setProductoElaborado(''); setOperarioSolicita(''); setOperarioElabora('') }} disabled={saving}>
           <option value="">— Seleccionar —</option>
           {(tipoMov === 'ingreso' ? MOTIVOS_INGRESO_CAMARA : MOTIVOS_EGRESO_CAMARA).map(m => <option key={m}>{m}</option>)}
         </Select>
+
+        {tipoMov === 'ingreso' && motivo === 'Producción' && (
+          <div className="p-3 rounded-lg" style={{ backgroundColor: 'rgba(212,82,26,0.06)', border: '1px solid rgba(212,82,26,0.2)' }}>
+            <Select label="Operario que elaboró *" value={operarioElabora} onChange={ev => setOperarioElabora(ev.target.value)} disabled={saving}>
+              <option value="">— Seleccionar —</option>
+              {operariosDisponibles.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+            </Select>
+          </div>
+        )}
 
         {tipoMov === 'egreso' && motivo === 'Producción' && (
           <div className="space-y-2 p-3 rounded-lg" style={{ backgroundColor: 'rgba(212,82,26,0.06)', border: '1px solid rgba(212,82,26,0.2)' }}>
@@ -1352,9 +1365,9 @@ export default function Camaras() {
         : Math.max(0, currentKg - (kg || 0))
 
     const nuevoLote = lote || null
-    const { error } = await supabase.from('stock_camaras')
-      .update({ baldes: nuevoBaldes, kg: nuevosKg, lote: nuevoLote, ultima_actualizacion: new Date().toISOString() })
-      .eq('id', id)
+    const stockUpdate = { baldes: nuevoBaldes, kg: nuevosKg, lote: nuevoLote, ultima_actualizacion: new Date().toISOString() }
+    if (tipo === 'ingreso' && operarioNombre) stockUpdate.operario_nombre = operarioNombre
+    const { error } = await supabase.from('stock_camaras').update(stockUpdate).eq('id', id)
     if (error) return error.message
     await supabase.from('movimientos_camara').insert({
       sabor_nombre:    sabor.nombre,

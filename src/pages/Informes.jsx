@@ -17,6 +17,7 @@ import {
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
+import { LOGO_HORIZONTAL } from '../assets/logos'
 const logoUrl = '/logo_delparque.png'
 
 const TABS = ['Producción', 'Mermas', 'Financiero']
@@ -494,12 +495,7 @@ export default function Informes() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const pageWidth = doc.internal.pageSize.getWidth()
 
-    try {
-      const logoData = await toDataURL(logoUrl)
-      doc.addImage(logoData, 'PNG', 14, 10, 36, 13)
-    } catch {
-      // si no se puede cargar el logo, se continúa sin él
-    }
+    try { doc.addImage(LOGO_HORIZONTAL, 'PNG', 14, 8, 48, 12) } catch {}
 
     doc.setFontSize(13)
     doc.setTextColor(40, 40, 40)

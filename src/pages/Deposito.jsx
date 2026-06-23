@@ -21,6 +21,7 @@ import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, ClipboardCheck, AlertTriangle, TrendingUp, BarChart2, ChevronRight, Plus, Trash2, Clock } from 'lucide-react'
+import { LOGO_HORIZONTAL } from '../assets/logos'
 const logoUrl = '/logo_delparque.png'
 
 const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
@@ -1454,7 +1455,7 @@ export default function Deposito() {
       const hoy = new Date().toLocaleString('es-AR')
 
       // PÁGINA 1 — Portada
-      try { const ld = await toDataURL(logoUrl); doc.addImage(ld, 'PNG', (pw - 50) / 2, 35, 50, 18) } catch {}
+      try { doc.addImage(LOGO_HORIZONTAL, 'PNG', (pw - 64) / 2, 35, 64, 16) } catch {}
       doc.setFontSize(22); doc.setTextColor(17, 24, 39)
       doc.text('INFORME DE STOCK DE CÁMARAS', pw / 2, 80, { align: 'center' })
       doc.setDrawColor(212, 82, 26); doc.setLineWidth(1); doc.line(30, 86, pw - 30, 86)
@@ -1533,7 +1534,7 @@ export default function Deposito() {
       const periodoLabel = `${fmtFecha(rangoCS.desde)} – ${fmtFecha(rangoCS.hasta)}`
 
       // PÁGINA 1 — Portada
-      try { const ld = await toDataURL(logoUrl); doc.addImage(ld, 'PNG', (pw - 50) / 2, 35, 50, 18) } catch {}
+      try { doc.addImage(LOGO_HORIZONTAL, 'PNG', (pw - 64) / 2, 35, 64, 16) } catch {}
       doc.setFontSize(22); doc.setTextColor(17, 24, 39)
       doc.text('INFORME DE CONTROL DE STOCK', pw / 2, 80, { align: 'center' })
       doc.setDrawColor(212, 82, 26); doc.setLineWidth(1)
@@ -1787,8 +1788,7 @@ export default function Deposito() {
     const pageWidth = doc.internal.pageSize.getWidth()
 
     try {
-      const logoData = await toDataURL(logoUrl)
-      doc.addImage(logoData, 'PNG', 14, 10, 36, 13)
+      doc.addImage(LOGO_HORIZONTAL, 'PNG', 14, 8, 48, 12)
     } catch {
       // si no se puede cargar el logo, se continúa sin él
     }
@@ -1866,7 +1866,7 @@ export default function Deposito() {
     const masComprado = Object.entries(productoCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '—'
 
     // P1 — Portada
-    try { const ld = await toDataURL(logoUrl); doc.addImage(ld, 'PNG', (pw - 50) / 2, 35, 50, 18) } catch {}
+    try { doc.addImage(LOGO_HORIZONTAL, 'PNG', (pw - 64) / 2, 35, 64, 16) } catch {}
     doc.setFontSize(20); doc.setTextColor(17, 24, 39)
     doc.text('INFORME DE COMPRAS POR PROVEEDOR', pw / 2, 80, { align: 'center' })
     doc.setDrawColor(212, 82, 26); doc.setLineWidth(1); doc.line(30, 86, pw - 30, 86)
@@ -1943,7 +1943,7 @@ export default function Deposito() {
     const totalUnidades = destinoMercaderia.reduce((a, g) => a + g.total, 0)
 
     // P1 — Portada
-    try { const ld = await toDataURL(logoUrl); doc.addImage(ld, 'PNG', (pw - 50) / 2, 35, 50, 18) } catch {}
+    try { doc.addImage(LOGO_HORIZONTAL, 'PNG', (pw - 64) / 2, 35, 64, 16) } catch {}
     doc.setFontSize(20); doc.setTextColor(17, 24, 39)
     doc.text('INFORME DE DESTINO DE MERCADERÍA', pw / 2, 80, { align: 'center' })
     doc.setDrawColor(212, 82, 26); doc.setLineWidth(1); doc.line(30, 86, pw - 30, 86)
@@ -2019,7 +2019,7 @@ export default function Deposito() {
     const totalUnidades = entregasPorOperario.reduce((a, g) => a + g.total, 0)
 
     // P1 — Portada
-    try { const ld = await toDataURL(logoUrl); doc.addImage(ld, 'PNG', (pw - 50) / 2, 35, 50, 18) } catch {}
+    try { doc.addImage(LOGO_HORIZONTAL, 'PNG', (pw - 64) / 2, 35, 64, 16) } catch {}
     doc.setFontSize(20); doc.setTextColor(17, 24, 39)
     doc.text('INFORME DE ENTREGAS POR OPERARIO', pw / 2, 80, { align: 'center' })
     doc.setDrawColor(212, 82, 26); doc.setLineWidth(1); doc.line(30, 86, pw - 30, 86)

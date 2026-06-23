@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import html2canvas from 'html2canvas'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { LOGO_HORIZONTAL } from '../assets/logos'
 
 const ACCENT = '#D4521A'
 const NARANJA = [212, 82, 26]
@@ -34,6 +36,7 @@ export default function InformeOperarios() {
   const [periodo, setPeriodo]       = useState('mes')
   const [operarioSel, setOperarioSel] = useState('')
   const [datos, setDatos] = useState({ operarios: [], ordenes: [], ranking: [], comparativas: {} })
+  const chartRef = useRef(null)
 
   useEffect(() => { cargar() }, [periodo]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -135,7 +138,7 @@ export default function InformeOperarios() {
     }
   }
 
-  function generarPDF(tipo) {
+  async function generarPDF(tipo) {
     try {
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
       const W = doc.internal.pageSize.getWidth()
@@ -143,6 +146,8 @@ export default function InformeOperarios() {
       // Portada
       doc.setFillColor(...OSCURO); doc.rect(0, 0, W, 297, 'F')
       doc.setFillColor(...NARANJA); doc.rect(0, 0, W, 3, 'F')
+      // Logo
+      try { doc.addImage(LOGO_HORIZONTAL, 'PNG', (W - 64) / 2, 40, 64, 16) } catch {}
       doc.setTextColor(255, 255, 255)
       doc.setFontSize(26); doc.setFont('helvetica', 'bold')
       doc.text('INFORME DE RENDIMIENTO', W / 2, 100, { align: 'center' })
@@ -153,6 +158,20 @@ export default function InformeOperarios() {
       doc.text(`Emitido: ${new Date().toLocaleDateString('es-AR')}`, W / 2, 142, { align: 'center' })
       doc.setFontSize(9); doc.setTextColor(100, 116, 139)
       doc.text('CONFIDENCIAL — USO INTERNO', W / 2, 270, { align: 'center' })
+
+      // Página de gráfico (html2canvas)
+      if (chartRef.current && datos.ranking.length > 0) {
+        try {
+          const canvas = await html2canvas(chartRef.current, { backgroundColor: '#1e293b', scale: 2, logging: false, useCORS: true })
+          const imgData = canvas.toDataURL('image/png')
+          doc.addPage()
+          doc.setFillColor(...OSCURO); doc.rect(0, 0, W, 297, 'F')
+          doc.setFillColor(...NARANJA); doc.rect(0, 0, W, 3, 'F')
+          doc.setTextColor(255, 255, 255); doc.setFontSize(14); doc.setFont('helvetica', 'bold')
+          doc.text('RENDIMIENTO DEL EQUIPO', 15, 16)
+          doc.addImage(imgData, 'PNG', 10, 24, W - 20, 80)
+        } catch (chartErr) { console.warn('html2canvas:', chartErr) }
+      }
 
       if (tipo === 'equipo') {
         doc.addPage()
@@ -617,6 +636,20 @@ export default function InformeOperarios() {
           </div>
         </div>
       )}
+
+      {/* Gráfico oculto para captura PDF con html2canvas */}
+      <div ref={chartRef} style={{ position: 'fixed', left: '-9999px', top: '0', width: '580px', height: '240px', background: '#1e293b', padding: '12px 16px', zIndex: -1 }}>
+        <BarChart width={548} height={216} data={datos.ranking.slice(0, 10).map(r => ({ nombre: r.nombre.split(' ')[0], 'Ef. KG': r.efKg || 0, 'Ef. Tiempo': r.efTiempo || 0, 'Rendimiento': r.rendimiento || 0 }))}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+          <XAxis dataKey="nombre" stroke="#94a3b8" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+          <YAxis domain={[0, 100]} stroke="#94a3b8" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+          <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
+          <Legend wrapperStyle={{ color: '#f1f5f9', fontSize: 11 }} />
+          <Bar dataKey="Ef. KG" fill="#3b82f6" />
+          <Bar dataKey="Ef. Tiempo" fill="#D4521A" />
+          <Bar dataKey="Rendimiento" fill="#10b981" />
+        </BarChart>
+      </div>
     </div>
   )
 }

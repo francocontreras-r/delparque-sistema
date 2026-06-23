@@ -5,6 +5,7 @@ import { deduplicarOperarios } from '../lib/operarios'
 import { useUser } from '../context/UserContext'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { LOGO_HORIZONTAL } from '../assets/logos'
 const logoUrl = '/logo_delparque.png'
 import { colors, shadow, radius } from '../styles/design-system'
 import KpiCard from '../components/ui/KpiCard'
@@ -1122,10 +1123,11 @@ export default function Camaras() {
   async function exportarMovimientosPDF() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const pageWidth = doc.internal.pageSize.getWidth()
+    try { doc.addImage(LOGO_HORIZONTAL, 'PNG', 14, 7, 48, 12) } catch {}
     const titulo = `Del Parque — Movimientos de Cámara${filtroMovFecha ? ' ' + filtroMovFecha : ''}`
     doc.setFontSize(12)
     doc.setTextColor(40, 40, 40)
-    doc.text(titulo, pageWidth / 2, 14, { align: 'center' })
+    doc.text(titulo, pageWidth - 14, 14, { align: 'right' })
     const kgIng = movimientos.filter(m => m.tipo === 'ingreso').reduce((a, m) => a + (m.kg || 0), 0)
     const kgEgr = movimientos.filter(m => m.tipo === 'egreso').reduce((a, m) => a + (m.kg || 0), 0)
     autoTable(doc, {
@@ -1250,8 +1252,9 @@ export default function Camaras() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const pw = doc.internal.pageSize.getWidth()
     const fecha = filtroTempFecha || new Date().toISOString().split('T')[0]
+    try { doc.addImage(LOGO_HORIZONTAL, 'PNG', 14, 7, 48, 12) } catch {}
     doc.setFontSize(13); doc.setTextColor(40, 40, 40)
-    doc.text('Del Parque — Registro de Temperaturas de Cámaras', pw / 2, 14, { align: 'center' })
+    doc.text('Del Parque — Registro de Temperaturas de Cámaras', pw - 14, 14, { align: 'right' })
     doc.setFontSize(8.5); doc.setTextColor(120, 120, 120)
     doc.text(`Período: ${fecha}  ·  Emitido: ${new Date().toLocaleString('es-AR')}`, pw / 2, 20, { align: 'center' })
     doc.text('Planilla para control de Salud Pública', pw / 2, 25, { align: 'center' })

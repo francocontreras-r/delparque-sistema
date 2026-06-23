@@ -10,6 +10,7 @@ import Button from '../components/ui/Button'
 import Toast from '../components/ui/Toast'
 import { colors, radius, shadow } from '../styles/design-system'
 import { BookOpen, Search, Edit2, RefreshCw, X, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
+import { POSTRES } from '../lib/postres'
 
 
 const TABS = ['Bases', 'Sabores', 'Impulsivos', 'Postres']
@@ -347,6 +348,7 @@ export default function Recetas() {
   const [sabores, setSabores]   = useState([])
   const [saborIngs, setSaborIngs] = useState([])
   const [stockCamaras, setStockCamaras] = useState([])
+  const [postres, setPostres]         = useState([])
   const [impulsivos, setImpulsivos] = useState([])
   const [impIngs, setImpIngs]   = useState([])
   const [insumos, setInsumos]   = useState([])
@@ -371,6 +373,7 @@ export default function Recetas() {
       { data: sc },
       { data: imp }, { data: ii },
       { data: ins },
+      { data: post },
     ] = await Promise.all([
       supabase.from('bases').select('*').order('nombre'),
       supabase.from('base_ingredientes').select('*'),
@@ -380,6 +383,7 @@ export default function Recetas() {
       supabase.from('impulsivos').select('*').order('nombre'),
       supabase.from('impulsivo_ingredientes').select('*'),
       supabase.from('insumos').select('nombre,costo_unitario,unidad'),
+      supabase.from('stock_camaras').select('id,nombre,tipo_producto').eq('tipo_producto', 'postre').order('nombre'),
     ])
     setBases(b || [])
     setBaseIngs(bi || [])
@@ -389,6 +393,7 @@ export default function Recetas() {
     setImpulsivos(imp || [])
     setImpIngs(ii || [])
     setInsumos(ins || [])
+    setPostres(post || [])
     setLoading(false)
   }
 
@@ -424,24 +429,9 @@ export default function Recetas() {
     const impIngsPor   = {}; impIngs.forEach(i   => { (impIngsPor[i.impulsivo_id]     ||= []).push(i) })
     const tipoPorNombre = {}; stockCamaras.forEach(c => { tipoPorNombre[c.nombre] = c.tipo })
 
-    // Distinguir impulsivos de postres usando stock_camaras.tipo_producto
-    const postresNombres = new Set(
-      stockCamaras.filter(c => c.tipo_producto === 'postre').map(c => (c.nombre || '').trim().toLowerCase())
-    )
-
-    const mapImp = (i, tipo) => {
-      const ings = enrichIngs(impIngsPor[i.id] || [])
-      const subtotalMP = ings.reduce((a, i2) => a + i2.costoTotal, 0)
-      return {
-        id: i.id, nombre: (i.nombre || '').toUpperCase(), tipo,
-        litros_batch: 0,
-        manoDeObra: i.mano_de_obra || 0,
-        costoTotal: i.costo_total || 0,
-        subtotalMP, ingredientes: ings,
-        sinPrecio: ings.some(i2 => !i2.tienePreco),
-        updatedAt: i.updated_at,
-      }
-    }
+    // Mapa de ingredientes de postres desde lib/postres.js (fallback)
+    const postresLibMap = {}
+    POSTRES.forEach(p => { postresLibMap[(p.nombre || '').trim().toLowerCase()] = p.ingredientes || [] })
 
     return {
       Bases: bases.map(b => {
@@ -473,14 +463,32 @@ export default function Recetas() {
           updatedAt: s.updated_at,
         }
       }),
-      Impulsivos: impulsivos
-        .filter(i => !postresNombres.has((i.nombre || '').trim().toLowerCase()))
-        .map(i => mapImp(i, 'Impulsivo')),
-      Postres: impulsivos
-        .filter(i => postresNombres.has((i.nombre || '').trim().toLowerCase()))
-        .map(i => mapImp(i, 'Postre')),
+      Impulsivos: impulsivos.map(i => {
+        const ings = enrichIngs(impIngsPor[i.id] || [])
+        const subtotalMP = ings.reduce((a, i2) => a + i2.costoTotal, 0)
+        return {
+          id: i.id, nombre: (i.nombre || '').toUpperCase(), tipo: 'Impulsivo',
+          litros_batch: 0,
+          manoDeObra: i.mano_de_obra || 0,
+          costoTotal: i.costo_total || 0,
+          subtotalMP, ingredientes: ings,
+          sinPrecio: ings.some(i2 => !i2.tienePreco),
+          updatedAt: i.updated_at,
+        }
+      }),
+      Postres: postres.map(p => {
+        const libIngs = postresLibMap[(p.nombre || '').trim().toLowerCase()] || []
+        const ings = enrichIngs(libIngs, 'nombre')
+        const subtotalMP = ings.reduce((a, i) => a + i.costoTotal, 0)
+        return {
+          id: p.id, nombre: (p.nombre || '').toUpperCase(), tipo: 'Postre',
+          litros_batch: 0, manoDeObra: 0, costoTotal: 0,
+          subtotalMP, ingredientes: ings,
+          sinPrecio: ings.some(i => !i.tienePreco),
+        }
+      }),
     }
-  }, [bases, baseIngs, sabores, saborIngs, stockCamaras, impulsivos, impIngs, insumoPorNombre])
+  }, [bases, baseIngs, sabores, saborIngs, stockCamaras, impulsivos, impIngs, postres, insumoPorNombre])
 
   const recetasTab = useMemo(() => {
     const lista = datosActivos[tab] || []
@@ -541,12 +549,18 @@ export default function Recetas() {
   async function renombrarReceta(nuevoNombre) {
     if (!renombrando) return
     const { receta, tipo } = renombrando
-    const tablaP = tipo === 'Bases' ? 'bases' : tipo === 'Sabores' ? 'sabores' : 'impulsivos'
     const nombreAntiguo = receta.nombre
     setSavingRename(true)
-    const { error } = await supabase.from(tablaP).update({ nombre: nuevoNombre }).eq('id', receta.id)
-    if (error) { setSavingRename(false); showToast(error.message, 'error'); return }
-    await supabase.from('stock_camaras').update({ nombre: nuevoNombre.toUpperCase() }).ilike('nombre', nombreAntiguo)
+    if (tipo === 'Postres') {
+      // Postres live in stock_camaras
+      const { error } = await supabase.from('stock_camaras').update({ nombre: nuevoNombre.toUpperCase() }).eq('id', receta.id)
+      if (error) { setSavingRename(false); showToast(error.message, 'error'); return }
+    } else {
+      const tablaP = tipo === 'Bases' ? 'bases' : tipo === 'Sabores' ? 'sabores' : 'impulsivos'
+      const { error } = await supabase.from(tablaP).update({ nombre: nuevoNombre }).eq('id', receta.id)
+      if (error) { setSavingRename(false); showToast(error.message, 'error'); return }
+      await supabase.from('stock_camaras').update({ nombre: nuevoNombre.toUpperCase() }).ilike('nombre', nombreAntiguo)
+    }
     await supabase.from('producciones').update({ producto_nombre: nuevoNombre.toUpperCase() }).ilike('producto_nombre', nombreAntiguo)
     setSavingRename(false)
     setRenombrando(null)
@@ -557,14 +571,20 @@ export default function Recetas() {
   async function eliminarReceta() {
     if (!eliminando) return
     const { receta, tipo } = eliminando
-    const tablaIng = tipo === 'Bases' ? 'base_ingredientes' : tipo === 'Sabores' ? 'sabor_ingredientes' : 'impulsivo_ingredientes'
-    const tablaP   = tipo === 'Bases' ? 'bases'             : tipo === 'Sabores' ? 'sabores'             : 'impulsivos'
-    const fk       = tipo === 'Bases' ? 'base_id'           : tipo === 'Sabores' ? 'sabor_id'            : 'impulsivo_id'
     setSavingDelete(true)
-    await supabase.from(tablaIng).delete().eq(fk, receta.id)
-    const { error } = await supabase.from(tablaP).delete().eq('id', receta.id)
-    setSavingDelete(false)
-    if (error) { showToast(error.message, 'error'); return }
+    if (tipo === 'Postres') {
+      const { error } = await supabase.from('stock_camaras').delete().eq('id', receta.id)
+      setSavingDelete(false)
+      if (error) { showToast(error.message, 'error'); return }
+    } else {
+      const tablaIng = tipo === 'Bases' ? 'base_ingredientes' : tipo === 'Sabores' ? 'sabor_ingredientes' : 'impulsivo_ingredientes'
+      const tablaP   = tipo === 'Bases' ? 'bases'             : tipo === 'Sabores' ? 'sabores'             : 'impulsivos'
+      const fk       = tipo === 'Bases' ? 'base_id'           : tipo === 'Sabores' ? 'sabor_id'            : 'impulsivo_id'
+      await supabase.from(tablaIng).delete().eq(fk, receta.id)
+      const { error } = await supabase.from(tablaP).delete().eq('id', receta.id)
+      setSavingDelete(false)
+      if (error) { showToast(error.message, 'error'); return }
+    }
     setEliminando(null)
     showToast(`"${receta.nombre}" eliminada`)
     cargar()
@@ -648,7 +668,7 @@ export default function Recetas() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {(
+                    {tab !== 'Postres' && (
                       <button
                         onClick={e => { e.stopPropagation(); abrirEditor(r) }}
                         className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-80"

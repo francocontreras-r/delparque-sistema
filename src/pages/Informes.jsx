@@ -188,10 +188,9 @@ export default function Informes() {
     const esImpCam = tipoProd === 'impulsivo'
     return {
       producto_nombre: (m.sabor_nombre || m.producto_nombre || '').trim(),
-      // impulsivos: peso_kg = baldes (unidades), origen='manual' → unidadesDe retorna baldes
-      // helados/postres: peso_kg = kg
       peso_kg: esImpCam ? (m.baldes || 0) : (m.kg || 0),
       categoria: tipoProd,
+      tipo_producto: tipoProd,   // campo explícito para clasificarRegistro
       producto_codigo: null,
       operario_nombre: m.operario_nombre || null,
       origen: esImpCam ? 'manual' : 'escaneo',
@@ -247,16 +246,31 @@ export default function Informes() {
     return (r) => {
       const nombre = (r.producto_nombre || '').trim().toLowerCase()
       const cat = (r.categoria || categoriaPorCodigo[r.producto_codigo] || '').toLowerCase()
-      // Detectar bases primero
-      if (cat === 'base' || nombre.startsWith('base ') || nombre === 'base') return 'base'
+
+      // 1. Campo tipo_producto explícito (movimientos_camara normalizados)
+      if (r.tipo_producto === 'impulsivo') return 'impulsivo'
+      if (r.tipo_producto === 'postre')    return 'postre'
+      if (r.tipo_producto === 'helado')    return 'helado'
+
+      // 2. Bases primero
+      if (cat === 'base' || cat.includes('base') || nombre.startsWith('base ') || nombre === 'base') return 'base'
       const tipoCam = camMap[nombre]
       if (tipoCam === 'base') return 'base'
-      if (cat === 'helado' || saboresSet.has(nombre)) return 'helado'
-      if (tipoCam === 'postre') return 'postre'
-      if (tipoCam === 'impulsivo') return 'impulsivo'
+
+      // 3. Categoria explícita del registro
+      if (cat === 'helado')    return 'helado'
+      if (cat === 'impulsivo' || cat.includes('impulsiv')) return 'impulsivo'
+      if (cat === 'postre'    || cat.includes('postre'))   return 'postre'
+
+      // 4. Búsqueda por nombre en tablas de referencia
+      if (saboresSet.has(nombre))    return 'helado'
       if (impulsivosSet.has(nombre)) return 'impulsivo'
-      if (cat.includes('postre')) return 'postre'
-      if (cat.includes('impulsiv')) return 'impulsivo'
+
+      // 5. tipo_producto en stock_camaras
+      if (tipoCam === 'impulsivo') return 'impulsivo'
+      if (tipoCam === 'postre')    return 'postre'
+      if (tipoCam === 'helado')    return 'helado'
+
       return 'helado'
     }
   }, [sabores, impulsivos, stockCamaras, categoriaPorCodigo])
@@ -273,6 +287,7 @@ export default function Informes() {
 
       filtrada.forEach(r => {
         const tipo = clasificarRegistro(r)
+        console.log('[Informe]', r.producto_nombre, '→', tipo, '| kg:', r.peso_kg, '| cat:', r.categoria, '| tipo_producto:', r.tipo_producto)
         const nombre = r.producto_nombre || 'Sin nombre'
         const op = r.operario_nombre || 'Sin asignar'
 
@@ -552,7 +567,7 @@ export default function Informes() {
       autoTable(doc, {
         startY: startY + 3,
         head: [['Operario', 'Kg producidos', 'Unidades', 'Registros']],
-        body: actual.porOperario.map(o => [o.nombre, `${fmtNum(o.kg)} kg`, `${fmtNum(o.unidades, 0)} u`, String(o.registros)]),
+        body: actual.porOperario.map(o => [o.nombre, `${fmtNum(o.kgSabores)} kg`, `${fmtNum(o.unidImpulsivos, 0)} u`, String(o.registros)]),
         styles, headStyles,
       })
     }

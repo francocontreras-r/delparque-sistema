@@ -132,7 +132,7 @@ export default function Mermas() {
     const pct = t > 0 ? (dif / t) * 100 : 0
     const { error } = await supabase.from('mermas').insert({
       fecha: form.fecha, sabor_nombre: form.sabor_nombre,
-      operario_nombre: form.operario_nombre || null,
+      operario_nombre: (form.operario_nombre || '').toUpperCase() || null,
       kg_teoricos: t, kg_reales: r, diferencia: dif, porcentaje: pct,
       causa: form.causa, observaciones: form.observaciones || null,
       usuario_email: user?.email || null,

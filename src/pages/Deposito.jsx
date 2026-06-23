@@ -987,11 +987,11 @@ export default function Deposito() {
       lote: form.lote,
       fecha_vencimiento: form.fecha_vencimiento,
       proveedor: modal === 'ingreso' ? (form.proveedor?.trim() || null) : null,
-      controlo: form.controlo,
+      controlo: (form.controlo || '').toUpperCase() || null,
       destino: modal === 'egreso'
         ? (form.destino && form.destino !== 'N/A' ? form.destino : null)
         : null,
-      operario_recibe: modal === 'egreso' ? form.operario_recibe : null,
+      operario_recibe: modal === 'egreso' ? ((form.operario_recibe || '').toUpperCase() || null) : null,
       observaciones: form.observaciones || null,
       peso_por_unidad: pesoPorUnidad || null,
       peso_total: pesoTotal || null,

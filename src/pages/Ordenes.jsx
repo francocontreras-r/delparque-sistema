@@ -248,7 +248,7 @@ export default function Ordenes() {
       { data: basesData }, { data: baseIngs }, { data: stockBasesData },
     ] = await Promise.all([
       supabase.from('ordenes_produccion').select('*').order('id', { ascending: false }).limit(300),
-      supabase.from('stock_camaras').select('id,nombre,tipo,baldes').order('nombre'),
+      supabase.from('stock_camaras').select('id,nombre,tipo,tipo_producto,baldes').order('nombre'),
       supabase.from('impulsivos').select('id,nombre').order('nombre'),
       supabase.from('operarios').select('*').order('nombre'),
       supabase.from('sabores').select('id,nombre,litros_base,base_nombre').order('nombre'),
@@ -273,8 +273,8 @@ export default function Ordenes() {
     const opciones = [
       ...(basesData || []).map(b => ({ _key: `base-${b.id}`, _grupo: 'BASES' })),
       ...(recetas || []).map(s => ({ _key: `sabor-${s.id}`, _grupo: 'SABORES' })),
-      ...(imp || []).map(p => ({ _key: `imp-${p.id}`, _grupo: 'IMPULSIVOS' })),
-      ...POSTRES.map((p, idx) => ({ _key: `postre-${idx}`, _grupo: 'POSTRES' })),
+      ...(sab || []).filter(s => s.tipo_producto === 'impulsivo').map(p => ({ _key: `imp-${p.id}`, _grupo: 'IMPULSIVOS' })),
+      ...(sab || []).filter(s => s.tipo_producto === 'postre').map(p => ({ _key: `postre-${p.id}`, _grupo: 'POSTRES' })),
     ]
     const primero = GRUPOS_PRODUCTO.map(g => opciones.find(o => o._grupo === g)).find(Boolean)
     if (primero) { setTabProducto(primero._grupo); setLineaSel(primero._key) }
@@ -348,10 +348,10 @@ export default function Ordenes() {
   }
 
   const opcionesActivas = [
-    ...bases.map(b => ({ ...b, _key: `base-${b.id}`, _tipo: 'base', _grupo: 'BASES' })),
-    ...sabores.map(s => ({ ...s, _key: `sabor-${s.id}`, _tipo: 'sabor', _grupo: 'SABORES' })),
-    ...impulsivos.map(p => ({ ...p, _key: `imp-${p.id}`, _tipo: 'impulsivo', _grupo: 'IMPULSIVOS' })),
-    ...POSTRES.map((p, idx) => ({ ...p, _key: `postre-${idx}`, _tipo: 'postre', _grupo: 'POSTRES', id: null })),
+    ...bases.map(b => ({ ...b, _key: `base-${b.id}`, _tipo: 'base', _grupo: 'BASES', nombre: (b.nombre || '').toUpperCase() })),
+    ...sabores.map(s => ({ ...s, _key: `sabor-${s.id}`, _tipo: 'sabor', _grupo: 'SABORES', nombre: (s.nombre || '').toUpperCase() })),
+    ...saboresCamara.filter(s => s.tipo_producto === 'impulsivo').map(p => ({ ...p, _key: `imp-${p.id}`, _tipo: 'impulsivo', _grupo: 'IMPULSIVOS', nombre: (p.nombre || '').toUpperCase() })),
+    ...saboresCamara.filter(s => s.tipo_producto === 'postre').map(p => ({ ...p, _key: `postre-${p.id}`, _tipo: 'postre', _grupo: 'POSTRES', nombre: (p.nombre || '').toUpperCase() })),
   ]
   const opcionesDelTab = opcionesActivas.filter(p => p._grupo === tabProducto)
   const productoSel = opcionesActivas.find(p => p._key === lineaSel)
@@ -407,7 +407,8 @@ export default function Ordenes() {
       const cantidad = parseInt(lineaCantidad || '1', 10)
       if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
       setLineas(ls => [...ls, {
-        tipo: 'impulsivo', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
+        tipo: productoSel._tipo, // 'impulsivo' o 'postre'
+        producto_id: productoSel.id, producto_nombre: productoSel.nombre,
         cantidad, kg_objetivo: 0, horas_estimadas: horasEstimadas,
         base_nombre: null, kg_base_consumida: 0,
       }])
@@ -522,13 +523,13 @@ export default function Ordenes() {
       sabor_nombre: l.producto_nombre,
       batches: l.tipo === 'helado' ? l.cantidad : null,
       litros_total: l.tipo === 'helado' ? l.litros : null,
-      cantidad_unidades: l.tipo === 'impulsivo' ? l.cantidad : null,
+      cantidad_unidades: (l.tipo === 'impulsivo' || l.tipo === 'postre') ? l.cantidad : null,
       kg_objetivo: l.tipo === 'helado' ? l.kg_objetivo : 0,
       kg_producido: 0,
       porcentaje_completitud: 0,
       horas_estimadas: l.horas_estimadas || 0,
       operario_id: form.operario_id ? parseInt(form.operario_id, 10) : null,
-      operario_nombre: form.operario_nombre || null,
+      operario_nombre: (form.operario_nombre || '').toUpperCase() || null,
       estado: 'pendiente',
       fecha_produccion: form.fecha_produccion,
       observaciones: form.observaciones || null,

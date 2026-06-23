@@ -253,7 +253,7 @@ export default function Produccion() {
       peso_kg: decoded.peso,
       lote,
       operario_id: operario?.id || null,
-      operario_nombre: operario?.nombre || '—',
+      operario_nombre: (operario?.nombre || '—').toUpperCase(),
       observaciones: '',
     })
     setCodigo('')
@@ -322,7 +322,7 @@ export default function Produccion() {
       _pesoTotalKg,
       lote: manualLote || lote,
       operario_id: operario?.id || null,
-      operario_nombre: operario?.nombre || '—',
+      operario_nombre: (operario?.nombre || '—').toUpperCase(),
       observaciones: manualObservaciones.trim(),
     })
     setManualCantidad('')

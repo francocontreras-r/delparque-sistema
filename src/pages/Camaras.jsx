@@ -1377,7 +1377,7 @@ export default function Camaras() {
       kg:     tipoCam === 'impulsivo' ? 0 : (kg || 0),
       baldes,
       lote:   nuevoLote,
-      operario_nombre: operarioNombre || null,
+      operario_nombre: operarioNombre ? operarioNombre.toUpperCase() : null,
       motivo: motivo || null,
       fecha:  new Date().toISOString().split('T')[0],
       created_at: new Date().toISOString(),

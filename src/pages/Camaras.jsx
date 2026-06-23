@@ -443,7 +443,9 @@ function ModalAgregarProducto({ onClose, onSubmit, saving }) {
   })
   const [err, setErr] = useState('')
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
-  const esImp = form.tipo_producto === 'impulsivo'
+  const esImp  = form.tipo_producto === 'impulsivo'
+  const esPost = form.tipo_producto === 'postre'
+  const esHelado = form.tipo_producto === 'helado'
 
   function handleGuardar() {
     if (!form.nombre.trim()) { setErr('El nombre es requerido'); return }
@@ -469,17 +471,31 @@ function ModalAgregarProducto({ onClose, onSubmit, saving }) {
           <option value="impulsivo">Impulsivo</option>
           <option value="postre">Postre</option>
         </Select>
-        <Select label="Tipo elaboración *" value={form.tipo} onChange={e => upd('tipo', e.target.value)}>
-          {['Lisa', 'Con Agregado', 'Agua', 'Especial'].map(t => <option key={t}>{t}</option>)}
-        </Select>
-        <div className={esImp ? '' : 'grid grid-cols-2 gap-3'}>
-          <Input label={esImp ? 'Stock inicial (unidades)' : 'Stock inicial (baldes)'}
-            type="number" min="0" value={form.baldes} onChange={e => upd('baldes', e.target.value)} />
-          {!esImp && (
+        {esHelado && (
+          <Select label="Tipo elaboración *" value={form.tipo} onChange={e => upd('tipo', e.target.value)}>
+            {['Lisa', 'Con Agregado', 'Agua', 'Especial'].map(t => <option key={t}>{t}</option>)}
+          </Select>
+        )}
+        {esHelado && (
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Stock inicial (baldes)" type="number" min="0"
+              value={form.baldes} onChange={e => upd('baldes', e.target.value)} />
             <Input label="Stock inicial (kg)" type="number" min="0" step="0.1"
               value={form.kg} onChange={e => upd('kg', e.target.value)} />
-          )}
-        </div>
+          </div>
+        )}
+        {esImp && (
+          <Input label="Cantidad inicial (unidades)" type="number" min="0"
+            value={form.baldes} onChange={e => upd('baldes', e.target.value)} />
+        )}
+        {esPost && (
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Cantidad inicial (unidades)" type="number" min="0"
+              value={form.baldes} onChange={e => upd('baldes', e.target.value)} />
+            <Input label="Peso total (kg)" type="number" min="0" step="0.1"
+              value={form.kg} onChange={e => upd('kg', e.target.value)} />
+          </div>
+        )}
         <Input label="Lote (opcional)" value={form.lote} onChange={e => upd('lote', e.target.value)} placeholder="Opcional" />
         {err && (
           <p className="text-xs text-center py-1.5 rounded-lg"
@@ -1148,7 +1164,7 @@ export default function Camaras() {
     const payload = {
       nombre,
       tipo_producto: form.tipo_producto,
-      tipo: form.tipo || 'Con Agregado',
+      tipo: form.tipo_producto === 'helado' ? (form.tipo || 'Lisa') : 'Con Agregado',
       baldes: parseInt(form.baldes) || 0,
       kg: form.tipo_producto === 'impulsivo' ? 0 : (parseFloat(form.kg) || 0),
       lote: form.lote?.trim() || null,

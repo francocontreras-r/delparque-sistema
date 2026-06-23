@@ -317,6 +317,7 @@ function InformeOperarios() {
   const chartResumen       = datos.chartResumen
   const rankingEquipo      = datos.rankingEquipo
   const radarData          = datos.radarData
+  const radarOperarios     = porOperarioActual.slice(0, 6)  // used by RadarChart in render
 
   // ── TAB 1 — Resumen General (valores de datos.kpisGlobales/chartResumen) ──
 

@@ -475,6 +475,7 @@ export default function Informes() {
 
   async function exportarPDF() {
     setExportando(true)
+    try {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const pageWidth = doc.internal.pageSize.getWidth()
 
@@ -519,6 +520,18 @@ export default function Informes() {
       startY = doc.lastAutoTable.finalY + 8
 
       titulo('Producción por producto', startY)
+      const anteriorMapProd = {}
+      produccionInforme.anterior.porProducto.forEach(p => {
+        anteriorMapProd[p.nombre] = p.tipo === 'helado' ? p.kg : p.unidades
+      })
+      const productosComparados = produccionInforme.actual.porProducto
+        .filter(p => p.tipo !== 'base')
+        .map(p => {
+          const valorActual = p.tipo === 'helado' ? p.kg : p.unidades
+          const valorAnterior = anteriorMapProd[p.nombre] || 0
+          return { nombre: p.nombre, tipo: p.tipo, valorActual, valorAnterior, variacion: variacionPct(valorActual, valorAnterior) }
+        })
+        .sort((a, b) => b.valorActual - a.valorActual)
       autoTable(doc, {
         startY: startY + 3,
         head: [['Producto', 'Cantidad', 'Período anterior', 'Variación']],
@@ -610,7 +623,12 @@ export default function Informes() {
     }
 
     doc.save(`informe_${tab.toLowerCase()}_${hoyISO()}.pdf`)
-    setExportando(false)
+    } catch (err) {
+      console.error('Error generando PDF:', err)
+      alert('Error al generar PDF: ' + err.message)
+    } finally {
+      setExportando(false)
+    }
   }
 
   return (

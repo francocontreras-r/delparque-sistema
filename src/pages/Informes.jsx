@@ -183,6 +183,22 @@ export default function Informes() {
 
   useEffect(() => { cargar() }, [rango]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  function normalizarMovCamara(m) {
+    const tipoProd = m.tipo_producto || 'helado'
+    const esImpCam = tipoProd === 'impulsivo'
+    return {
+      producto_nombre: (m.sabor_nombre || m.producto_nombre || '').trim(),
+      // impulsivos: peso_kg = baldes (unidades), origen='manual' → unidadesDe retorna baldes
+      // helados/postres: peso_kg = kg
+      peso_kg: esImpCam ? (m.baldes || 0) : (m.kg || 0),
+      categoria: tipoProd,
+      producto_codigo: null,
+      operario_nombre: m.operario_nombre || null,
+      origen: esImpCam ? 'manual' : 'escaneo',
+      fecha: m.fecha || (m.created_at || '').split('T')[0],
+    }
+  }
+
   async function cargar() {
     setLoading(true)
     const { desde, hasta, antDesde, antHasta } = rango
@@ -190,6 +206,7 @@ export default function Informes() {
       { data: prodAct }, { data: prodAnt },
       { data: merAct }, { data: merAnt },
       { data: pp }, { data: sab }, { data: imp }, { data: ins }, { data: cam },
+      { data: movCamAct }, { data: movCamAnt },
     ] = await Promise.all([
       supabase.from('producciones').select('*').gte('fecha', desde).lte('fecha', hasta),
       supabase.from('producciones').select('*').gte('fecha', antDesde).lte('fecha', antHasta),
@@ -200,9 +217,14 @@ export default function Informes() {
       supabase.from('impulsivos').select('*'),
       supabase.from('insumos').select('*'),
       supabase.from('stock_camaras').select('*'),
+      // Movimientos de cámara ingresados directamente desde Cámaras (motivo != null evita doble conteo con producciones)
+      supabase.from('movimientos_camara').select('*').eq('tipo', 'ingreso').not('motivo', 'is', null)
+        .gte('created_at', desde + 'T00:00:00').lte('created_at', hasta + 'T23:59:59'),
+      supabase.from('movimientos_camara').select('*').eq('tipo', 'ingreso').not('motivo', 'is', null)
+        .gte('created_at', antDesde + 'T00:00:00').lte('created_at', antHasta + 'T23:59:59'),
     ])
-    setProduccionesActual(prodAct || [])
-    setProduccionesAnterior(prodAnt || [])
+    setProduccionesActual([...(prodAct || []), ...(movCamAct || []).map(normalizarMovCamara)])
+    setProduccionesAnterior([...(prodAnt || []), ...(movCamAnt || []).map(normalizarMovCamara)])
     setMermasActual(merAct || [])
     setMermasAnterior(merAnt || [])
     setCategoriaPorCodigo(Object.fromEntries((pp || []).map(p => [p.codigo, p.categoria || 'OTRO'])))

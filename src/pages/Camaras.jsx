@@ -381,11 +381,13 @@ function ModalMovimiento({ item, onClose, onApply, operariosDisponibles = [], st
         </div>
 
         {/* Inputs */}
-        <div className={esImp ? '' : 'flex gap-3'}>
-          <Input label={(esImp || esPost) ? 'Unidades' : 'Baldes'} type="number" min="1" value={cantBaldes} disabled={saving}
+        <div className={esImp ? '' : 'grid grid-cols-2 gap-3'}>
+          <Input
+            label={esImp ? 'Cantidad (unidades)' : esPost ? 'Cantidad (unidades)' : 'Cantidad (baldes)'}
+            type="number" min="1" value={cantBaldes} disabled={saving}
             onChange={ev => setCantBaldes(ev.target.value)} placeholder="0" />
           {!esImp && (
-            <Input label="KG" type="number" min="0" step="0.1" value={cantKg} disabled={saving}
+            <Input label="Peso (kg)" type="number" min="0" step="0.1" value={cantKg} disabled={saving}
               onChange={ev => setCantKg(ev.target.value)} placeholder="0" />
           )}
         </div>
@@ -1332,9 +1334,24 @@ export default function Camaras() {
   async function aplicarMovimiento({ id, tipo, baldes, kg, lote, motivo, operarioNombre, productoElaborado }) {
     const sabor = stock.find(s => s.id === id)
     if (!sabor) return 'Sabor no encontrado'
-    const nuevoBaldes = tipo === 'ingreso' ? sabor.baldes + baldes : Math.max(0, sabor.baldes - baldes)
-    const nuevosKg    = tipo === 'ingreso' ? sabor.kg + kg         : Math.max(0, sabor.kg - kg)
-    const nuevoLote   = lote || null
+
+    const tipoCam = sabor.tipo_producto || 'helado'
+    const currentBaldes = Number(sabor.baldes) || 0
+    const currentKg     = Number(sabor.kg)     || 0
+
+    // Baldes/unidades: aplica a todos los tipos
+    const nuevoBaldes = tipo === 'ingreso'
+      ? currentBaldes + baldes
+      : Math.max(0, currentBaldes - baldes)
+
+    // KG: impulsivos NO se tocan; helados y postres sí
+    const nuevosKg = tipoCam === 'impulsivo'
+      ? currentKg
+      : tipo === 'ingreso'
+        ? currentKg + (kg || 0)
+        : Math.max(0, currentKg - (kg || 0))
+
+    const nuevoLote = lote || null
     const { error } = await supabase.from('stock_camaras')
       .update({ baldes: nuevoBaldes, kg: nuevosKg, lote: nuevoLote, ultima_actualizacion: new Date().toISOString() })
       .eq('id', id)
@@ -1343,8 +1360,8 @@ export default function Camaras() {
       sabor_nombre:    sabor.nombre,
       producto_nombre: sabor.nombre,
       tipo,
-      tipo_producto:   sabor.tipo_producto || 'helado',
-      kg:     kg || 0,
+      tipo_producto:   tipoCam,
+      kg:     tipoCam === 'impulsivo' ? 0 : (kg || 0),
       baldes,
       lote:   nuevoLote,
       operario_nombre: operarioNombre || null,

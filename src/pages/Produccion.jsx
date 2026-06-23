@@ -244,13 +244,19 @@ export default function Produccion() {
     const productoPP = productos.find(p => p.codigo === decoded.prod)
     console.log('Producto encontrado:', productoPP || null)
     const operario = operarios.find(o => String(o.id) === operarioSel)
+    const nombreProd = productoPP?.nombre || `Producto #${decoded.prod}`
+    // Determinar tipo_producto desde stock_camaras para mostrar correctamente en pre-carga
+    const camaraMatch = saboresCamara.find(s => (s.nombre || '').trim().toUpperCase() === nombreProd.trim().toUpperCase())
+    const tipoProdScan = camaraMatch?.tipo_producto || (productoPP?.categoria?.toLowerCase().includes('postre') ? 'postre' : productoPP?.categoria?.toLowerCase().includes('impulsiv') ? 'impulsivo' : 'helado')
     agregarAPreCarga({
       fecha: fechaHoy,
       producto_codigo: decoded.prod,
-      producto_nombre: productoPP?.nombre || `Producto #${decoded.prod}`,
+      producto_nombre: nombreProd,
       categoria: productoPP?.categoria || null,
+      tipo_producto: tipoProdScan,
       origen: 'escaneo',
       peso_kg: decoded.peso,
+      _unidades: 1,        // cada escaneo = 1 unidad/balde
       lote,
       operario_id: operario?.id || null,
       operario_nombre: (operario?.nombre || '—').toUpperCase(),
@@ -805,15 +811,14 @@ export default function Produccion() {
                 const esHelado    = tp === 'helado'
                 const esImpulsivo = tp === 'impulsivo' || (!esHelado && (item.categoria || '').toLowerCase().includes('impulsiv'))
                 const esPostre    = tp === 'postre'
-                const baldes  = Math.round(item._unidades || 0)
-                const unid    = Math.round(item._unidades || item.peso_kg || 0)
-                const kgReal  = Number(item.peso_kg || 0)
+                const unidades = Number(item._unidades) || 0
+                const kgReal   = Number(item.peso_kg || 0)
                 const displayCantidad = esHelado
-                  ? `${baldes} baldes${kgReal > 0 ? ` / ${kgReal.toFixed(1)} kg` : ''}`
+                  ? `${unidades} balde${unidades !== 1 ? 's' : ''}${kgReal > 0 ? ` / ${kgReal.toFixed(1)} kg` : ''}`
                   : esImpulsivo
-                    ? `${unid} u`
+                    ? `${unidades} unidad${unidades !== 1 ? 'es' : ''}`
                     : esPostre
-                      ? `${Math.round(item._unidades || 0)} u${kgReal > 0 ? ` / ${kgReal.toFixed(1)} kg` : ''}`
+                      ? `${unidades} unidad${unidades !== 1 ? 'es' : ''}${kgReal > 0 ? ` / ${kgReal.toFixed(1)} kg` : ''}`
                       : `${kgReal.toFixed(3)} kg`
                 return (
                 <Tr key={item._id}>

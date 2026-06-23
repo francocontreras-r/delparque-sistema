@@ -68,6 +68,12 @@ function saludo() {
   if (h < 19) return 'Buenas tardes'
   return 'Buenas noches'
 }
+function turnoActual() {
+  const h = new Date().getHours()
+  if (h >= 6  && h < 14) return { label: 'Turno Mañana',  color: '#f59e0b', emoji: '🌅' }
+  if (h >= 14 && h < 22) return { label: 'Turno Tarde',   color: '#D4521A', emoji: '🌇' }
+  return                         { label: 'Turno Noche',   color: '#6366f1', emoji: '🌙' }
+}
 function fechaLarga() {
   const s = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
   return s.charAt(0).toUpperCase() + s.slice(1)
@@ -161,8 +167,19 @@ export default function Dashboard() {
   }, [ordenesPendientes, hoy])
 
   // ── Alertas ────────────────────────────────────────────────────────────────
+  const camarasAgotadas = useMemo(() => camaras.filter(c => (c.baldes || 0) === 0), [camaras])
+
   const alertas = useMemo(() => {
     const list = []
+    if (camarasAgotadas.length > 0) {
+      const nombres = camarasAgotadas.slice(0, 3).map(c => c.nombre).join(', ')
+      const extra = camarasAgotadas.length > 3 ? ` y ${camarasAgotadas.length - 3} más` : ''
+      list.push({
+        emoji: '🔴', variant: 'danger', titulo: 'Stock agotado en cámaras',
+        detalle: `Sin stock: ${nombres}${extra}`,
+        count: camarasAgotadas.length, to: '/camaras',
+      })
+    }
     if (insumosCriticos.length > 0) {
       const nombres = insumosCriticos.slice(0, 3).map(i => i.nombre).join(', ')
       const extra = insumosCriticos.length > 3 ? ` y ${insumosCriticos.length - 3} más` : ''
@@ -265,11 +282,15 @@ export default function Dashboard() {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>{saludo()}, {nombre}</h1>
-          <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>{fechaLarga()}</p>
+          <div className="flex items-center gap-3 mt-0.5">
+            <p className="text-sm" style={{ color: colors.textMuted }}>{fechaLarga()}</p>
+            {(() => { const t = turnoActual(); return (
+              <span style={{ background: t.color + '22', color: t.color, fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '12px', flexShrink: 0 }}>
+                {t.emoji} {t.label}
+              </span>
+            )})()}
+          </div>
         </div>
-        <span style={{ fontFamily: 'Georgia, serif', fontSize: '18px', fontWeight: 'bold', color: '#D4521A', letterSpacing: '1px' }}>
-          Del Parque
-        </span>
       </div>
 
       {loading ? (

@@ -695,7 +695,7 @@ export default function Produccion() {
               placeholder="Escanear código de barra..."
               autoFocus
               className="w-full font-mono tracking-wide text-center outline-none transition-colors"
-              style={{ padding: '20px 24px', fontSize: 18, borderRadius: radius.lg, border: `2px solid ${colors.border}`, color: colors.textPrimary }}
+              style={{ padding: '0 24px', height: '64px', fontSize: 20, borderRadius: radius.lg, border: `2px solid ${colors.border}`, color: colors.textPrimary, touchAction: 'manipulation' }}
               onFocus={e => { e.target.style.borderColor = colors.brand }}
               onBlur={e => { e.target.style.borderColor = colors.border }}
             />
@@ -792,11 +792,14 @@ export default function Produccion() {
 
       {/* Pre-carga */}
       {preCarga.length > 0 && (
-        <div style={{ backgroundColor: colors.surface, borderRadius: radius.xl, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+        <div style={{ backgroundColor: colors.surface, borderRadius: radius.xl, border: `1px solid ${colors.border}`, boxShadow: shadow.sm, paddingBottom: '72px' }}>
           <div className="px-5 py-4 flex items-center justify-between flex-wrap gap-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
             <h2 className="text-sm font-semibold" style={{ color: colors.textPrimary }}>Pre-carga ({preCarga.length})</h2>
-            <Button variant="primary" onClick={confirmarYRegistrarTodo} loading={confirmando}>
-              <ClipboardCheck size={14} /> {confirmando ? 'Guardando…' : `Confirmar y registrar todo (${preCarga.length})`}
+          </div>
+          {/* Botón confirmar flotante — siempre visible en mobile */}
+          <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 40, padding: '12px 16px', background: 'rgba(15,23,42,0.95)', backdropFilter: 'blur(8px)', borderTop: `1px solid ${colors.border}` }}>
+            <Button variant="primary" onClick={confirmarYRegistrarTodo} loading={confirmando} className="w-full" style={{ height: '52px', fontSize: '16px', fontWeight: '700' }}>
+              <ClipboardCheck size={16} /> {confirmando ? 'Guardando…' : `Confirmar y registrar todo (${preCarga.length} ítem${preCarga.length !== 1 ? 's' : ''})`}
             </Button>
           </div>
           <Table className="min-w-[680px]">

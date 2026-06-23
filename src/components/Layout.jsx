@@ -9,21 +9,44 @@ import { colors } from '../styles/design-system'
 import {
   LayoutDashboard, Factory, Thermometer, Warehouse, TrendingUp, TrendingDown,
   ClipboardList, BookOpen, LogOut, Menu, X, DollarSign, Users, Download, FileText,
+  Package,
 } from 'lucide-react'
 
-const NAV = [
-  { to: '/',             label: 'Inicio',       Icon: LayoutDashboard, modulo: 'dashboard'  },
-  { to: '/produccion',   label: 'Producción',   Icon: Factory,       modulo: 'produccion'   },
-  { to: '/camaras',      label: 'Cámaras',      Icon: Thermometer,   modulo: 'camaras'      },
-  { to: '/deposito',     label: 'Depósito',     Icon: Warehouse,     modulo: 'deposito'     },
-  { to: '/mermas',       label: 'Mermas',       Icon: TrendingDown,  modulo: 'mermas'       },
-  { to: '/ordenes',      label: 'Órdenes',      Icon: ClipboardList, modulo: 'ordenes'      },
-  { to: '/recetas',      label: 'Recetas',      Icon: BookOpen,      modulo: 'recetas'      },
-  { to: '/finanzas',     label: 'Finanzas',     Icon: DollarSign,    modulo: 'finanzas'     },
-  { to: '/informes',     label: 'Informes',     Icon: FileText,      modulo: 'informes'     },
-  { to: '/rendimiento-operarios', label: 'Rendimiento', Icon: TrendingUp, modulo: 'rendimientoOperarios' },
-  { to: '/usuarios',     label: 'Usuarios',     Icon: Users,         modulo: 'usuarios'     },
+const NAV_GRUPOS = [
+  {
+    grupo: 'PRODUCCIÓN',
+    items: [
+      { to: '/',           label: 'Inicio',      Icon: LayoutDashboard, modulo: 'dashboard'  },
+      { to: '/produccion', label: 'Producción',  Icon: Factory,         modulo: 'produccion' },
+      { to: '/ordenes',    label: 'Órdenes',     Icon: ClipboardList,   modulo: 'ordenes'    },
+    ],
+  },
+  {
+    grupo: 'INVENTARIO',
+    items: [
+      { to: '/camaras',  label: 'Cámaras',  Icon: Thermometer, modulo: 'camaras'  },
+      { to: '/deposito', label: 'Depósito', Icon: Warehouse,   modulo: 'deposito' },
+    ],
+  },
+  {
+    grupo: 'ANÁLISIS',
+    items: [
+      { to: '/informes',              label: 'Informes',    Icon: FileText,   modulo: 'informes'              },
+      { to: '/rendimiento-operarios', label: 'Rendimiento', Icon: TrendingUp, modulo: 'rendimientoOperarios'  },
+      { to: '/mermas',                label: 'Mermas',      Icon: TrendingDown, modulo: 'mermas'              },
+    ],
+  },
+  {
+    grupo: 'CONFIGURACIÓN',
+    items: [
+      { to: '/recetas',  label: 'Recetas',  Icon: BookOpen,  modulo: 'recetas'  },
+      { to: '/finanzas', label: 'Finanzas', Icon: DollarSign, modulo: 'finanzas' },
+      { to: '/usuarios', label: 'Usuarios', Icon: Users,     modulo: 'usuarios' },
+    ],
+  },
 ]
+
+const NAV = NAV_GRUPOS.flatMap(g => g.items)
 
 // ── Reloj HH:MM, actualizado cada minuto ──────────────────────────────────────
 function Clock() {
@@ -93,60 +116,72 @@ function NavItem({ to, label, Icon, onClick, badge }) {
 }
 
 // ── Sidebar content (definido fuera de Layout para evitar remounts) ───────────
-function SidebarContent({ onClose, user, onLogout, navItems, depositoBadge }) {
-  const initial = user?.email?.charAt(0).toUpperCase() || 'U'
-  const username = user?.email?.split('@')[0] || 'Usuario'
+function SidebarContent({ onClose, user, profile, rol, onLogout, navItems, depositoBadge, camarasBadge }) {
+  const initial  = (profile?.nombre || user?.email || 'U').charAt(0).toUpperCase()
+  const username = profile?.nombre || user?.email?.split('@')[0] || 'Usuario'
+  const rolLabel = rol === 'admin' ? 'ADMIN' : rol === 'supervisor' ? 'SUPERVISOR' : 'OPERARIO'
+  const rolColor = rol === 'admin' ? '#D4521A' : rol === 'supervisor' ? '#3b82f6' : '#64748b'
+
+  // Filtrar grupos a solo los items con permiso
+  const gruposFiltrados = NAV_GRUPOS.map(g => ({
+    ...g,
+    items: g.items.filter(item => navItems.some(n => n.to === item.to)),
+  })).filter(g => g.items.length > 0)
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: colors.sidebar }}>
-      {/* Logo */}
-      <div
-        className="flex items-center justify-between px-5 py-5 flex-shrink-0"
-        style={{ borderBottom: `1px solid ${colors.sidebarHover}` }}
-      >
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-4 flex-shrink-0"
+        style={{ borderBottom: `2px solid #D4521A` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <img src={LOGO_ISOTIPO} style={{ height: '32px', width: '32px', objectFit: 'contain' }} alt="Del Parque" />
-          <span style={{ color: '#D4521A', fontFamily: 'Georgia, serif', fontSize: '16px', fontWeight: 'bold' }}>Del Parque</span>
+          <img src={LOGO_ISOTIPO} style={{ height: '34px', width: '34px', objectFit: 'contain' }} alt="Del Parque" />
+          <div>
+            <div style={{ color: '#D4521A', fontFamily: 'Georgia, serif', fontSize: '15px', fontWeight: 'bold', lineHeight: 1.2 }}>Del Parque</div>
+            <div style={{ color: '#64748b', fontSize: '10px', letterSpacing: '0.5px' }}>Sistema de Producción</div>
+          </div>
         </div>
         {onClose && (
-          <button
-            onClick={onClose}
+          <button onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors hover:bg-[#334155] md:hidden"
-            style={{ color: colors.textMuted }}
-          >
+            style={{ color: colors.textMuted }}>
             <X size={16} />
           </button>
         )}
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 py-4 space-y-1 overflow-y-auto">
-        {navItems.map(n => (
-          <NavItem key={n.to} to={n.to} label={n.label} Icon={n.Icon} onClick={onClose}
-            badge={n.modulo === 'deposito' ? depositoBadge : 0} />
+      {/* Nav por grupos */}
+      <nav className="flex-1 py-2 overflow-y-auto">
+        {gruposFiltrados.map(({ grupo, items }) => (
+          <div key={grupo} className="mb-1">
+            <div className="px-5 py-1.5" style={{ fontSize: '9px', fontWeight: '700', color: '#475569', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+              {grupo}
+            </div>
+            {items.map(n => (
+              <NavItem key={n.to} to={n.to} label={n.label} Icon={n.Icon} onClick={onClose}
+                badge={n.modulo === 'deposito' ? depositoBadge : n.modulo === 'camaras' ? camarasBadge : 0} />
+            ))}
+          </div>
         ))}
       </nav>
 
-      {/* User footer */}
-      <div className="px-4 py-4 flex-shrink-0" style={{ borderTop: `1px solid ${colors.sidebarHover}` }}>
+      {/* Footer con usuario */}
+      <div className="px-3 py-3 flex-shrink-0" style={{ borderTop: `1px solid ${colors.sidebarHover}` }}>
         {user && (
-          <div className="flex items-center gap-2.5 mb-3">
-            <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-              style={{ backgroundColor: colors.brand }}
-            >
+          <div className="flex items-center gap-2.5 mb-2.5 px-2 py-2 rounded-lg" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}>
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
+              style={{ backgroundColor: colors.brand }}>
               {initial}
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-white truncate capitalize">{username}</p>
-              <p className="text-xs truncate" style={{ color: colors.textMuted }}>{user.email}</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-white truncate">{username}</p>
+              <span style={{ background: rolColor + '22', color: rolColor, fontSize: '9px', fontWeight: '700', padding: '1px 6px', borderRadius: '4px', letterSpacing: '0.5px' }}>
+                {rolLabel}
+              </span>
             </div>
           </div>
         )}
-        <button
-          onClick={onLogout}
-          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-[#64748B] hover:bg-[#334155] hover:text-[#F1F5F9]"
-        >
+        <button onClick={onLogout}
+          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 text-[#64748B] hover:bg-[#334155] hover:text-[#F1F5F9]">
           <LogOut size={15} />
           Cerrar sesión
         </button>
@@ -263,7 +298,8 @@ function UpdateBanner() {
 export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [depositoBadge, setDepositoBadge] = useState(0)
-  const { user, tienePermiso } = useUser()
+  const [camarasBadge, setCamarasBadge] = useState(0)
+  const { user, profile, rol, tienePermiso } = useUser()
   const location = useLocation()
 
   useEffect(() => {
@@ -287,6 +323,16 @@ export default function Layout() {
     return () => clearInterval(id)
   }, [])
 
+  useEffect(() => {
+    async function checkCamaras() {
+      const { data } = await supabase.from('stock_camaras').select('baldes').eq('baldes', 0)
+      setCamarasBadge((data || []).length)
+    }
+    checkCamaras()
+    const id = setInterval(checkCamaras, 3 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
+
   const navItems = NAV.filter(n => tienePermiso(n.modulo))
   const pageTitle = NAV.find(n => n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to))?.label || 'Del Parque'
   const initial   = user?.email?.charAt(0).toUpperCase() || 'U'
@@ -300,7 +346,7 @@ export default function Layout() {
 
       {/* Desktop sidebar */}
       <aside className="hidden md:flex flex-col w-60 flex-shrink-0 shadow-lg">
-        <SidebarContent user={user} onLogout={handleLogout} navItems={navItems} depositoBadge={depositoBadge} />
+        <SidebarContent user={user} profile={profile} rol={rol} onLogout={handleLogout} navItems={navItems} depositoBadge={depositoBadge} camarasBadge={camarasBadge} />
       </aside>
 
       {/* Mobile backdrop */}
@@ -317,7 +363,7 @@ export default function Layout() {
         className="fixed inset-y-0 left-0 z-50 w-60 flex flex-col md:hidden shadow-xl"
         style={{ transform: mobileOpen ? 'translateX(0)' : 'translateX(-100%)', transition: 'transform 220ms ease' }}
       >
-        <SidebarContent onClose={() => setMobileOpen(false)} user={user} onLogout={handleLogout} navItems={navItems} depositoBadge={depositoBadge} />
+        <SidebarContent onClose={() => setMobileOpen(false)} user={user} profile={profile} rol={rol} onLogout={handleLogout} navItems={navItems} depositoBadge={depositoBadge} camarasBadge={camarasBadge} />
       </aside>
 
       {/* Main */}

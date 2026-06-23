@@ -10,7 +10,7 @@ import Button from '../components/ui/Button'
 import Toast from '../components/ui/Toast'
 import { colors, radius, shadow } from '../styles/design-system'
 import { BookOpen, Search, Edit2, RefreshCw, X, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
-import { POSTRES } from '../lib/postres'
+
 
 const TABS = ['Bases', 'Sabores', 'Impulsivos', 'Postres']
 const UNIDADES = ['kg', 'L', 'u', 'g', 'ml']
@@ -376,7 +376,7 @@ export default function Recetas() {
       supabase.from('base_ingredientes').select('*'),
       supabase.from('sabores').select('*').order('nombre'),
       supabase.from('sabor_ingredientes').select('*'),
-      supabase.from('stock_camaras').select('id,nombre,tipo'),
+      supabase.from('stock_camaras').select('id,nombre,tipo,tipo_producto'),
       supabase.from('impulsivos').select('*').order('nombre'),
       supabase.from('impulsivo_ingredientes').select('*'),
       supabase.from('insumos').select('nombre,costo_unitario,unidad'),
@@ -424,12 +424,31 @@ export default function Recetas() {
     const impIngsPor   = {}; impIngs.forEach(i   => { (impIngsPor[i.impulsivo_id]     ||= []).push(i) })
     const tipoPorNombre = {}; stockCamaras.forEach(c => { tipoPorNombre[c.nombre] = c.tipo })
 
+    // Distinguir impulsivos de postres usando stock_camaras.tipo_producto
+    const postresNombres = new Set(
+      stockCamaras.filter(c => c.tipo_producto === 'postre').map(c => (c.nombre || '').trim().toLowerCase())
+    )
+
+    const mapImp = (i, tipo) => {
+      const ings = enrichIngs(impIngsPor[i.id] || [])
+      const subtotalMP = ings.reduce((a, i2) => a + i2.costoTotal, 0)
+      return {
+        id: i.id, nombre: (i.nombre || '').toUpperCase(), tipo,
+        litros_batch: 0,
+        manoDeObra: i.mano_de_obra || 0,
+        costoTotal: i.costo_total || 0,
+        subtotalMP, ingredientes: ings,
+        sinPrecio: ings.some(i2 => !i2.tienePreco),
+        updatedAt: i.updated_at,
+      }
+    }
+
     return {
       Bases: bases.map(b => {
         const ings = enrichIngs(baseIngsPor[b.id] || [])
         const subtotalMP = ings.reduce((a, i) => a + i.costoTotal, 0)
         return {
-          id: b.id, nombre: b.nombre, tipo: 'Base',
+          id: b.id, nombre: (b.nombre || '').toUpperCase(), tipo: 'Base',
           litros_batch: b.litros_batch || 0,
           manoDeObra: b.mano_de_obra || 0,
           costoTotal: b.costo_total || 0,
@@ -442,7 +461,7 @@ export default function Recetas() {
         const ings = enrichIngs(saborIngsPor[s.id] || [])
         const subtotalMP = ings.reduce((a, i) => a + i.costoTotal, 0)
         return {
-          id: s.id, nombre: s.nombre,
+          id: s.id, nombre: (s.nombre || '').toUpperCase(),
           tipo: tipoPorNombre[s.nombre] || 'Sabor',
           baseNombre: s.base_nombre,
           litros_batch: s.litros_base || 0,
@@ -454,31 +473,12 @@ export default function Recetas() {
           updatedAt: s.updated_at,
         }
       }),
-      Impulsivos: impulsivos.map(i => {
-        const ings = enrichIngs(impIngsPor[i.id] || [])
-        const subtotalMP = ings.reduce((a, i2) => a + i2.costoTotal, 0)
-        return {
-          id: i.id, nombre: i.nombre, tipo: 'Impulsivo',
-          litros_batch: 0,
-          manoDeObra: i.mano_de_obra || 0,
-          costoTotal: i.costo_total || 0,
-          subtotalMP, ingredientes: ings,
-          sinPrecio: ings.some(i2 => !i2.tienePreco),
-          updatedAt: i.updated_at,
-        }
-      }),
-      Postres: POSTRES.map((p, idx) => {
-        const ings = enrichIngs(p.ingredientes, 'nombre')
-        const subtotalMP = ings.reduce((a, i) => a + i.costoTotal, 0)
-        return {
-          id: `postre-${idx}`, nombre: p.nombre, tipo: 'Postre',
-          litros_batch: 0,
-          manoDeObra: p.mano_de_obra || 0,
-          costoTotal: p.costo_total || 0,
-          subtotalMP, ingredientes: ings,
-          sinPrecio: ings.some(i => !i.tienePreco),
-        }
-      }),
+      Impulsivos: impulsivos
+        .filter(i => !postresNombres.has((i.nombre || '').trim().toLowerCase()))
+        .map(i => mapImp(i, 'Impulsivo')),
+      Postres: impulsivos
+        .filter(i => postresNombres.has((i.nombre || '').trim().toLowerCase()))
+        .map(i => mapImp(i, 'Postre')),
     }
   }, [bases, baseIngs, sabores, saborIngs, stockCamaras, impulsivos, impIngs, insumoPorNombre])
 
@@ -533,6 +533,7 @@ export default function Recetas() {
       Bases:      baseIngs.filter(i => i.base_id === receta.id),
       Sabores:    saborIngs.filter(i => i.sabor_id === receta.id),
       Impulsivos: impIngs.filter(i => i.impulsivo_id === receta.id),
+      Postres:    impIngs.filter(i => i.impulsivo_id === receta.id),
     }
     setEditando({ receta, tipo: tab, rawIngs: rawMap[tab] || [] })
   }
@@ -647,7 +648,7 @@ export default function Recetas() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {tab !== 'Postres' && (
+                    {(
                       <button
                         onClick={e => { e.stopPropagation(); abrirEditor(r) }}
                         className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
@@ -655,7 +656,7 @@ export default function Recetas() {
                         <Edit2 size={11} /> Editar
                       </button>
                     )}
-                    {tab !== 'Postres' && isAdmin && (
+                    {isAdmin && (
                       <>
                         <button
                           onClick={e => { e.stopPropagation(); setRenombrando({ receta: r, tipo: tab }) }}

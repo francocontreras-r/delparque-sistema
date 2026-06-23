@@ -189,70 +189,118 @@ function InformeOperarios() {
   const [pdfHasta, setPdfHasta] = useState('')
   const [generandoPDF, setGenerandoPDF] = useState(false)
 
-  console.log('InformeOperarios montando...')
-
   const rango = useMemo(() => {
-    console.log('Calculando rango...')
     try { return calcularRangos(periodo) }
     catch { return calcularRangos('semana') }
   }, [periodo])
 
-  const evolucionSemanal = useMemo(() => {
-    try {
-      const { desde, hasta } = rango
-      if (!desde || !hasta) return []
-      const days = []
-      let cur = new Date(desde)
-      const end = new Date(hasta)
-      if (isNaN(cur.getTime()) || isNaN(end.getTime())) return []
-      let safety = 0
-      while (cur <= end && safety++ < 400) {
-        days.push(cur.toISOString().split('T')[0])
-        cur.setDate(cur.getDate() + 1)
-      }
-      const byDay = {}
-      ;(ordenesActual || []).forEach(o => {
-        const d = (o.fecha_fin || '').split('T')[0]
-        if (!d) return
-        if (!byDay[d]) byDay[d] = { kg: 0, ordenes: 0 }
-        byDay[d].kg += o.kg_producido || 0
-        byDay[d].ordenes++
-      })
-      return days.slice(-14).map(d => ({
-        fecha: `${d.split('-')[2]}/${d.split('-')[1]}`,
-        kg: Number((byDay[d]?.kg || 0).toFixed(1)),
-        ordenes: byDay[d]?.ordenes || 0,
-      }))
-    } catch (e) { console.error('evolucionSemanal error:', e); return [] }
-  }, [ordenesActual, rango])
+  // ── Computed data — single effect, no cascading useMemos ──────────────────
+  const [datos, setDatos] = useState({
+    porOperarioActual: [], porOperarioAnterior: [], anteriorPorNombre: {},
+    evolucionSemanal: [], kpisGlobales: { totalOrdenes: 0, rendProm: 0, operarioDestacado: null, productoMasMerma: null },
+    chartResumen: [], rankingEquipo: [], radarData: [],
+  })
 
-  useEffect(() => { cargar() }, [periodo])
+  useEffect(() => { cargar() }, [periodo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (operarios.length === 0) return
     if (!operarioSel) setOperarioSel(operarios[0].nombre)
     if (!pdfOperario) setPdfOperario(operarios[0].nombre)
-  }, [operarios])
+  }, [operarios]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function cargar() {
     setLoading(true)
     setErrorGlobal(null)
     try {
       const { desde, hasta, antDesde, antHasta } = rango
-      const [{ data: ops, error: e1 }, { data: ordAct, error: e2 }, { data: ordAnt, error: e3 }, { data: merAct, error: e4 }] = await Promise.all([
+      const [{ data: ops }, { data: ordAct }, { data: ordAnt }, { data: merAct }] = await Promise.all([
         supabase.from('operarios').select('*').order('nombre'),
         supabase.from('ordenes_produccion').select('*').eq('estado', 'completada').gte('fecha_fin', desde).lte('fecha_fin', `${hasta}T23:59:59`),
         supabase.from('ordenes_produccion').select('*').eq('estado', 'completada').gte('fecha_fin', antDesde).lte('fecha_fin', `${antHasta}T23:59:59`),
         supabase.from('mermas').select('*').gte('fecha', desde).lte('fecha', hasta),
       ])
-      if (e1) console.error('Error operarios:', e1)
-      if (e2) console.error('Error ordenes actuales:', e2)
-      if (e3) console.error('Error ordenes anteriores:', e3)
-      if (e4) console.error('Error mermas:', e4)
-      setOperarios(deduplicarOperarios(ops))
+
+      const opsDedup = deduplicarOperarios(ops)
+      setOperarios(opsDedup)
       setOrdenesActual(ordAct || [])
       setOrdenesAnterior(ordAnt || [])
       setMermasActual(merAct || [])
+
+      // Compute everything at once, safely
+      try {
+        const actual  = agruparPorOperario(ordAct  || []).sort((a, b) => (b.avgRend || 0) - (a.avgRend || 0))
+        const anterior = agruparPorOperario(ordAnt || [])
+        const antMap = Object.fromEntries(anterior.map(o => [o.nombre || '?', o]))
+
+        // Evolution chart
+        const { desde: d0, hasta: d1 } = rango
+        const days = []
+        let cur = new Date(d0); const end = new Date(d1); let safety = 0
+        while (cur <= end && safety++ < 400) { days.push(cur.toISOString().split('T')[0]); cur.setDate(cur.getDate() + 1) }
+        const byDay = {}
+        ;(ordAct || []).forEach(o => {
+          const d = (o.fecha_fin || '').split('T')[0]
+          if (!d) return
+          if (!byDay[d]) byDay[d] = { kg: 0, ordenes: 0 }
+          byDay[d].kg += Number(o.kg_producido) || 0; byDay[d].ordenes++
+        })
+        const evolucion = days.slice(-14).map(d => ({
+          fecha: `${d.split('-')[2]}/${d.split('-')[1]}`,
+          kg: Number((byDay[d]?.kg || 0).toFixed(1)),
+          ordenes: byDay[d]?.ordenes || 0,
+        }))
+
+        // KPIs
+        const rendProm = actual.length > 0 ? actual.reduce((a, o) => a + (Number(o.avgRend) || 0), 0) / actual.length : 0
+        const mermaPorProducto = {}
+        ;(merAct || []).forEach(m => {
+          const k = m.sabor_nombre || 'Sin especificar'
+          mermaPorProducto[k] = (mermaPorProducto[k] || 0) + (Number(m.diferencia) || 0)
+        })
+        const topMerma = Object.entries(mermaPorProducto).sort((a, b) => (b[1] || 0) - (a[1] || 0))[0]
+
+        // Radar
+        const top6 = actual.slice(0, 6)
+        const maxKg = Math.max(1, ...top6.map(o => Number(o.totalKg) || 0))
+        const dims = [
+          { key: 'Volumen',           calc: o => ((Number(o.totalKg) || 0) / maxKg) * 100 },
+          { key: 'Eficiencia Kg',     calc: o => Math.min(150, Number(o.avgKg)     || 0) },
+          { key: 'Eficiencia Tiempo', calc: o => Math.min(150, Number(o.avgTiempo) || 0) },
+          { key: 'Consistencia',      calc: o => Math.max(0, 100 - Math.min(100, Number(o.stdDev) || 0)) },
+        ]
+        const radar = top6.length > 0 ? dims.map(dim => {
+          const row = { dimension: dim.key }
+          top6.forEach(o => { row[o.nombre || '?'] = Number(dim.calc(o).toFixed(1)) })
+          return row
+        }) : []
+
+        setDatos({
+          porOperarioActual: actual,
+          porOperarioAnterior: anterior,
+          anteriorPorNombre: antMap,
+          evolucionSemanal: evolucion,
+          kpisGlobales: {
+            totalOrdenes: (ordAct || []).length,
+            rendProm: Number(rendProm.toFixed(1)),
+            operarioDestacado: actual[0] || null,
+            productoMasMerma: topMerma ? { nombre: topMerma[0], kg: topMerma[1] } : null,
+          },
+          chartResumen: actual.map(o => ({
+            nombre: o.nombre || '—',
+            'Eficiencia Kg':     Number((Number(o.avgKg)     || 0).toFixed(1)),
+            'Eficiencia Tiempo': Number((Number(o.avgTiempo) || 0).toFixed(1)),
+            'Rendimiento Final': Number((Number(o.avgRend)   || 0).toFixed(1)),
+          })),
+          rankingEquipo: actual.map((o, idx) => {
+            const ant = antMap[o.nombre]
+            return { ...o, pos: idx + 1, diff: ant ? (Number(o.avgRend) || 0) - (Number(ant.avgRend) || 0) : null }
+          }),
+          radarData: radar,
+        })
+      } catch (calcErr) {
+        console.error('Error calculando datos derivados:', calcErr)
+      }
     } catch (err) {
       console.error('Error al cargar InformeOperarios:', err)
       setErrorGlobal(err?.message || 'Error desconocido al cargar datos')
@@ -261,69 +309,33 @@ function InformeOperarios() {
     }
   }
 
-  const porOperarioActual = useMemo(() => {
-    console.log('Calculando porOperarioActual...', ordenesActual?.length, 'órdenes')
-    try { return agruparPorOperario(ordenesActual || []).sort((a, b) => (b.avgRend || 0) - (a.avgRend || 0)) }
-    catch (e) { console.error('porOperarioActual error:', e); return [] }
-  }, [ordenesActual])
+  const porOperarioActual  = datos.porOperarioActual
+  const porOperarioAnterior = datos.porOperarioAnterior
+  const anteriorPorNombre  = datos.anteriorPorNombre
+  const evolucionSemanal   = datos.evolucionSemanal
+  const kpisGlobales       = datos.kpisGlobales
+  const chartResumen       = datos.chartResumen
+  const rankingEquipo      = datos.rankingEquipo
+  const radarData          = datos.radarData
 
-  const porOperarioAnterior = useMemo(() => {
-    try { return agruparPorOperario(ordenesAnterior || []) }
-    catch (e) { console.error('porOperarioAnterior error:', e); return [] }
-  }, [ordenesAnterior])
-
-  const anteriorPorNombre = useMemo(() => {
-    try { return Object.fromEntries((porOperarioAnterior || []).map(o => [o.nombre || '?', o])) }
-    catch { return {} }
-  }, [porOperarioAnterior])
-
-  // ── TAB 1 — Resumen General ──────────────────────────────────────────────
-  const kpisGlobales = useMemo(() => {
-    console.log('Calculando kpisGlobales...')
-    try {
-      const totalOrdenes = (ordenesActual || []).length
-      const rendProm = (porOperarioActual || []).length > 0
-        ? porOperarioActual.reduce((a, o) => a + (o.avgRend || 0), 0) / porOperarioActual.length
-        : 0
-      const operarioDestacado = porOperarioActual[0] || null
-      const mermaPorProducto = {}
-      ;(mermasActual || []).forEach(m => {
-        const nombre = m.sabor_nombre || 'Sin especificar'
-        mermaPorProducto[nombre] = (mermaPorProducto[nombre] || 0) + (m.diferencia || 0)
-      })
-      const top = Object.entries(mermaPorProducto).sort((a, b) => (b[1] || 0) - (a[1] || 0))[0]
-      return { totalOrdenes, rendProm: rendProm || 0, operarioDestacado, productoMasMerma: top ? { nombre: top[0], kg: top[1] } : null }
-    } catch { return { totalOrdenes: 0, rendProm: 0, operarioDestacado: null, productoMasMerma: null } }
-  }, [ordenesActual, porOperarioActual, mermasActual])
-
-  const chartResumen = useMemo(() => {
-    try {
-      return (porOperarioActual || []).map(o => ({
-        nombre: o.nombre || '—',
-        'Eficiencia Kg':     Number((o.avgKg     || 0).toFixed(1)),
-        'Eficiencia Tiempo': Number((o.avgTiempo || 0).toFixed(1)),
-        'Rendimiento Final': Number((o.avgRend   || 0).toFixed(1)),
-      }))
-    } catch { return [] }
-  }, [porOperarioActual])
+  // ── TAB 1 — Resumen General (valores de datos.kpisGlobales/chartResumen) ──
 
   // ── TAB 2 — Por Operario ──────────────────────────────────────────────────
   const operarioActual = useMemo(() => {
     try { return (porOperarioActual || []).find(o => o.nombre === operarioSel) || null }
-    catch (e) { console.error('operarioActual error:', e); return null }
+    catch { return null }
   }, [porOperarioActual, operarioSel])
 
-  const operarioAnteriorData = anteriorPorNombre[operarioSel]
+  const operarioAnteriorData = anteriorPorNombre[operarioSel] || null
 
   const kpisOperario = useMemo(() => {
-    console.log('Calculando kpisOperario...')
     try {
       if (!operarioActual) return null
-      const tendenciaDiff = (operarioAnteriorData && typeof operarioAnteriorData.avgRend === 'number')
-        ? (operarioActual.avgRend || 0) - operarioAnteriorData.avgRend
+      const tendenciaDiff = operarioAnteriorData && typeof operarioAnteriorData.avgRend === 'number'
+        ? (Number(operarioActual.avgRend) || 0) - (Number(operarioAnteriorData.avgRend) || 0)
         : null
       return { ...operarioActual, tendenciaDiff }
-    } catch (e) { console.error('kpisOperario error:', e); return null }
+    } catch { return null }
   }, [operarioActual, operarioAnteriorData])
 
   const lineChartOperario = useMemo(() => {
@@ -333,9 +345,9 @@ function InformeOperarios() {
         .sort((a, b) => new Date(a.fecha_fin || 0) - new Date(b.fecha_fin || 0))
         .map(o => ({
           fecha: fmtFechaCorta(o.fecha_fin),
-          'Eficiencia Kg':     Number((o.eficiencia_kg     || 0).toFixed(1)),
-          'Eficiencia Tiempo': Number((o.eficiencia_tiempo || 0).toFixed(1)),
-          'Rendimiento Final': Number((o.rendimiento_final || 0).toFixed(1)),
+          'Eficiencia Kg':     Number((Number(o.eficiencia_kg)     || 0).toFixed(1)),
+          'Eficiencia Tiempo': Number((Number(o.eficiencia_tiempo) || 0).toFixed(1)),
+          'Rendimiento Final': Number((Number(o.rendimiento_final) || 0).toFixed(1)),
         }))
     } catch { return [] }
   }, [operarioActual])
@@ -394,38 +406,7 @@ function InformeOperarios() {
     } catch { return [] }
   }, [rankingProducto])
 
-  // ── TAB 3 — Ranking del Equipo ───────────────────────────────────────────
-  const rankingEquipo = useMemo(() => {
-    console.log('Calculando rankingEquipo...')
-    try {
-      return (porOperarioActual || []).map((o, idx) => {
-        const ant = anteriorPorNombre[o.nombre]
-        const diff = ant ? (o.avgRend || 0) - (ant.avgRend || 0) : null
-        return { ...o, pos: idx + 1, diff }
-      })
-    } catch { return [] }
-  }, [porOperarioActual, anteriorPorNombre])
-
-  const radarOperarios = useMemo(() => porOperarioActual.slice(0, 6), [porOperarioActual])
-
-  const radarData = useMemo(() => {
-    console.log('Calculando radarData...')
-    try {
-      if (!radarOperarios?.length) return []
-      const maxTotalKg = Math.max(1, ...radarOperarios.map(o => o.totalKg || 0))
-      const dims = [
-        { key: 'Volumen',          calc: o => ((o.totalKg || 0) / maxTotalKg) * 100 },
-        { key: 'Eficiencia Kg',     calc: o => Math.min(150, o.avgKg     || 0) },
-        { key: 'Eficiencia Tiempo', calc: o => Math.min(150, o.avgTiempo || 0) },
-        { key: 'Consistencia',      calc: o => Math.max(0, 100 - Math.min(100, o.stdDev || 0)) },
-      ]
-      return dims.map(dim => {
-        const row = { dimension: dim.key }
-        radarOperarios.forEach(o => { row[o.nombre || '?'] = Number(dim.calc(o).toFixed(1)) })
-        return row
-      })
-    } catch { return [] }
-  }, [radarOperarios])
+  // ── TAB 3 — Ranking (valores de datos.rankingEquipo / datos.radarData) ───
 
   // ── TAB 4 — Informe PDF exportable ───────────────────────────────────────
   async function generarPDF() {

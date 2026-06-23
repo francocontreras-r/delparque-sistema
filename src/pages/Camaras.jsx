@@ -78,9 +78,13 @@ function SkeletonCard() {
 
 function TarjetaSabor({ item, onClick, showVal, onDelete }) {
   const e    = estadoSabor(item.baldes)
-  const tb   = TIPO_BADGE[item.tipo] || { bg: 'rgba(100,116,139,0.12)', color: '#94A3B8' }
   const esImp  = (item.tipo_producto || '') === 'impulsivo'
   const esPost = (item.tipo_producto || '') === 'postre'
+  const tb   = esImp
+    ? TIPO_BADGE['Impulsivo']
+    : esPost
+      ? TIPO_BADGE['Postre']
+      : (TIPO_BADGE[item.tipo] || { bg: 'rgba(100,116,139,0.12)', color: '#94A3B8' })
   const precioKg = item.precio_kg || TIPO_PRECIOS[item.tipo]?.precio_kg
   const [hov, setHov] = useState(false)
 
@@ -137,7 +141,7 @@ function TarjetaSabor({ item, onClick, showVal, onDelete }) {
       <div className="flex items-center gap-1 flex-wrap">
         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md inline-block"
           style={{ backgroundColor: tb.bg, color: tb.color }}>
-          {item.tipo || item.tipo_producto}
+          {esImp ? 'Impulsivo' : esPost ? 'Postre' : (item.tipo || '—')}
         </span>
         <Badge variant={estadoBadgeVariant(item.baldes)} className="!text-[10px] !px-1.5 !py-0.5">{e.label}</Badge>
       </div>

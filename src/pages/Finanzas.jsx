@@ -21,7 +21,21 @@ import {
 } from 'recharts'
 
 // ── Constantes ─────────────────────────────────────────────────────────────────
-const TABS = ['Costos', 'Márgenes', 'Resumen']
+const TABS = ['Costos', 'CIF', 'Márgenes', 'Resumen Ejecutivo']
+
+const CIF_PREDEFINIDOS = [
+  { concepto: 'Alquiler del local',        categoria: 'fijo',     monto_mensual: 0 },
+  { concepto: 'Amortización maquinaria',   categoria: 'fijo',     monto_mensual: 0 },
+  { concepto: 'Seguros',                   categoria: 'fijo',     monto_mensual: 0 },
+  { concepto: 'Salarios supervisores',     categoria: 'fijo',     monto_mensual: 0 },
+  { concepto: 'Internet y telefonía',      categoria: 'fijo',     monto_mensual: 0 },
+  { concepto: 'Energía eléctrica',         categoria: 'variable', monto_mensual: 0 },
+  { concepto: 'Gas',                       categoria: 'variable', monto_mensual: 0 },
+  { concepto: 'Agua',                      categoria: 'variable', monto_mensual: 0 },
+  { concepto: 'Mantenimiento equipos',     categoria: 'variable', monto_mensual: 0 },
+  { concepto: 'Packaging general',         categoria: 'variable', monto_mensual: 0 },
+  { concepto: 'Productos de limpieza',     categoria: 'variable', monto_mensual: 0 },
+]
 
 const TIPO_PRECIOS = {
   Lisa:           { costo_kg: 1200 },
@@ -43,11 +57,12 @@ function margenPct(costo, precio) {
 }
 
 function nivelMargen(pct) {
-  if (pct < 0)   return { nivel: 'negativo',  emoji: '🔴', label: 'NEGATIVO',  barColor: '#EF4444', rowBg: 'rgba(239,68,68,0.08)',   badgeVariant: 'danger',  descCorta: 'Pérdida' }
-  if (pct < 15)  return { nivel: 'critico',   emoji: '🟠', label: 'CRÍTICO',   barColor: '#f97316', rowBg: 'rgba(249,115,22,0.08)',  badgeVariant: 'warning', descCorta: 'Crítico' }
-  if (pct < 30)  return { nivel: 'bajo',      emoji: '🟡', label: 'BAJO',      barColor: '#eab308', rowBg: 'rgba(245,158,11,0.08)',  badgeVariant: 'warning', descCorta: 'Bajo' }
-  if (pct <= 50) return { nivel: 'saludable', emoji: '🟢', label: 'SALUDABLE', barColor: '#22C55E', rowBg: 'transparent',            badgeVariant: 'success', descCorta: 'Saludable' }
-  return          { nivel: 'excelente', emoji: '💚', label: 'EXCELENTE', barColor: '#16a34a', rowBg: 'rgba(34,197,94,0.08)',   badgeVariant: 'success', descCorta: 'Excelente' }
+  if (pct < 0)   return { nivel: 'negativo',   emoji: '🔴', label: 'NEGATIVO',   barColor: '#EF4444', rowBg: 'rgba(239,68,68,0.08)',  badgeVariant: 'danger',  descCorta: 'Pérdida' }
+  if (pct < 15)  return { nivel: 'critico',    emoji: '🔴', label: 'CRÍTICO',    barColor: '#f97316', rowBg: 'rgba(249,115,22,0.08)', badgeVariant: 'warning', descCorta: 'Crítico' }
+  if (pct < 30)  return { nivel: 'bajo',       emoji: '🟠', label: 'BAJO',       barColor: '#f59e0b', rowBg: 'rgba(245,158,11,0.08)', badgeVariant: 'warning', descCorta: 'Bajo' }
+  if (pct < 45)  return { nivel: 'aceptable',  emoji: '🟡', label: 'ACEPTABLE',  barColor: '#eab308', rowBg: 'rgba(234,179,8,0.08)',  badgeVariant: 'warning', descCorta: 'Aceptable' }
+  if (pct < 55)  return { nivel: 'bueno',      emoji: '🟢', label: 'BUENO',      barColor: '#22C55E', rowBg: 'rgba(34,197,94,0.06)',  badgeVariant: 'success', descCorta: 'Bueno' }
+  return                 { nivel: 'excelente',  emoji: '💚', label: 'EXCELENTE',  barColor: '#16a34a', rowBg: 'rgba(34,197,94,0.1)',   badgeVariant: 'success', descCorta: 'Excelente' }
 }
 
 // ── Sub-componentes ────────────────────────────────────────────────────────────
@@ -113,15 +128,26 @@ export default function Finanzas() {
   const [prevSnapshot, setPrevSnapshot] = useState(null)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [sortDir, setSortDir]       = useState('desc')
+  const [cifConfig, setCifConfig]   = useState([])
+  const [savingCIF, setSavingCIF]   = useState(false)
+  const [newCIF, setNewCIF]         = useState({ concepto: '', categoria: 'fijo', monto_mensual: '' })
+  const [editingCIF, setEditingCIF] = useState({}) // id → monto
+  const [litrosMes, setLitrosMes]   = useState(0)
 
   useEffect(() => { cargar() }, [])
 
   async function cargar() {
+    const hoy = new Date()
+    const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0]
+    const finMes    = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).toISOString().split('T')[0]
+
     const [
       { data: sab }, { data: sabIng },
       { data: imp }, { data: impIng },
       { data: bas },
       { data: ins }, { data: cam },
+      { data: cif },
+      { data: prods },
     ] = await Promise.all([
       supabase.from('sabores').select('*').order('nombre'),
       supabase.from('sabor_ingredientes').select('*'),
@@ -130,6 +156,8 @@ export default function Finanzas() {
       supabase.from('bases').select('*').order('nombre'),
       supabase.from('insumos').select('nombre,costo_unitario,stock_actual'),
       supabase.from('stock_camaras').select('nombre,tipo_producto').in('tipo_producto', ['impulsivo', 'postre']),
+      supabase.from('cif_config').select('*').order('categoria').order('concepto'),
+      supabase.from('producciones').select('peso_kg').gte('fecha', inicioMes).lte('fecha', finMes),
     ])
     setSabores(sab || [])
     setSaborIngredientes(sabIng || [])
@@ -138,6 +166,14 @@ export default function Finanzas() {
     setBases(bas || [])
     setInsumos(ins || [])
     setStockCamaras(cam || [])
+    // Sembrar CIF predefinidos si la tabla está vacía
+    if ((cif || []).length === 0) {
+      const { data: insertados } = await supabase.from('cif_config').insert(CIF_PREDEFINIDOS).select()
+      setCifConfig(insertados || [])
+    } else {
+      setCifConfig(cif || [])
+    }
+    setLitrosMes((prods || []).reduce((a, p) => a + (Number(p.peso_kg) || 0), 0))
     setLoading(false)
   }
 
@@ -152,6 +188,44 @@ export default function Finanzas() {
     return m
   }, [insumos])
 
+  // ── CIF ──────────────────────────────────────────────────────────────────────
+  const totalCIF = useMemo(() => cifConfig.filter(c => c.activo).reduce((a, c) => a + (Number(c.monto_mensual) || 0), 0), [cifConfig])
+  const totalCIFfijos = useMemo(() => cifConfig.filter(c => c.activo && c.categoria === 'fijo').reduce((a, c) => a + (Number(c.monto_mensual) || 0), 0), [cifConfig])
+  const totalCIFvariables = useMemo(() => cifConfig.filter(c => c.activo && c.categoria === 'variable').reduce((a, c) => a + (Number(c.monto_mensual) || 0), 0), [cifConfig])
+  const cifPorLitro = useMemo(() => litrosMes > 0 ? totalCIF / litrosMes : 0, [totalCIF, litrosMes])
+
+  async function agregarCIF() {
+    if (!newCIF.concepto.trim()) { showToast('Falta el concepto', 'error'); return }
+    setSavingCIF(true)
+    const { data, error } = await supabase.from('cif_config').insert({ concepto: newCIF.concepto.trim(), categoria: newCIF.categoria, monto_mensual: parseFloat(newCIF.monto_mensual) || 0, activo: true }).select().single()
+    setSavingCIF(false)
+    if (error) { showToast(error.message, 'error'); return }
+    setCifConfig(prev => [...prev, data])
+    setNewCIF({ concepto: '', categoria: 'fijo', monto_mensual: '' })
+    showToast('CIF agregado')
+  }
+
+  async function actualizarCIFMonto(id) {
+    const monto = parseFloat(editingCIF[id]) || 0
+    const { error } = await supabase.from('cif_config').update({ monto_mensual: monto }).eq('id', id)
+    if (error) { showToast(error.message, 'error'); return }
+    setCifConfig(prev => prev.map(c => c.id === id ? { ...c, monto_mensual: monto } : c))
+    setEditingCIF(prev => { const n = { ...prev }; delete n[id]; return n })
+  }
+
+  async function toggleActivoCIF(id, activo) {
+    const { error } = await supabase.from('cif_config').update({ activo: !activo }).eq('id', id)
+    if (error) { showToast(error.message, 'error'); return }
+    setCifConfig(prev => prev.map(c => c.id === id ? { ...c, activo: !activo } : c))
+  }
+
+  async function eliminarCIF(id) {
+    if (!window.confirm('¿Eliminar este CIF?')) return
+    const { error } = await supabase.from('cif_config').delete().eq('id', id)
+    if (error) { showToast(error.message, 'error'); return }
+    setCifConfig(prev => prev.filter(c => c.id !== id))
+  }
+
   // Mapa nombre→tipo desde stock_camaras para separar impulsivos de postres
   const tiposMap = useMemo(() => {
     const m = {}
@@ -159,22 +233,37 @@ export default function Finanzas() {
     return m
   }, [stockCamaras])
 
+  // Mapa nombre→litros_base para calcular CIF por sabor
+  const litrosBasePorNombre = useMemo(() => {
+    const m = {}
+    sabores.forEach(s => { m[(s.nombre || '').toUpperCase()] = s.litros_base || 0 })
+    return m
+  }, [sabores])
+
   const secciones = useMemo(() => {
-    const mkRow = (tabla, prefix) => (r) => ({
-      key: `${prefix}-${r.id}`, id: r.id, tabla, nombre: r.nombre,
-      costo_materiales: r.costo_materiales || 0,
-      mano_de_obra: r.mano_de_obra || 0,
-      costo_total: r.costo_total || 0,
-      precio_venta: r.precio_venta || 0,
-    })
-    const impsRows = impulsivos.map(mkRow('impulsivos', 'impulsivo'))
+    const mkRow = (tabla, prefix, getCIF) => (r) => {
+      const cifKg = getCIF ? getCIF(r) : 0
+      const costoTotalConCIF = (r.costo_total || 0) + cifKg
+      return {
+        key: `${prefix}-${r.id}`, id: r.id, tabla, nombre: r.nombre,
+        costo_materiales: r.costo_materiales || 0,
+        mano_de_obra: r.mano_de_obra || 0,
+        costo_total: r.costo_total || 0,
+        cif_kg: cifKg,
+        costo_total_cif: costoTotalConCIF,
+        precio_venta: r.precio_venta || 0,
+        litros_base: r.litros_base || 0,
+      }
+    }
+    const cifSabor = (r) => cifPorLitro * (litrosBasePorNombre[(r.nombre || '').toUpperCase()] || 0)
+    const impsRows = impulsivos.map(mkRow('impulsivos', 'impulsivo', null))
     return {
-      Bases:      bases.map(mkRow('bases', 'base')),
-      Sabores:    sabores.map(mkRow('sabores', 'sabor')),
+      Bases:      bases.map(mkRow('bases', 'base', null)),
+      Sabores:    sabores.map(mkRow('sabores', 'sabor', cifSabor)),
       Impulsivos: impsRows.filter(r => (tiposMap[(r.nombre || '').toUpperCase()] || 'impulsivo') === 'impulsivo'),
       Postres:    impsRows.filter(r => tiposMap[(r.nombre || '').toUpperCase()] === 'postre'),
     }
-  }, [bases, sabores, impulsivos, tiposMap])
+  }, [bases, sabores, impulsivos, tiposMap, cifPorLitro, litrosBasePorNombre])
 
   const productos = useMemo(() => (
     [...secciones.Bases, ...secciones.Sabores, ...secciones.Impulsivos, ...secciones.Postres]
@@ -521,7 +610,7 @@ export default function Finanzas() {
               Actualizado: {lastUpdated.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
-          {tab !== 'Resumen' && (
+          {tab !== 'Resumen Ejecutivo' && (
             <Button variant="secondary" onClick={recalcularTodos} loading={recalculando}>
               <RefreshCw size={14} /> Actualizar costos
             </Button>
@@ -578,18 +667,21 @@ export default function Finanzas() {
                     <span className="text-xs ml-2" style={{ color: colors.textMuted }}>{items.length} producto{items.length !== 1 ? 's' : ''}</span>
                   </div>
                   <div className="overflow-x-auto">
-                    <Table className="min-w-[720px]">
+                    <Table className="min-w-[820px]">
                       <Thead>
                         <Tr>
                           <Th>Producto</Th><Th className="text-right">Costo MP ($)</Th>
-                          <Th className="text-right">Mano de obra ($)</Th><Th className="text-right">Costo total ($)</Th>
-                          <Th className="text-right">Precio venta ($)</Th><Th className="text-right">Margen %</Th>
+                          <Th className="text-right">MOD ($)</Th>
+                          <Th className="text-right">CIF ($)</Th>
+                          <Th className="text-right">Costo Total ($)</Th>
+                          <Th className="text-right">Precio venta ($)</Th>
+                          <Th className="text-right">Margen %</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
                         {items.map(p => {
                           const prev = prevSnapshot?.[p.key]
-                          const margen = margenPct(p.costo_total, p.precio_venta)
+                          const margen = margenPct(p.costo_total_cif, p.precio_venta)
                           const nv = nivelMargen(margen)
                           return (
                             <Tr key={p.key}>
@@ -601,8 +693,11 @@ export default function Finanzas() {
                               <Td className="text-right">
                                 <EditableNumber value={p.mano_de_obra} onCommit={v => actualizarCampo(p, 'mano_de_obra', v)} />
                               </Td>
+                              <Td className="text-right text-xs" style={{ color: p.cif_kg > 0 ? colors.textSecondary : colors.textMuted }}>
+                                {p.cif_kg > 0 ? `$${pesos(p.cif_kg)}` : '—'}
+                              </Td>
                               <Td className="text-right font-semibold">
-                                ${pesos(p.costo_total)}
+                                ${pesos(p.costo_total_cif)}
                                 {tieneDiff && <DiffBadge actual={p.costo_total} anterior={prev?.costo_total} />}
                               </Td>
                               <Td className="text-right">
@@ -610,7 +705,7 @@ export default function Finanzas() {
                               </Td>
                               <Td className="text-right">
                                 {p.precio_venta > 0
-                                  ? <span style={{ color: nv.barColor, fontWeight: '700' }}>{margen.toFixed(1)}%</span>
+                                  ? <span style={{ color: nv.barColor, fontWeight: '700' }}>{nv.emoji} {margen.toFixed(1)}%</span>
                                   : <span style={{ color: colors.textMuted }}>—</span>}
                               </Td>
                             </Tr>
@@ -621,6 +716,109 @@ export default function Finanzas() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* ═══════════════════════════ TAB CIF ════════════════════════════════ */}
+          {tab === 'CIF' && (
+            <div className="space-y-5">
+              {/* KPIs */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: 'CIF fijos/mes',    value: `$${pesos(totalCIFfijos)}`,    color: '#3b82f6' },
+                  { label: 'CIF variables/mes', value: `$${pesos(totalCIFvariables)}`, color: '#f59e0b' },
+                  { label: 'Total CIF/mes',     value: `$${pesos(totalCIF)}`,         color: colors.brand },
+                  { label: 'CIF/litro producido', value: cifPorLitro > 0 ? `$${pesos(cifPorLitro)}/L` : `— (${pesos(litrosMes)} L este mes)`, color: '#10b981' },
+                ].map(k => (
+                  <div key={k.label} className="p-4 rounded-xl" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, borderTop: `3px solid ${k.color}` }}>
+                    <div className="text-xl font-bold" style={{ color: k.color }}>{k.value}</div>
+                    <div className="text-xs mt-1 uppercase tracking-wide" style={{ color: colors.textMuted }}>{k.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Tabla CIF */}
+              <div className="overflow-hidden" style={SURFACE}>
+                <div className="px-4 py-2.5 flex items-center justify-between" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Costos Indirectos de Fabricación</span>
+                  <span className="text-xs" style={{ color: colors.textMuted }}>{cifConfig.filter(c => c.activo).length} activos</span>
+                </div>
+                <Table className="min-w-[600px]">
+                  <Thead>
+                    <Tr><Th>Concepto</Th><Th>Categoría</Th><Th className="text-right">Monto/mes ($)</Th><Th>Activo</Th><Th></Th></Tr>
+                  </Thead>
+                  <Tbody>
+                    {cifConfig.map(c => (
+                      <Tr key={c.id} style={{ opacity: c.activo ? 1 : 0.5 }}>
+                        <Td className="font-medium">{c.concepto}</Td>
+                        <Td>
+                          <Badge variant={c.categoria === 'fijo' ? 'info' : 'warning'}>
+                            {c.categoria === 'fijo' ? 'Fijo' : 'Variable'}
+                          </Badge>
+                        </Td>
+                        <Td className="text-right">
+                          {editingCIF[c.id] !== undefined ? (
+                            <div className="flex items-center gap-1 justify-end">
+                              <input type="number" min="0" value={editingCIF[c.id]}
+                                onChange={e => setEditingCIF(prev => ({ ...prev, [c.id]: e.target.value }))}
+                                className={numInputClass} autoFocus />
+                              <button onClick={() => actualizarCIFMonto(c.id)}
+                                className="text-xs px-2 py-1 rounded font-semibold"
+                                style={{ backgroundColor: colors.success + '22', color: colors.success }}>✓</button>
+                              <button onClick={() => setEditingCIF(prev => { const n = { ...prev }; delete n[c.id]; return n })}
+                                className="text-xs px-1.5 py-1 rounded"
+                                style={{ color: colors.textMuted }}>✕</button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setEditingCIF(prev => ({ ...prev, [c.id]: c.monto_mensual }))}
+                              className="font-semibold hover:underline"
+                              style={{ color: colors.textPrimary }}>
+                              ${pesos(c.monto_mensual)}
+                            </button>
+                          )}
+                        </Td>
+                        <Td>
+                          <button onClick={() => toggleActivoCIF(c.id, c.activo)}
+                            className="text-xs px-2 py-0.5 rounded-full font-semibold transition-colors"
+                            style={{ backgroundColor: c.activo ? colors.success + '22' : colors.border, color: c.activo ? colors.success : colors.textMuted }}>
+                            {c.activo ? 'Sí' : 'No'}
+                          </button>
+                        </Td>
+                        <Td>
+                          <button onClick={() => eliminarCIF(c.id)} className="text-xs px-1.5 py-1 rounded hover:bg-red-100"
+                            style={{ color: colors.danger }}>✕</button>
+                        </Td>
+                      </Tr>
+                    ))}
+                  </Tbody>
+                </Table>
+              </div>
+
+              {/* Agregar CIF */}
+              <div className="p-4 rounded-xl space-y-3" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}` }}>
+                <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>＋ Agregar CIF</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <input value={newCIF.concepto} onChange={e => setNewCIF(f => ({ ...f, concepto: e.target.value }))}
+                    placeholder="Concepto (ej: Gas natural)"
+                    className="rounded-md border px-3 py-2 text-sm outline-none focus:ring-2"
+                    style={{ borderColor: colors.border, color: colors.textPrimary }} />
+                  <select value={newCIF.categoria} onChange={e => setNewCIF(f => ({ ...f, categoria: e.target.value }))}
+                    className="rounded-md border px-3 py-2 text-sm outline-none"
+                    style={{ borderColor: colors.border, color: colors.textPrimary }}>
+                    <option value="fijo">Fijo</option>
+                    <option value="variable">Variable</option>
+                  </select>
+                  <div className="flex gap-2">
+                    <input type="number" min="0" value={newCIF.monto_mensual} onChange={e => setNewCIF(f => ({ ...f, monto_mensual: e.target.value }))}
+                      placeholder="Monto/mes"
+                      className="flex-1 rounded-md border px-3 py-2 text-sm outline-none focus:ring-2"
+                      style={{ borderColor: colors.border, color: colors.textPrimary }} />
+                    <Button variant="primary" onClick={agregarCIF} loading={savingCIF} disabled={!newCIF.concepto.trim()}>
+                      Agregar
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -794,13 +992,19 @@ export default function Finanzas() {
           )}
 
           {/* ═══════════════════════════ TAB RESUMEN ═══════════════════════════ */}
-          {tab === 'Resumen' && (
+          {tab === 'Resumen Ejecutivo' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <KpiCard label="Valor stock depósito"  value={`$${pesos(valorDeposito)}`}          icon={Warehouse}  color={colors.brand} />
-                <KpiCard label="Valor stock cámaras"   value={`$${pesos(valorCamaras)}`}            icon={Thermometer} color={colors.info} />
-                <KpiCard label="Margen promedio"        value={`${margenPromedio.toFixed(1)}%`}     icon={Percent}
-                  color={nivelMargen(margenPromedio).barColor} />
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <KpiCard label="Margen promedio portfolio" value={`${margenPromedio.toFixed(1)}%`} icon={Percent} color={nivelMargen(margenPromedio).barColor} />
+                <KpiCard label="Producto más rentable"  value={margenesSorted[0]?.nombre.split(' ')[0] || '—'} icon={TrendingUp} color={colors.success} />
+                <KpiCard label="Producto menos rentable" value={margenesSorted[margenesSorted.length - 1]?.nombre.split(' ')[0] || '—'} icon={TrendingDown} color={colors.danger} />
+                <KpiCard label="Total CIF/mes"           value={`$${pesos(totalCIF)}`}            icon={DollarSign}  color={colors.brand} />
+                <KpiCard label="CIF/litro producido"     value={cifPorLitro > 0 ? `$${pesos(cifPorLitro)}/L` : '—'} icon={Percent} color='#f59e0b' />
+                <KpiCard label="% CIF sobre costo total" value={(() => { const ct = productos.reduce((a,p)=>a+(p.costo_total||0),0); return ct > 0 ? `${(totalCIF/ct*100).toFixed(1)}%` : '—' })()} icon={Percent} color='#6366f1' />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <KpiCard label="Valor stock depósito"  value={`$${pesos(valorDeposito)}`}  icon={Warehouse}   color={colors.brand} />
+                <KpiCard label="Valor stock cámaras"   value={`$${pesos(valorCamaras)}`}   icon={Thermometer} color={colors.info}  />
               </div>
 
               <div className="p-4" style={SURFACE}>

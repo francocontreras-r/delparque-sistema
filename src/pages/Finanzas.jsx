@@ -103,6 +103,7 @@ export default function Finanzas() {
   const [saborIngredientes, setSaborIngredientes] = useState([])
   const [impulsivos, setImpulsivos] = useState([])
   const [impulsivoIngredientes, setImpulsivoIngredientes] = useState([])
+  const [bases, setBases]           = useState([])
   const [insumos, setInsumos]       = useState([])
   const [stockCamaras, setStockCamaras] = useState([])
   const [loading, setLoading]       = useState(true)
@@ -119,19 +120,22 @@ export default function Finanzas() {
     const [
       { data: sab }, { data: sabIng },
       { data: imp }, { data: impIng },
+      { data: bas },
       { data: ins }, { data: cam },
     ] = await Promise.all([
       supabase.from('sabores').select('*').order('nombre'),
       supabase.from('sabor_ingredientes').select('*'),
       supabase.from('impulsivos').select('*').order('nombre'),
       supabase.from('impulsivo_ingredientes').select('*'),
+      supabase.from('bases').select('*').order('nombre'),
       supabase.from('insumos').select('nombre,costo_unitario,stock_actual'),
-      supabase.from('stock_camaras').select('*'),
+      supabase.from('stock_camaras').select('nombre,tipo_producto').in('tipo_producto', ['impulsivo', 'postre']),
     ])
     setSabores(sab || [])
     setSaborIngredientes(sabIng || [])
     setImpulsivos(imp || [])
     setImpulsivoIngredientes(impIng || [])
+    setBases(bas || [])
     setInsumos(ins || [])
     setStockCamaras(cam || [])
     setLoading(false)
@@ -148,23 +152,34 @@ export default function Finanzas() {
     return m
   }, [insumos])
 
-  const productos = useMemo(() => {
-    const a = sabores.map(s => ({
-      key: `sabor-${s.id}`, id: s.id, tabla: 'sabores', tipo: 'Helado', nombre: s.nombre,
-      costo_materiales: s.costo_materiales || 0,
-      mano_de_obra: s.mano_de_obra || 0,
-      costo_total: s.costo_total || 0,
-      precio_venta: s.precio_venta || 0,
-    }))
-    const b = impulsivos.map(i => ({
-      key: `impulsivo-${i.id}`, id: i.id, tabla: 'impulsivos', tipo: 'Impulsivo/Postre', nombre: i.nombre,
-      costo_materiales: i.costo_materiales || 0,
-      mano_de_obra: i.mano_de_obra || 0,
-      costo_total: i.costo_total || 0,
-      precio_venta: i.precio_venta || 0,
-    }))
-    return [...a, ...b].sort((x, y) => x.nombre.localeCompare(y.nombre))
-  }, [sabores, impulsivos])
+  // Mapa nombre→tipo desde stock_camaras para separar impulsivos de postres
+  const tiposMap = useMemo(() => {
+    const m = {}
+    stockCamaras.forEach(c => { m[(c.nombre || '').toUpperCase()] = c.tipo_producto })
+    return m
+  }, [stockCamaras])
+
+  const secciones = useMemo(() => {
+    const mkRow = (tabla, prefix) => (r) => ({
+      key: `${prefix}-${r.id}`, id: r.id, tabla, nombre: r.nombre,
+      costo_materiales: r.costo_materiales || 0,
+      mano_de_obra: r.mano_de_obra || 0,
+      costo_total: r.costo_total || 0,
+      precio_venta: r.precio_venta || 0,
+    })
+    const impsRows = impulsivos.map(mkRow('impulsivos', 'impulsivo'))
+    return {
+      Bases:      bases.map(mkRow('bases', 'base')),
+      Sabores:    sabores.map(mkRow('sabores', 'sabor')),
+      Impulsivos: impsRows.filter(r => (tiposMap[(r.nombre || '').toUpperCase()] || 'impulsivo') === 'impulsivo'),
+      Postres:    impsRows.filter(r => tiposMap[(r.nombre || '').toUpperCase()] === 'postre'),
+    }
+  }, [bases, sabores, impulsivos, tiposMap])
+
+  const productos = useMemo(() => (
+    [...secciones.Bases, ...secciones.Sabores, ...secciones.Impulsivos, ...secciones.Postres]
+      .sort((x, y) => x.nombre.localeCompare(y.nombre))
+  ), [secciones])
 
   async function actualizarCampo(producto, campo, valor) {
     const num = parseFloat(valor) || 0
@@ -174,6 +189,8 @@ export default function Finanzas() {
     if (error) { showToast(error.message, 'error'); return }
     if (producto.tabla === 'sabores') {
       setSabores(prev => prev.map(s => s.id === producto.id ? { ...s, ...updates } : s))
+    } else if (producto.tabla === 'bases') {
+      setBases(prev => prev.map(b => b.id === producto.id ? { ...b, ...updates } : b))
     } else {
       setImpulsivos(prev => prev.map(i => i.id === producto.id ? { ...i, ...updates } : i))
     }
@@ -541,51 +558,69 @@ export default function Finanzas() {
         <>
           {/* ════════════════════════════ TAB COSTOS ════════════════════════════ */}
           {tab === 'Costos' && (
-            <div>
+            <div className="space-y-6">
               {tieneDiff && (
-                <div className="mb-3 flex items-center gap-2 text-xs px-3 py-2 rounded-lg"
+                <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg"
                   style={{ backgroundColor: '#f0fdf4', border: `1px solid #bbf7d0`, color: colors.success }}>
                   <RefreshCw size={11} />
                   Costos recalculados. Los badges muestran variación vs. estado anterior.
                 </div>
               )}
-              <div className="overflow-hidden" style={SURFACE}>
-                <div className="overflow-x-auto">
-                  <Table className="min-w-[760px]">
-                    <Thead>
-                      <Tr>
-                        <Th>Producto</Th><Th>Tipo</Th><Th>Costo MP ($)</Th>
-                        <Th>Mano de obra ($)</Th><Th>Costo total ($)</Th><Th>Precio venta ($)</Th>
-                      </Tr>
-                    </Thead>
-                    <Tbody>
-                      {productos.map(p => {
-                        const prev = prevSnapshot?.[p.key]
-                        return (
-                          <Tr key={p.key}>
-                            <Td className="font-medium">{p.nombre}</Td>
-                            <Td><Badge variant="neutral">{p.tipo}</Badge></Td>
-                            <Td className="text-right">
-                              ${pesos(p.costo_materiales)}
-                              {tieneDiff && <DiffBadge actual={p.costo_materiales} anterior={prev ? prev.costo_total - (p.mano_de_obra || 0) : null} />}
-                            </Td>
-                            <Td className="text-right">
-                              <EditableNumber value={p.mano_de_obra} onCommit={v => actualizarCampo(p, 'mano_de_obra', v)} />
-                            </Td>
-                            <Td className="text-right font-semibold">
-                              ${pesos(p.costo_total)}
-                              {tieneDiff && <DiffBadge actual={p.costo_total} anterior={prev?.costo_total} />}
-                            </Td>
-                            <Td className="text-right">
-                              <EditableNumber value={p.precio_venta} onCommit={v => actualizarCampo(p, 'precio_venta', v)} />
-                            </Td>
-                          </Tr>
-                        )
-                      })}
-                    </Tbody>
-                  </Table>
+              {[
+                { key: 'Bases',      label: '🧱 BASES',      items: secciones.Bases      },
+                { key: 'Sabores',    label: '🧊 SABORES',    items: secciones.Sabores    },
+                { key: 'Impulsivos', label: '📦 IMPULSIVOS', items: secciones.Impulsivos },
+                { key: 'Postres',    label: '🍰 POSTRES',    items: secciones.Postres    },
+              ].map(({ key, label, items }) => items.length > 0 && (
+                <div key={key} className="overflow-hidden" style={SURFACE}>
+                  <div className="px-4 py-2.5" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                    <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>{label}</span>
+                    <span className="text-xs ml-2" style={{ color: colors.textMuted }}>{items.length} producto{items.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <Table className="min-w-[720px]">
+                      <Thead>
+                        <Tr>
+                          <Th>Producto</Th><Th className="text-right">Costo MP ($)</Th>
+                          <Th className="text-right">Mano de obra ($)</Th><Th className="text-right">Costo total ($)</Th>
+                          <Th className="text-right">Precio venta ($)</Th><Th className="text-right">Margen %</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {items.map(p => {
+                          const prev = prevSnapshot?.[p.key]
+                          const margen = margenPct(p.costo_total, p.precio_venta)
+                          const nv = nivelMargen(margen)
+                          return (
+                            <Tr key={p.key}>
+                              <Td className="font-medium">{p.nombre}</Td>
+                              <Td className="text-right">
+                                ${pesos(p.costo_materiales)}
+                                {tieneDiff && <DiffBadge actual={p.costo_materiales} anterior={prev ? prev.costo_total - (p.mano_de_obra || 0) : null} />}
+                              </Td>
+                              <Td className="text-right">
+                                <EditableNumber value={p.mano_de_obra} onCommit={v => actualizarCampo(p, 'mano_de_obra', v)} />
+                              </Td>
+                              <Td className="text-right font-semibold">
+                                ${pesos(p.costo_total)}
+                                {tieneDiff && <DiffBadge actual={p.costo_total} anterior={prev?.costo_total} />}
+                              </Td>
+                              <Td className="text-right">
+                                <EditableNumber value={p.precio_venta} onCommit={v => actualizarCampo(p, 'precio_venta', v)} />
+                              </Td>
+                              <Td className="text-right">
+                                {p.precio_venta > 0
+                                  ? <span style={{ color: nv.barColor, fontWeight: '700' }}>{margen.toFixed(1)}%</span>
+                                  : <span style={{ color: colors.textMuted }}>—</span>}
+                              </Td>
+                            </Tr>
+                          )
+                        })}
+                      </Tbody>
+                    </Table>
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
           )}
 

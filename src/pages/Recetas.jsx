@@ -536,12 +536,30 @@ export default function Recetas() {
     }
   }
 
-  function abrirEditor(receta) {
+  async function abrirEditor(receta) {
+    if (tab === 'Postres') {
+      // Postres viven en stock_camaras pero sus recetas están en tabla impulsivos
+      const { data: impMatch } = await supabase
+        .from('impulsivos').select('*').ilike('nombre', receta.nombre).maybeSingle()
+      if (impMatch) {
+        const rawIngs = impIngs.filter(i => i.impulsivo_id === impMatch.id)
+        setEditando({ receta: { ...impMatch, nombre: (receta.nombre || '').toUpperCase() }, tipo: 'Postres', rawIngs })
+      } else {
+        // Crear registro en impulsivos para poder guardar ingredientes
+        const { data: nuevo, error } = await supabase
+          .from('impulsivos')
+          .insert({ nombre: (receta.nombre || '').toUpperCase(), costo_materiales: 0, mano_de_obra: 0, costo_total: 0 })
+          .select().single()
+        if (error) { showToast(error.message, 'error'); return }
+        setImpulsivos(prev => [...prev, nuevo])
+        setEditando({ receta: nuevo, tipo: 'Postres', rawIngs: [] })
+      }
+      return
+    }
     const rawMap = {
       Bases:      baseIngs.filter(i => i.base_id === receta.id),
       Sabores:    saborIngs.filter(i => i.sabor_id === receta.id),
       Impulsivos: impIngs.filter(i => i.impulsivo_id === receta.id),
-      Postres:    impIngs.filter(i => i.impulsivo_id === receta.id),
     }
     setEditando({ receta, tipo: tab, rawIngs: rawMap[tab] || [] })
   }

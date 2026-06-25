@@ -4,11 +4,13 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import html2canvas from 'html2canvas'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { LOGO_HORIZONTAL } from '../assets/logos'
+import {
+  getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
+  dibujarKpi, dibujarSeccion, dibujarPaginaFirmas,
+  PDF_CONTENT_Y, PDF_NEGRO,
+} from '../lib/pdfEstilos'
 
 const ACCENT = '#D4521A'
-const NARANJA = [212, 82, 26]
-const OSCURO  = [15, 23, 42]
 const CARD = { background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '20px', marginBottom: '16px' }
 const PERIODOS = [['semana', 'Semana'], ['mes', 'Mes'], ['trimestre', 'Trimestre']]
 const TABS = [['equipo', '👥 Equipo'], ['operario', '👤 Por Operario'], ['ranking', '🏆 Ranking'], ['pdf', '📄 Informe PDF']]
@@ -140,134 +142,141 @@ export default function InformeOperarios() {
 
   async function generarPDF(tipo) {
     try {
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      const W = doc.internal.pageSize.getWidth()
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+      const pw  = doc.internal.pageSize.getWidth()
+      const ph  = doc.internal.pageSize.getHeight()
+      const hoy = new Date().toLocaleString('es-AR')
+      const MOD = 'RENDIMIENTO'
+      const periodoLabel = periodo === 'semana' ? 'Última semana' : periodo === 'mes' ? 'Último mes' : 'Último trimestre'
+      const EST = getEstiloInforme()
 
-      // Portada
-      doc.setFillColor(...OSCURO); doc.rect(0, 0, W, 297, 'F')
-      doc.setFillColor(...NARANJA); doc.rect(0, 0, W, 3, 'F')
-      // Logo
-      try { doc.addImage(LOGO_HORIZONTAL, 'PNG', (W - 64) / 2, 40, 64, 16) } catch {}
-      doc.setTextColor(255, 255, 255)
-      doc.setFontSize(26); doc.setFont('helvetica', 'bold')
-      doc.text('INFORME DE RENDIMIENTO', W / 2, 100, { align: 'center' })
-      doc.setFontSize(15); doc.setFont('helvetica', 'normal')
-      doc.text('Del Parque — Sistema de Producción', W / 2, 115, { align: 'center' })
-      doc.setFontSize(12)
-      doc.text(`Período: ${periodo === 'semana' ? 'Última semana' : periodo === 'mes' ? 'Último mes' : 'Último trimestre'}`, W / 2, 132, { align: 'center' })
-      doc.text(`Emitido: ${new Date().toLocaleDateString('es-AR')}`, W / 2, 142, { align: 'center' })
-      doc.setFontSize(9); doc.setTextColor(100, 116, 139)
-      doc.text('CONFIDENCIAL — USO INTERNO', W / 2, 270, { align: 'center' })
+      const didDP = (titulo) => () => {
+        dibujarEncabezado(doc, pw, MOD, titulo, hoy)
+        dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+      }
 
-      // Página de gráfico (html2canvas)
+      // P1 — Portada
+      dibujarPortada(doc, pw, ph, MOD, 'INFORME DE RENDIMIENTO', periodoLabel, hoy)
+
+      // P2 — Gráfico de barras (html2canvas)
       if (chartRef.current && datos.ranking.length > 0) {
         try {
-          const canvas = await html2canvas(chartRef.current, { backgroundColor: '#1e293b', scale: 2, logging: false, useCORS: true })
+          const canvas = await html2canvas(chartRef.current, { backgroundColor: '#ffffff', scale: 2, logging: false, useCORS: true })
           const imgData = canvas.toDataURL('image/png')
           doc.addPage()
-          doc.setFillColor(...OSCURO); doc.rect(0, 0, W, 297, 'F')
-          doc.setFillColor(...NARANJA); doc.rect(0, 0, W, 3, 'F')
-          doc.setTextColor(255, 255, 255); doc.setFontSize(14); doc.setFont('helvetica', 'bold')
-          doc.text('RENDIMIENTO DEL EQUIPO', 15, 16)
-          doc.addImage(imgData, 'PNG', 10, 24, W - 20, 80)
+          dibujarEncabezado(doc, pw, MOD, 'RENDIMIENTO DEL EQUIPO', hoy)
+          dibujarPie(doc, pw, ph, 2)
+          // Borde gris alrededor del gráfico
+          doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.3)
+          doc.rect(14, PDF_CONTENT_Y, pw - 28, 85)
+          doc.addImage(imgData, 'PNG', 14, PDF_CONTENT_Y, pw - 28, 85)
         } catch (chartErr) { console.warn('html2canvas:', chartErr) }
       }
 
+      // P3 — Datos principales
       if (tipo === 'equipo') {
         doc.addPage()
-        doc.setFillColor(...OSCURO); doc.rect(0, 0, W, 297, 'F')
-        doc.setFillColor(...NARANJA); doc.rect(0, 0, W, 3, 'F')
-        doc.setTextColor(255, 255, 255); doc.setFontSize(16); doc.setFont('helvetica', 'bold')
-        doc.text('RANKING DEL EQUIPO', 15, 18)
+        // KPIs del equipo
+        const totalOps   = datos.ranking.length
+        const conDatos   = datos.ranking.filter(r => r.rendimiento !== null).length
+        const promRend   = conDatos > 0
+          ? Math.round(datos.ranking.filter(r => r.rendimiento !== null).reduce((a, r) => a + r.rendimiento, 0) / conDatos)
+          : null
+        const kpiW = (pw - 28 - 4) / 3
+        dibujarKpi(doc, 14,              PDF_CONTENT_Y, kpiW, 18, 'Operarios', totalOps)
+        dibujarKpi(doc, 14 + kpiW + 2,  PDF_CONTENT_Y, kpiW, 18, 'Con datos', conDatos)
+        dibujarKpi(doc, 14 + (kpiW+2)*2,PDF_CONTENT_Y, kpiW, 18, 'Rendim. promedio', promRend !== null ? `${promRend}%` : '—')
+
+        let y = PDF_CONTENT_Y + 26
+        y = dibujarSeccion(doc, pw, 'Ranking del equipo', y)
         autoTable(doc, {
-          head: [['Pos', 'Operario', 'Órdenes', 'Complet.', '% Prod.', '% Tiempo', 'Rendim.', 'Nivel']],
+          ...EST, startY: y,
+          head: [['POS', 'OPERARIO', 'ÓRDENES', 'COMPLET.', '% PROD.', '% TIEMPO', 'RENDIM.', 'NIVEL']],
           body: datos.ranking.map((r, i) => [
-            i === 0 ? '1°' : i === 1 ? '2°' : i === 2 ? '3°' : (i + 1) + '°',
-            r.nombre, r.misOrdenes, r.completadas,
-            r.pctProduccion  !== null ? r.pctProduccion  + '%' : '—',
-            r.pctTiempo      !== null ? r.pctTiempo      + '%' : '—',
-            r.rendimiento    !== null ? r.rendimiento    + '%' : '—',
+            `${i + 1}°`,
+            r.nombre,
+            String(r.misOrdenes),
+            String(r.completadas),
+            r.pctProduccion !== null ? r.pctProduccion + '%' : '—',
+            r.pctTiempo     !== null ? r.pctTiempo     + '%' : '—',
+            r.rendimiento   !== null ? r.rendimiento   + '%' : '—',
             nivel(r.rendimiento).label,
           ]),
-          startY: 25,
-          theme: 'grid',
-          headStyles: { fillColor: NARANJA, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
-          bodyStyles: { textColor: [241, 245, 249], fillColor: [30, 41, 59], fontSize: 9 },
-          alternateRowStyles: { fillColor: [15, 23, 42] },
-          margin: { left: 12, right: 12 },
+          didParseCell(data) {
+            if (data.section !== 'body' || data.column.index !== 7) return
+            const r = datos.ranking[data.row.index]
+            if (!r) return
+            const n = nivel(r.rendimiento)
+            if (n.label === 'EXCELENTE') data.cell.styles.textColor = [30, 120, 60]
+            else if (n.label === 'BAJO') data.cell.styles.textColor = [180, 40, 40]
+          },
+          didDrawPage: didDP('RANKING DEL EQUIPO'),
         })
+
       } else {
         const op = datos.ranking.find(r => r.nombre === operarioSel)
         if (!op) return
+
         doc.addPage()
-        doc.setFillColor(...OSCURO); doc.rect(0, 0, W, 297, 'F')
-        doc.setFillColor(...NARANJA); doc.rect(0, 0, W, 3, 'F')
-        doc.setTextColor(255, 255, 255); doc.setFontSize(16); doc.setFont('helvetica', 'bold')
-        doc.text(op.nombre, 15, 18)
-        doc.setFontSize(11); doc.setFont('helvetica', 'normal')
-        doc.text(`Rendimiento: ${op.rendimiento !== null ? op.rendimiento + '%' : 'Sin datos'} — ${nivel(op.rendimiento).label}`, 15, 28)
+        // KPIs del operario
+        const kpiW = (pw - 28 - 4) / 2
+        dibujarKpi(doc, 14,          PDF_CONTENT_Y,      kpiW, 18, 'Órdenes asignadas',  op.misOrdenes)
+        dibujarKpi(doc, 14 + kpiW+2, PDF_CONTENT_Y,      kpiW, 18, 'Órdenes completadas', op.completadas)
+        dibujarKpi(doc, 14,          PDF_CONTENT_Y + 22, kpiW, 18, 'KG total producidos', `${op.totalKgProducido.toFixed(1)} kg`)
+        dibujarKpi(doc, 14 + kpiW+2, PDF_CONTENT_Y + 22, kpiW, 18, 'Rendimiento',         op.rendimiento !== null ? `${op.rendimiento}%` : '—')
+
+        let y = PDF_CONTENT_Y + 48
+        y = dibujarSeccion(doc, pw, `Perfil — ${op.nombre}`, y)
         autoTable(doc, {
+          ...EST, startY: y,
           body: [
-            ['Órdenes asignadas', String(op.misOrdenes)],
-            ['Órdenes completadas', String(op.completadas)],
-            ['% Producción vs objetivo', op.pctProduccion !== null ? op.pctProduccion + '%' : '—'],
-            ['% Eficiencia de tiempo', op.pctTiempo !== null ? op.pctTiempo + '%' : '—'],
-            ['KG total producidos', op.totalKgProducido.toFixed(1) + ' kg'],
-            ['Tendencia', op.tendencia],
+            ['Órdenes asignadas',         String(op.misOrdenes)],
+            ['Órdenes completadas',        String(op.completadas)],
+            ['% Producción vs objetivo',   op.pctProduccion !== null ? op.pctProduccion + '%' : '—'],
+            ['% Eficiencia de tiempo',     op.pctTiempo     !== null ? op.pctTiempo     + '%' : '—'],
+            ['KG total producidos',        op.totalKgProducido.toFixed(1) + ' kg'],
+            ['Rendimiento global',         op.rendimiento   !== null ? op.rendimiento   + '%' : '—'],
+            ['Nivel',                      nivel(op.rendimiento).label],
+            ['Tendencia',                  op.tendencia || '—'],
           ],
-          startY: 35,
-          theme: 'grid',
-          bodyStyles: { textColor: [241, 245, 249], fillColor: [30, 41, 59], fontSize: 10 },
-          columnStyles: { 0: { fontStyle: 'bold', cellWidth: 80 } },
-          margin: { left: 12, right: 12 },
+          columnStyles: { 0: { fontStyle: 'bold', cellWidth: 80 }, 1: { halign: 'right' } },
+          didDrawPage: didDP(`OPERARIO: ${op.nombre}`),
         })
+
         const ords = datos.ordenes.filter(o => o.operario_nombre === op.nombre)
         if (ords.length > 0) {
-          const yH = (doc.lastAutoTable?.finalY || 35) + 10
-          doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.setTextColor(255, 255, 255)
-          doc.text('Historial de órdenes', 15, yH)
+          let yH = doc.lastAutoTable.finalY + 8
+          if (yH > ph - 50) { doc.addPage(); yH = PDF_CONTENT_Y }
+          yH = dibujarSeccion(doc, pw, 'Historial de órdenes', yH)
           autoTable(doc, {
-            head: [['Fecha', 'Producto', 'Kg Obj.', 'Kg Real', '% Prod.', 'Hs Est.', 'Hs Real', '% Tiempo']],
+            ...EST, styles: { ...EST.styles, fontSize: 7 }, startY: yH,
+            head: [['FECHA', 'PRODUCTO', 'KG OBJ.', 'KG REAL', '% PROD.', 'HS EST.', 'HS REAL', '% TIEMPO']],
             body: ords.map(o => {
-              const kgObj = Number(o.kg_objetivo) || 0
+              const kgObj  = Number(o.kg_objetivo)  || 0
               const kgReal = Number(o.kg_producido) || 0
               return [
                 o.fecha_produccion || (o.created_at || '').slice(0, 10) || '—',
-                (o.sabor_nombre || '—').slice(0, 20),
-                kgObj > 0 ? kgObj.toFixed(1) : '—',
+                (o.sabor_nombre || '—').slice(0, 22),
+                kgObj  > 0 ? kgObj.toFixed(1)  : '—',
                 kgReal > 0 ? kgReal.toFixed(1) : '—',
-                kgObj > 0 ? Math.round(kgReal / kgObj * 100) + '%' : '—',
+                kgObj  > 0 ? Math.round(kgReal / kgObj * 100) + '%' : '—',
                 Number(o.horas_estimadas) > 0 ? Number(o.horas_estimadas).toFixed(1) : '—',
-                Number(o.horas_reales) > 0 ? Number(o.horas_reales).toFixed(1) : '—',
+                Number(o.horas_reales)    > 0 ? Number(o.horas_reales).toFixed(1)    : '—',
                 Number(o.eficiencia_tiempo) > 0 ? Math.round(Number(o.eficiencia_tiempo)) + '%' : '—',
               ]
             }),
-            startY: yH + 5,
-            theme: 'grid',
-            headStyles: { fillColor: NARANJA, textColor: [255, 255, 255], fontSize: 8 },
-            bodyStyles: { textColor: [241, 245, 249], fillColor: [30, 41, 59], fontSize: 8 },
-            alternateRowStyles: { fillColor: [15, 23, 42] },
-            margin: { left: 12, right: 12 },
+            didDrawPage: didDP(`OPERARIO: ${op.nombre}`),
           })
         }
       }
 
       // Firmas
       doc.addPage()
-      doc.setFillColor(...OSCURO); doc.rect(0, 0, W, 297, 'F')
-      doc.setTextColor(255, 255, 255); doc.setFontSize(13)
-      doc.text('Firmas y conformidad', W / 2, 200, { align: 'center' })
-      ;['Supervisor de Producción', 'Gerencia', 'Fecha'].forEach((f, i) => {
-        const x = 30 + i * 62
-        doc.setDrawColor(...NARANJA); doc.line(x, 240, x + 52, 240)
-        doc.setFontSize(8); doc.setTextColor(100, 116, 139)
-        doc.text(f, x + 26, 248, { align: 'center' })
-      })
+      dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Supervisor de Producción', 'Gerencia', 'Fecha'])
 
       doc.save(`rendimiento_${tipo}_${new Date().toISOString().slice(0, 10)}.pdf`)
     } catch (err) {
       console.error('Error PDF:', err)
-      alert('Error al generar PDF: ' + err.message)
     }
   }
 
@@ -637,17 +646,17 @@ export default function InformeOperarios() {
         </div>
       )}
 
-      {/* Gráfico oculto para captura PDF con html2canvas */}
-      <div ref={chartRef} style={{ position: 'fixed', left: '-9999px', top: '0', width: '580px', height: '240px', background: '#1e293b', padding: '12px 16px', zIndex: -1 }}>
+      {/* Gráfico oculto para captura PDF con html2canvas — fondo blanco para PDF b&w */}
+      <div ref={chartRef} style={{ position: 'fixed', left: '-9999px', top: '0', width: '580px', height: '240px', background: '#ffffff', padding: '12px 16px', zIndex: -1 }}>
         <BarChart width={548} height={216} data={datos.ranking.slice(0, 10).map(r => ({ nombre: r.nombre.split(' ')[0], 'Ef. KG': r.efKg || 0, 'Ef. Tiempo': r.efTiempo || 0, 'Rendimiento': r.rendimiento || 0 }))}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-          <XAxis dataKey="nombre" stroke="#94a3b8" tick={{ fill: '#94a3b8', fontSize: 10 }} />
-          <YAxis domain={[0, 100]} stroke="#94a3b8" tick={{ fill: '#94a3b8', fontSize: 10 }} />
-          <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155' }} />
-          <Legend wrapperStyle={{ color: '#f1f5f9', fontSize: 11 }} />
-          <Bar dataKey="Ef. KG" fill="#3b82f6" />
-          <Bar dataKey="Ef. Tiempo" fill="#D4521A" />
-          <Bar dataKey="Rendimiento" fill="#10b981" />
+          <CartesianGrid strokeDasharray="3 3" stroke="#d1d5db" />
+          <XAxis dataKey="nombre" stroke="#6b7280" tick={{ fill: '#374151', fontSize: 10 }} />
+          <YAxis domain={[0, 100]} stroke="#6b7280" tick={{ fill: '#374151', fontSize: 10 }} />
+          <Tooltip contentStyle={{ background: '#ffffff', border: '1px solid #d1d5db' }} />
+          <Legend wrapperStyle={{ color: '#374151', fontSize: 11 }} />
+          <Bar dataKey="Ef. KG" fill="#4b5563" />
+          <Bar dataKey="Ef. Tiempo" fill="#9ca3af" />
+          <Bar dataKey="Rendimiento" fill="#111827" />
         </BarChart>
       </div>
     </div>

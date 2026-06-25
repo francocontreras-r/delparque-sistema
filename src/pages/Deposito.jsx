@@ -471,52 +471,71 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
   )
 }
 
-function ModalEditarInsumo({ insumo, onClose, onSubmit, saving, isAdmin, categorias = TODAS_LAS_CATS }) {
+function ModalEditarInsumo({ insumo, onClose, onSubmit, saving, isAdmin, categorias }) {
   const [form, setForm] = useState({
+    nombre: insumo.nombre || '',
+    unidad: insumo.unidad || 'u',
+    categoria: insumo.categoria || '',
     stock_actual: insumo.stock_actual ?? '',
     stock_minimo: insumo.stock_minimo ?? '',
     stock_maximo: insumo.stock_maximo ?? '',
     costo_unitario: insumo.costo_unitario ?? '',
-    categoria: insumo.categoria || 'OTROS',
   })
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={insumo.nombre}
-      maxWidth="max-w-sm"
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">
-            Cancelar
-          </Button>
-          <Button variant="primary" onClick={() => onSubmit(form)} loading={saving} className="flex-1">
-            {saving ? 'Guardando…' : 'Guardar'}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-3">
-        <Input label="Nombre" value={insumo.nombre} disabled />
+    <Modal open title={`Editar: ${insumo.nombre}`} onClose={onClose} disableBackdropClose={true}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+        {/* Nombre — solo admin puede editar */}
+        {isAdmin ? (
+          <Input label="Nombre" value={form.nombre}
+            onChange={e => upd('nombre', e.target.value.toUpperCase())} />
+        ) : (
+          <Input label="Nombre" value={insumo.nombre} disabled />
+        )}
+
+        {/* Categoría */}
         <div>
-          <label className="block text-sm font-medium text-[#94A3B8] mb-1.5">Categoría</label>
+          <label style={{ display: 'block', fontSize: '13px', color: '#94a3b8', marginBottom: '6px' }}>Categoría</label>
           <select value={form.categoria} onChange={e => upd('categoria', e.target.value)}
-            className="w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] bg-[#0F172A] outline-none px-3 py-2 focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]">
-            {categorias.map(c => <option key={c}>{c}</option>)}
+            style={{ width: '100%', background: '#0f172a', border: '1px solid #334155',
+                     color: '#f1f5f9', padding: '8px 12px', borderRadius: '6px' }}>
+            {(categorias || TODAS_LAS_CATS).map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
-        <Input label={`Stock actual (${insumo.unidad || 'u'})`} type="number" min="0" step="0.01"
+
+        {/* Unidad — solo admin puede editar */}
+        {isAdmin ? (
+          <div>
+            <label style={{ display: 'block', fontSize: '13px', color: '#94a3b8', marginBottom: '6px' }}>Unidad</label>
+            <select value={form.unidad} onChange={e => upd('unidad', e.target.value)}
+              style={{ width: '100%', background: '#0f172a', border: '1px solid #334155',
+                       color: '#f1f5f9', padding: '8px 12px', borderRadius: '6px' }}>
+              {['kg', 'L', 'u'].map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+        ) : (
+          <Input label="Unidad" value={insumo.unidad || 'u'} disabled />
+        )}
+
+        <Input label={`Stock actual (${form.unidad || 'u'})`} type="number" min="0" step="0.01"
           value={form.stock_actual} onChange={e => upd('stock_actual', e.target.value)} />
-        <Input label={`Stock mínimo (${insumo.unidad || 'u'})`} type="number" min="0" step="0.01"
+        <Input label={`Stock mínimo (${form.unidad || 'u'})`} type="number" min="0" step="0.01"
           value={form.stock_minimo} onChange={e => upd('stock_minimo', e.target.value)} />
-        <Input label={`Stock máximo (${insumo.unidad || 'u'})`} type="number" min="0" step="0.01"
+        <Input label={`Stock máximo (${form.unidad || 'u'})`} type="number" min="0" step="0.01"
           value={form.stock_maximo} onChange={e => upd('stock_maximo', e.target.value)} />
+
         {isAdmin && (
           <Input label="Costo unitario ($)" type="number" min="0" step="0.01"
             value={form.costo_unitario} onChange={e => upd('costo_unitario', e.target.value)} />
         )}
+
+        <button onClick={() => onSubmit(form)} disabled={saving}
+          style={{ padding: '10px', background: '#D4521A', color: 'white', border: 'none',
+                   borderRadius: '6px', cursor: 'pointer', fontWeight: '600', marginTop: '8px' }}>
+          {saving ? 'Guardando...' : 'Guardar cambios'}
+        </button>
       </div>
     </Modal>
   )
@@ -1118,20 +1137,34 @@ export default function Deposito() {
 
   async function guardarInsumo(form) {
     if (!editInsumo) return
-    const payload = {
-      stock_actual: parseFloat(form.stock_actual) || 0,
-      stock_minimo: parseFloat(form.stock_minimo) || 0,
-      stock_maximo: parseFloat(form.stock_maximo) || 0,
-      categoria: form.categoria || 'OTROS',
-    }
-    if (isAdmin) payload.costo_unitario = parseFloat(form.costo_unitario) || 0
+    const nombreAntiguo = editInsumo.nombre
+    const nombreNuevo = form.nombre.toUpperCase()
+
     setSavingInsumo(true)
-    const { error } = await supabase.from('insumos').update(payload).eq('id', editInsumo.id)
+    const { error } = await supabase.from('insumos').update({
+      nombre: nombreNuevo,
+      unidad: form.unidad,
+      categoria: form.categoria,
+      stock_actual: Number(form.stock_actual) || 0,
+      stock_minimo: Number(form.stock_minimo) || 0,
+      stock_maximo: Number(form.stock_maximo) || 0,
+      costo_unitario: Number(form.costo_unitario) || 0,
+    }).eq('id', editInsumo.id)
+    if (error) { setSavingInsumo(false); toast2(error.message, 'error'); return }
+
+    if (nombreNuevo !== nombreAntiguo) {
+      await supabase.from('movimientos_deposito')
+        .update({ producto_nombre: nombreNuevo })
+        .eq('producto_nombre', nombreAntiguo)
+      toast2('Producto renombrado y actualizado en movimientos')
+      await cargarMovimientosFiltrados(filtroMovDesde, filtroMovHasta)
+    } else {
+      toast2('Insumo actualizado')
+    }
+
     setSavingInsumo(false)
-    if (error) { toast2(error.message, 'error'); return }
     const { data: todos } = await supabase.from('insumos').select('*').order('nombre')
     if (todos) setInsumos(todos)
-    toast2('Insumo actualizado')
     setEditInsumo(null)
   }
 

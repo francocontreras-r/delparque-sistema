@@ -17,7 +17,11 @@ import {
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
-import { LOGO_HORIZONTAL } from '../assets/logos'
+import {
+  getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
+  dibujarKpi, dibujarSeccion, dibujarPaginaFirmas,
+  PDF_CONTENT_Y,
+} from '../lib/pdfEstilos'
 const logoUrl = '/logo_delparque.png'
 
 const TABS = ['Producción', 'Mermas', 'Financiero']
@@ -492,151 +496,182 @@ export default function Informes() {
   async function exportarPDF() {
     setExportando(true)
     try {
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-    const pageWidth = doc.internal.pageSize.getWidth()
+      const doc  = new jsPDF({ unit: 'mm', format: 'a4' })
+      const pw   = doc.internal.pageSize.getWidth()
+      const ph   = doc.internal.pageSize.getHeight()
+      const hoy  = new Date().toLocaleString('es-AR')
+      const MOD  = 'INFORMES'
+      const TIT  = `INFORME DE ${tab.toUpperCase()}`
+      const peri = `${fmtFecha(rango.desde)} – ${fmtFecha(rango.hasta)} (${periodoLabel()})  ·  vs. anterior: ${fmtFecha(rango.antDesde)} – ${fmtFecha(rango.antHasta)}`
+      const EST  = getEstiloInforme()
 
-    try { doc.addImage(LOGO_HORIZONTAL, 'PNG', 14, 8, 48, 12) } catch {}
+      // Helper reutilizable para header+footer en didDrawPage
+      const didDP = () => {
+        dibujarEncabezado(doc, pw, MOD, TIT, hoy)
+        dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+      }
 
-    doc.setFontSize(13)
-    doc.setTextColor(40, 40, 40)
-    doc.text(`Informe de ${tab}`, pageWidth - 14, 14, { align: 'right' })
-    doc.setFontSize(8)
-    doc.setTextColor(120, 120, 120)
-    doc.text(`Período: ${fmtFecha(rango.desde)} – ${fmtFecha(rango.hasta)} (${periodoLabel()})`, pageWidth - 14, 19, { align: 'right' })
-    doc.text(`vs. anterior: ${fmtFecha(rango.antDesde)} – ${fmtFecha(rango.antHasta)} · Emitido ${new Date().toLocaleString('es-AR')}`, pageWidth - 14, 24, { align: 'right' })
+      // Guard: si y está cerca del pie, agregar página nueva
+      const saltarSiNecesario = (y) => {
+        if (y > ph - 45) { doc.addPage(); didDP(); return PDF_CONTENT_Y }
+        return y
+      }
 
-    const headStyles = { fillColor: [212, 82, 26], textColor: 255 }
-    const styles = { fontSize: 8, cellPadding: 2 }
-    let startY = 32
+      // P1 — Portada
+      dibujarPortada(doc, pw, ph, MOD, TIT, peri, hoy)
 
-    function titulo(texto, y) {
-      doc.setFontSize(10)
-      doc.setTextColor(40, 40, 40)
-      doc.text(texto, 14, y)
-    }
+      // P2 — Contenido
+      doc.addPage()
+      dibujarEncabezado(doc, pw, MOD, TIT, hoy)
+      dibujarPie(doc, pw, ph, 2)
+      let y = PDF_CONTENT_Y
 
-    if (tab === 'Producción') {
-      const { actual, anterior } = produccionInforme
-      autoTable(doc, {
-        startY,
-        head: [['Indicador', 'Período actual', 'Período anterior', 'Variación']],
-        body: [
-          ['Total KG (helados)', `${fmtNum(actual.kgHelados)} kg`, `${fmtNum(anterior.kgHelados)} kg`, fmtVar(variacionPct(actual.kgHelados, anterior.kgHelados))],
-          ['Total unidades (impulsivos)', `${fmtNum(actual.unidadesImpulsivos, 0)} u`, `${fmtNum(anterior.unidadesImpulsivos, 0)} u`, fmtVar(variacionPct(actual.unidadesImpulsivos, anterior.unidadesImpulsivos))],
-          ['Total unidades (postres)', `${fmtNum(actual.unidadesPostres, 0)} u`, `${fmtNum(anterior.unidadesPostres, 0)} u`, fmtVar(variacionPct(actual.unidadesPostres, anterior.unidadesPostres))],
-          ['Operarios activos', String(actual.porOperario.length), String(anterior.porOperario.length), '—'],
-        ],
-        styles, headStyles,
-      })
-      startY = doc.lastAutoTable.finalY + 8
+      // ── TAB: PRODUCCIÓN ────────────────────────────────────────────────────
+      if (tab === 'Producción') {
+        const { actual, anterior } = produccionInforme
+        const kpiW = (pw - 28 - 4) / 3
+        dibujarKpi(doc, 14,                  y, kpiW, 18, 'KG helados', `${fmtNum(actual.kgHelados)} kg`)
+        dibujarKpi(doc, 14 + kpiW + 2,       y, kpiW, 18, 'Unid. impulsivos', `${fmtNum(actual.unidadesImpulsivos, 0)} u`)
+        dibujarKpi(doc, 14 + (kpiW + 2) * 2, y, kpiW, 18, 'Operarios activos', actual.porOperario.length)
+        y += 26
 
-      titulo('Producción por producto', startY)
-      const anteriorMapProd = {}
-      produccionInforme.anterior.porProducto.forEach(p => {
-        anteriorMapProd[p.nombre] = p.tipo === 'helado' ? p.kg : p.unidades
-      })
-      const productosComparados = produccionInforme.actual.porProducto
-        .filter(p => p.tipo !== 'base')
-        .map(p => {
-          const valorActual = p.tipo === 'helado' ? p.kg : p.unidades
-          const valorAnterior = anteriorMapProd[p.nombre] || 0
-          return { nombre: p.nombre, tipo: p.tipo, valorActual, valorAnterior, variacion: variacionPct(valorActual, valorAnterior) }
+        y = dibujarSeccion(doc, pw, 'Resumen general', y)
+        autoTable(doc, {
+          ...EST, startY: y,
+          head: [['INDICADOR', 'PERÍODO ACTUAL', 'PERÍODO ANTERIOR', 'VARIACIÓN']],
+          body: [
+            ['Total KG (helados)',        `${fmtNum(actual.kgHelados)} kg`,            `${fmtNum(anterior.kgHelados)} kg`,            fmtVar(variacionPct(actual.kgHelados, anterior.kgHelados))],
+            ['Unidades (impulsivos)',      `${fmtNum(actual.unidadesImpulsivos, 0)} u`, `${fmtNum(anterior.unidadesImpulsivos, 0)} u`, fmtVar(variacionPct(actual.unidadesImpulsivos, anterior.unidadesImpulsivos))],
+            ['Unidades (postres)',         `${fmtNum(actual.unidadesPostres, 0)} u`,    `${fmtNum(anterior.unidadesPostres, 0)} u`,    fmtVar(variacionPct(actual.unidadesPostres, anterior.unidadesPostres))],
+            ['Operarios activos',          String(actual.porOperario.length),            String(anterior.porOperario.length),            '—'],
+          ],
+          didDrawPage: didDP,
         })
-        .sort((a, b) => b.valorActual - a.valorActual)
-      autoTable(doc, {
-        startY: startY + 3,
-        head: [['Producto', 'Cantidad', 'Período anterior', 'Variación']],
-        body: productosComparados.map(p => {
-          const esHelado = p.tipo === 'helado'
-          return [
-            p.nombre,
-            `${fmtNum(p.valorActual, esHelado ? 1 : 0)} ${esHelado ? 'kg' : 'u'}`,
-            `${fmtNum(p.valorAnterior, esHelado ? 1 : 0)} ${esHelado ? 'kg' : 'u'}`,
-            fmtVar(p.variacion),
-          ]
-        }),
-        styles, headStyles,
-      })
-      startY = doc.lastAutoTable.finalY + 8
+        y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
 
-      titulo('Producción por operario', startY)
-      autoTable(doc, {
-        startY: startY + 3,
-        head: [['Operario', 'Kg producidos', 'Unidades', 'Registros']],
-        body: actual.porOperario.map(o => [o.nombre, `${fmtNum(o.kgSabores)} kg`, `${fmtNum(o.unidImpulsivos, 0)} u`, String(o.registros)]),
-        styles, headStyles,
-      })
-    }
+        y = dibujarSeccion(doc, pw, 'Producción por producto', y)
+        const anteriorMapProd = {}
+        anterior.porProducto.forEach(p => { anteriorMapProd[p.nombre] = p.tipo === 'helado' ? p.kg : p.unidades })
+        const productosComp = actual.porProducto
+          .filter(p => p.tipo !== 'base')
+          .map(p => {
+            const va = p.tipo === 'helado' ? p.kg : p.unidades
+            const vb = anteriorMapProd[p.nombre] || 0
+            return { nombre: p.nombre, tipo: p.tipo, va, vb, var: variacionPct(va, vb) }
+          })
+          .sort((a, b) => b.va - a.va)
+        autoTable(doc, {
+          ...EST, startY: y,
+          head: [['PRODUCTO', 'CANTIDAD', 'PERÍODO ANTERIOR', 'VARIACIÓN']],
+          body: productosComp.map(p => {
+            const u = p.tipo === 'helado' ? 'kg' : 'u'
+            const dec = p.tipo === 'helado' ? 1 : 0
+            return [p.nombre, `${fmtNum(p.va, dec)} ${u}`, `${fmtNum(p.vb, dec)} ${u}`, fmtVar(p.var)]
+          }),
+          didDrawPage: didDP,
+        })
+        y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
 
-    if (tab === 'Mermas') {
-      const { actual, anterior } = mermasInforme
-      autoTable(doc, {
-        startY,
-        head: [['Indicador', 'Período actual', 'Período anterior', 'Variación']],
-        body: [
-          ['Kg merma total', `${fmtNum(actual.totalDif)} kg`, `${fmtNum(anterior.totalDif)} kg`, fmtVar(variacionPct(actual.totalDif, anterior.totalDif))],
-          ['% merma global', `${fmtNum(actual.pctGlobal)}%`, `${fmtNum(anterior.pctGlobal)}%`, fmtVar(variacionPct(actual.pctGlobal, anterior.pctGlobal))],
-          ['Costo total merma', `$${pesos(actual.costoTotal)}`, `$${pesos(anterior.costoTotal)}`, fmtVar(variacionPct(actual.costoTotal, anterior.costoTotal))],
-        ],
-        styles, headStyles,
-      })
-      startY = doc.lastAutoTable.finalY + 8
+        y = dibujarSeccion(doc, pw, 'Producción por operario', y)
+        autoTable(doc, {
+          ...EST, startY: y,
+          head: [['OPERARIO', 'KG PRODUCIDOS', 'UNIDADES', 'REGISTROS']],
+          body: actual.porOperario.map(o => [o.nombre, `${fmtNum(o.kgSabores)} kg`, `${fmtNum(o.unidImpulsivos, 0)} u`, String(o.registros)]),
+          didDrawPage: didDP,
+        })
+      }
 
-      titulo('Merma por producto', startY)
-      autoTable(doc, {
-        startY: startY + 3,
-        head: [['Producto', 'Kg merma', '% merma']],
-        body: actual.porProducto.map(p => [p.nombre, `${fmtNum(p.dif)} kg`, `${fmtNum(p.pct)}%`]),
-        styles, headStyles,
-      })
-      startY = doc.lastAutoTable.finalY + 8
+      // ── TAB: MERMAS ────────────────────────────────────────────────────────
+      if (tab === 'Mermas') {
+        const { actual, anterior } = mermasInforme
+        const kpiW = (pw - 28 - 4) / 3
+        dibujarKpi(doc, 14,                  y, kpiW, 18, 'Kg merma total',  `${fmtNum(actual.totalDif)} kg`)
+        dibujarKpi(doc, 14 + kpiW + 2,       y, kpiW, 18, '% merma global',  `${fmtNum(actual.pctGlobal)}%`)
+        dibujarKpi(doc, 14 + (kpiW + 2) * 2, y, kpiW, 18, 'Costo total merma', `$${pesos(actual.costoTotal)}`)
+        y += 26
 
-      titulo('% de merma por operario', startY)
-      autoTable(doc, {
-        startY: startY + 3,
-        head: [['Operario', 'Kg merma', '% merma']],
-        body: actual.porOperario.map(o => [o.nombre, `${fmtNum(o.dif)} kg`, `${fmtNum(o.pct)}%`]),
-        styles, headStyles,
-      })
-      startY = doc.lastAutoTable.finalY + 8
+        y = dibujarSeccion(doc, pw, 'Resumen general', y)
+        autoTable(doc, {
+          ...EST, startY: y,
+          head: [['INDICADOR', 'PERÍODO ACTUAL', 'PERÍODO ANTERIOR', 'VARIACIÓN']],
+          body: [
+            ['Kg merma total',   `${fmtNum(actual.totalDif)} kg`,  `${fmtNum(anterior.totalDif)} kg`,  fmtVar(variacionPct(actual.totalDif, anterior.totalDif))],
+            ['% merma global',   `${fmtNum(actual.pctGlobal)}%`,   `${fmtNum(anterior.pctGlobal)}%`,   fmtVar(variacionPct(actual.pctGlobal, anterior.pctGlobal))],
+            ['Costo total merma',`$${pesos(actual.costoTotal)}`,    `$${pesos(anterior.costoTotal)}`,   fmtVar(variacionPct(actual.costoTotal, anterior.costoTotal))],
+          ],
+          didDrawPage: didDP,
+        })
+        y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
 
-      titulo('Top causas de merma', startY)
-      autoTable(doc, {
-        startY: startY + 3,
-        head: [['Causa', 'Registros', 'Kg merma', 'Costo']],
-        body: actual.porCausa.slice(0, 3).map(c => [c.causa, String(c.cnt), `${fmtNum(c.dif)} kg`, `$${pesos(c.costo)}`]),
-        styles, headStyles,
-      })
-    }
+        y = dibujarSeccion(doc, pw, 'Merma por producto', y)
+        autoTable(doc, {
+          ...EST, startY: y,
+          head: [['PRODUCTO', 'KG MERMA', '% MERMA']],
+          body: actual.porProducto.map(p => [p.nombre, `${fmtNum(p.dif)} kg`, `${fmtNum(p.pct)}%`]),
+          didDrawPage: didDP,
+        })
+        y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
 
-    if (tab === 'Financiero') {
-      autoTable(doc, {
-        startY,
-        head: [['Indicador', 'Valor']],
-        body: [
-          ['Valor stock depósito', `$${pesos(valorDeposito)}`],
-          ['Valor stock cámaras', `$${pesos(valorCamaras)}`],
-          ['Valor total de stock', `$${pesos(valorDeposito + valorCamaras)}`],
-          ['Costo de producción del período', `$${pesos(costoProduccionPeriodo)}`],
-          ['Margen estimado promedio', `${fmtNum(margenPromedio)}%`],
-        ],
-        styles, headStyles,
-      })
-      startY = doc.lastAutoTable.finalY + 8
+        y = dibujarSeccion(doc, pw, '% de merma por operario', y)
+        autoTable(doc, {
+          ...EST, startY: y,
+          head: [['OPERARIO', 'KG MERMA', '% MERMA']],
+          body: actual.porOperario.map(o => [o.nombre, `${fmtNum(o.dif)} kg`, `${fmtNum(o.pct)}%`]),
+          didDrawPage: didDP,
+        })
+        y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
 
-      titulo('Productos más rentables', startY)
-      autoTable(doc, {
-        startY: startY + 3,
-        head: [['Producto', 'Tipo', 'Costo', 'Precio venta', 'Ganancia', 'Margen %']],
-        body: masRentables.map(p => [p.nombre, p.tipo, `$${pesos(p.costo_total)}`, `$${pesos(p.precio_venta)}`, `$${pesos(p.ganancia)}`, `${fmtNum(p.margen)}%`]),
-        styles, headStyles,
-      })
-    }
+        y = dibujarSeccion(doc, pw, 'Top causas de merma', y)
+        autoTable(doc, {
+          ...EST, startY: y,
+          head: [['CAUSA', 'REGISTROS', 'KG MERMA', 'COSTO']],
+          body: actual.porCausa.slice(0, 5).map(c => [c.causa, String(c.cnt), `${fmtNum(c.dif)} kg`, `$${pesos(c.costo)}`]),
+          didDrawPage: didDP,
+        })
+      }
 
-    doc.save(`informe_${tab.toLowerCase()}_${hoyISO()}.pdf`)
+      // ── TAB: FINANCIERO ────────────────────────────────────────────────────
+      if (tab === 'Financiero') {
+        const kpiW = (pw - 28 - 6) / 4
+        dibujarKpi(doc, 14,                  y, kpiW, 18, 'Stock depósito',  `$${pesos(valorDeposito)}`)
+        dibujarKpi(doc, 14 + kpiW + 2,       y, kpiW, 18, 'Stock cámaras',   `$${pesos(valorCamaras)}`)
+        dibujarKpi(doc, 14 + (kpiW + 2) * 2, y, kpiW, 18, 'Total stock',     `$${pesos(valorDeposito + valorCamaras)}`)
+        dibujarKpi(doc, 14 + (kpiW + 2) * 3, y, kpiW, 18, 'Margen promedio', `${fmtNum(margenPromedio)}%`)
+        y += 26
+
+        y = dibujarSeccion(doc, pw, 'Indicadores generales', y)
+        autoTable(doc, {
+          ...EST, startY: y,
+          head: [['INDICADOR', 'VALOR']],
+          body: [
+            ['Valor stock depósito',           `$${pesos(valorDeposito)}`],
+            ['Valor stock cámaras',            `$${pesos(valorCamaras)}`],
+            ['Valor total de stock',           `$${pesos(valorDeposito + valorCamaras)}`],
+            ['Costo de producción del período',`$${pesos(costoProduccionPeriodo)}`],
+            ['Margen estimado promedio',        `${fmtNum(margenPromedio)}%`],
+          ],
+          columnStyles: { 1: { halign: 'right', fontStyle: 'bold' } },
+          didDrawPage: didDP,
+        })
+        y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
+
+        y = dibujarSeccion(doc, pw, 'Productos más rentables', y)
+        autoTable(doc, {
+          ...EST, startY: y,
+          head: [['PRODUCTO', 'TIPO', 'COSTO', 'PRECIO VENTA', 'GANANCIA', 'MARGEN %']],
+          body: masRentables.map(p => [p.nombre, p.tipo, `$${pesos(p.costo_total)}`, `$${pesos(p.precio_venta)}`, `$${pesos(p.ganancia)}`, `${fmtNum(p.margen)}%`]),
+          columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' } },
+          didDrawPage: didDP,
+        })
+      }
+
+      // Firmas
+      doc.addPage()
+      dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Dirección', 'Responsable de Producción', 'Control de Calidad'])
+
+      doc.save(`informe_${tab.toLowerCase()}_${hoyISO()}.pdf`)
     } catch (err) {
       console.error('Error generando PDF:', err)
-      alert('Error al generar PDF: ' + err.message)
     } finally {
       setExportando(false)
     }

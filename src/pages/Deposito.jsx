@@ -21,8 +21,12 @@ import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, ClipboardCheck, AlertTriangle, TrendingUp, BarChart2, ChevronRight, Plus, Trash2, Clock } from 'lucide-react'
-import { LOGO_HORIZONTAL } from '../assets/logos'
 const logoUrl = '/logo_delparque.png'
+import {
+  getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
+  dibujarKpi, dibujarSeccion, dibujarPaginaFirmas,
+  PDF_CONTENT_Y, PDF_PIE_H, PDF_NEGRO,
+} from '../lib/pdfEstilos'
 
 const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 
@@ -1481,75 +1485,56 @@ export default function Deposito() {
   async function generarPDFCamaras() {
     setGenerandoPDFcamara(true)
     try {
-      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-      const pw = doc.internal.pageSize.getWidth()
-      const HS = { fillColor: [212, 82, 26], textColor: 255 }
-      const ST = { fontSize: 8, cellPadding: 2 }
-      const hoy = new Date().toLocaleString('es-AR')
+      const doc  = new jsPDF({ unit: 'mm', format: 'a4' })
+      const pw   = doc.internal.pageSize.getWidth()
+      const ph   = doc.internal.pageSize.getHeight()
+      const hoy  = new Date().toLocaleString('es-AR')
+      const MOD  = 'DEPÓSITO'
+      const TIT  = 'STOCK DE CÁMARAS'
+      const EST  = getEstiloInforme()
 
-      // PÁGINA 1 — Portada
-      try { doc.addImage(LOGO_HORIZONTAL, 'PNG', (pw - 64) / 2, 35, 64, 16) } catch {}
-      doc.setFontSize(22); doc.setTextColor(17, 24, 39)
-      doc.text('INFORME DE STOCK DE CÁMARAS', pw / 2, 80, { align: 'center' })
-      doc.setDrawColor(212, 82, 26); doc.setLineWidth(1); doc.line(30, 86, pw - 30, 86)
-      doc.setFontSize(12); doc.setTextColor(100, 100, 100)
-      doc.text(`Fecha de emisión: ${hoy}`, pw / 2, 96, { align: 'center' })
-      doc.setFontSize(7.5); doc.setTextColor(212, 82, 26)
-      doc.text('Confidencial — Del Parque', pw / 2, 106, { align: 'center' })
+      // P1 — Portada
+      dibujarPortada(doc, pw, ph, MOD, TIT, null, hoy)
 
-      // PÁGINA 2 — Tabla completa
+      // P2 — Tabla de stock
       doc.addPage()
-      doc.setFontSize(14); doc.setTextColor(17, 24, 39)
-      doc.text('Stock de productos en cámara', 14, 16)
-      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
-
       const sorted = [...stockCamaras].sort((a, b) => {
         const o = { AGOTADO: 0, BAJO: 1, OK: 2 }
         return (o[estadoCamara(a)] ?? 2) - (o[estadoCamara(b)] ?? 2) || (a.nombre || '').localeCompare(b.nombre || '')
       })
-
       autoTable(doc, {
-        startY: 24,
+        ...EST,
+        startY: PDF_CONTENT_Y,
         head: [['PRODUCTO', 'TIPO', 'KG', 'BALDES', 'LOTE', 'ÚLTIMA ELABORACIÓN', 'OPERARIO', 'ESTADO']],
         body: sorted.map(c => [
-          c.nombre || '—',
-          c.tipo_producto || '—',
-          (c.kg || 0).toFixed(1),
-          String(c.baldes || 0),
-          c.lote || '—',
+          c.nombre || '—', c.tipo_producto || '—', (c.kg || 0).toFixed(1),
+          String(c.baldes || 0), c.lote || '—',
           c.ultima_actualizacion ? new Date(c.ultima_actualizacion).toLocaleString('es-AR') : '—',
-          c.operario_nombre || '—',
-          estadoCamara(c),
+          c.operario_nombre || '—', estadoCamara(c),
         ]),
-        styles: { ...ST, fontSize: 7.5 }, headStyles: HS,
         didParseCell(data) {
           if (data.section !== 'body') return
           const c = sorted[data.row.index]
           if (!c) return
           const est = estadoCamara(c)
-          if (est === 'AGOTADO') data.cell.styles.fillColor = [254, 226, 226]
-          else if (est === 'BAJO')   data.cell.styles.fillColor = [254, 249, 195]
+          if (est === 'AGOTADO') data.cell.styles.fillColor = [238, 210, 210]
+          else if (est === 'BAJO') data.cell.styles.fillColor = [238, 232, 210]
+        },
+        didDrawPage: () => {
+          dibujarEncabezado(doc, pw, MOD, TIT, hoy)
+          dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
         },
       })
+      const resY = (doc.lastAutoTable?.finalY || PDF_CONTENT_Y) + 5
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...PDF_GRIS_OSC)
+      doc.text(
+        `Total: ${sorted.length} productos · ${kpisCamara.agotados} agotados · ${kpisCamara.bajos} en bajo stock · ${kpisCamara.totalKg.toFixed(1)} kg`,
+        14, resY
+      )
 
-      // Totales al pie
-      const finalY = (doc.lastAutoTable?.finalY || 24) + 8
-      doc.setFontSize(9); doc.setTextColor(70, 70, 70)
-      doc.text(`Total: ${sorted.length} productos · ${kpisCamara.agotados} agotados · ${kpisCamara.bajos} en bajo stock · ${kpisCamara.totalKg.toFixed(1)} kg totales`, 14, finalY)
-
-      // ÚLTIMA PÁGINA — Firmas
+      // Firmas
       doc.addPage()
-      doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text('Conformidad y Firmas', 14, 20)
-      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.8); doc.line(14, 24, pw - 14, 24)
-      doc.setFontSize(9); doc.setTextColor(100, 100, 100)
-      doc.text(doc.splitTextToSize(`Informe generado automáticamente el ${hoy}.`, pw - 28), 14, 34)
-      let yF = 60
-      ;['Responsable de Cámaras', 'Supervisor', 'Gerente'].forEach(rol => {
-        doc.setDrawColor(100, 100, 100); doc.setLineWidth(0.3); doc.line(14, yF, 80, yF)
-        doc.setFontSize(8); doc.setTextColor(100, 100, 100)
-        doc.text(rol, 14, yF + 5); doc.text('Nombre: ___________________________', 14, yF + 11)
-        yF += 30
-      })
+      dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Responsable de Cámaras', 'Supervisor', 'Gerente'])
 
       doc.save(`stock_camaras_${new Date().toISOString().split('T')[0]}.pdf`)
     } finally {
@@ -1560,209 +1545,171 @@ export default function Deposito() {
   async function generarPDFStock() {
     setGenerandoPDFstock(true)
     try {
-      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-      const pw = doc.internal.pageSize.getWidth()
-      const HS = { fillColor: [212, 82, 26], textColor: 255 }
-      const ST = { fontSize: 8, cellPadding: 2 }
-      const periodoLabel = `${fmtFecha(rangoCS.desde)} – ${fmtFecha(rangoCS.hasta)}`
-
-      // PÁGINA 1 — Portada
-      try { doc.addImage(LOGO_HORIZONTAL, 'PNG', (pw - 64) / 2, 35, 64, 16) } catch {}
-      doc.setFontSize(22); doc.setTextColor(17, 24, 39)
-      doc.text('INFORME DE CONTROL DE STOCK', pw / 2, 80, { align: 'center' })
-      doc.setDrawColor(212, 82, 26); doc.setLineWidth(1)
-      doc.line(30, 86, pw - 30, 86)
-      doc.setFontSize(12); doc.setTextColor(100, 100, 100)
-      doc.text(`Período: ${periodoLabel}`, pw / 2, 96, { align: 'center' })
-      doc.setFontSize(9)
-      doc.text(`Fecha de emisión: ${new Date().toLocaleString('es-AR')}`, pw / 2, 104, { align: 'center' })
-      doc.setFontSize(7.5); doc.setTextColor(212, 82, 26)
-      doc.text('Confidencial — Del Parque', pw / 2, 114, { align: 'center' })
-
-      // PÁGINA 2 — Resumen ejecutivo
-      doc.addPage()
-      doc.setFontSize(14); doc.setTextColor(17, 24, 39)
-      doc.text('Resumen ejecutivo', 14, 16)
-      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
+      const doc  = new jsPDF({ unit: 'mm', format: 'a4' })
+      const pw   = doc.internal.pageSize.getWidth()
+      const ph   = doc.internal.pageSize.getHeight()
+      const hoy  = new Date().toLocaleString('es-AR')
+      const peri = `${fmtFecha(rangoCS.desde)} – ${fmtFecha(rangoCS.hasta)}`
+      const MOD  = 'DEPÓSITO'
+      const EST  = getEstiloInforme()
 
       const totalInsumos = controlSemanal.length
-      const criticos = controlSemanal.filter(r => r.estado === 'CRÍTICO').length
-      const atencion = controlSemanal.filter(r => r.estado === 'ATENCIÓN').length
-      const conDiff   = controlSemanal.filter(r => r.pctDiferencia > 3).length
-      const totalIng  = controlSemanal.reduce((a, r) => a + r.ingresosKg, 0)
-      const totalEgr  = controlSemanal.reduce((a, r) => a + r.egresosKg, 0)
+      const criticos     = controlSemanal.filter(r => r.estado === 'CRÍTICO').length
+      const atencion     = controlSemanal.filter(r => r.estado === 'ATENCIÓN').length
+      const conDiff      = controlSemanal.filter(r => r.pctDiferencia > 3).length
+      const totalIng     = controlSemanal.reduce((a, r) => a + r.ingresosKg, 0)
+      const totalEgr     = controlSemanal.reduce((a, r) => a + r.egresosKg, 0)
 
-      autoTable(doc, {
-        startY: 24,
-        body: [
-          ['Total insumos analizados', String(totalInsumos), 'En estado crítico (< 3 días)', String(criticos)],
-          ['En estado de atención (< 7 días)', String(atencion), 'Diferencias de inventario (> 3%)', String(conDiff)],
-        ],
-        styles: { ...ST, fontSize: 9 },
-        columnStyles: { 0: { textColor: [100, 100, 100] }, 1: { fontStyle: 'bold', textColor: [17, 24, 39] }, 2: { textColor: [100, 100, 100] }, 3: { fontStyle: 'bold', textColor: [17, 24, 39] } },
-        theme: 'grid',
-      })
+      // P1 — Portada
+      dibujarPortada(doc, pw, ph, MOD, 'CONTROL DE STOCK', peri, hoy)
 
-      let y = doc.lastAutoTable.finalY + 10
-      doc.setFontSize(11); doc.setTextColor(17, 24, 39)
-      doc.text('Análisis automático', 14, y); y += 6
+      // P2 — Resumen ejecutivo
+      doc.addPage()
+      dibujarEncabezado(doc, pw, MOD, 'RESUMEN EJECUTIVO', hoy)
+      dibujarPie(doc, pw, ph, 2)
+      const kpiW = (pw - 28 - 6) / 4
+      ;[
+        ['Total insumos', totalInsumos],
+        ['Estado crítico', criticos],
+        ['En atención', atencion],
+        ['Diferencias > 3%', conDiff],
+      ].forEach(([lbl, val], i) => dibujarKpi(doc, 14 + i * (kpiW + 2), PDF_CONTENT_Y, kpiW, 20, lbl, val))
 
+      let y2 = PDF_CONTENT_Y + 28
+      y2 = dibujarSeccion(doc, pw, 'Análisis del período', y2)
       const criticosList = controlSemanal.filter(r => r.estado === 'CRÍTICO').map(r => r.nombre).join(', ')
-      const mayorDiff = [...controlSemanal].filter(r => r.pctDiferencia > 3).sort((a, b) => b.pctDiferencia - a.pctDiferencia)[0]
-      const reposicion = controlSemanal.filter(r => r.diasStock < 7 && r.consumoPromDiario > 0).map(r => r.nombre)
-
-      const parrafos = [
-        `Durante el período ${periodoLabel}, se registraron ingresos por ${totalIng.toFixed(1)} uds/kg y egresos por ${totalEgr.toFixed(1)} uds/kg en el depósito.`,
-        criticos > 0
-          ? `Se detectaron ${criticos} producto${criticos === 1 ? '' : 's'} con stock crítico: ${criticosList}.`
-          : 'No se detectaron productos con stock crítico en este período.',
-        mayorDiff
-          ? `${conDiff} producto${conDiff === 1 ? '' : 's'} presenta${conDiff === 1 ? '' : 'n'} diferencias entre el stock del sistema y el conteo físico. El mayor: ${mayorDiff.nombre} con ${Math.abs(mayorDiff.diferencia).toFixed(2)} ${mayorDiff.unidad} (${mayorDiff.pctDiferencia.toFixed(1)}%).`
-          : 'No se detectaron diferencias significativas de inventario.',
-        reposicion.length > 0 ? `Se recomienda reponer: ${reposicion.join(', ')}.` : null,
+      const mayorDiff    = [...controlSemanal].filter(r => r.pctDiferencia > 3).sort((a, b) => b.pctDiferencia - a.pctDiferencia)[0]
+      const reposicion   = controlSemanal.filter(r => r.diasStock < 7 && r.consumoPromDiario > 0).map(r => r.nombre)
+      const parrafos     = [
+        `Período ${peri}: ingresos ${totalIng.toFixed(1)} uds/kg · egresos ${totalEgr.toFixed(1)} uds/kg.`,
+        criticos > 0 ? `${criticos} producto${criticos === 1 ? '' : 's'} con stock crítico: ${criticosList}.` : 'Sin stock crítico en el período.',
+        mayorDiff ? `${conDiff} producto${conDiff === 1 ? '' : 's'} con diferencia de inventario. Mayor: ${mayorDiff.nombre} (${mayorDiff.pctDiferencia.toFixed(1)}%).` : 'Sin diferencias significativas de inventario.',
+        reposicion.length > 0 ? `Reposición recomendada: ${reposicion.join(', ')}.` : null,
       ].filter(Boolean)
-
-      doc.setFontSize(9); doc.setTextColor(70, 70, 70)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(50, 50, 50)
       parrafos.forEach(p => {
         const wrapped = doc.splitTextToSize(`• ${p}`, pw - 28)
-        doc.text(wrapped, 14, y)
-        y += wrapped.length * 5 + 2
+        doc.text(wrapped, 14, y2); y2 += wrapped.length * 5 + 2
       })
 
-      // PÁGINA 3 — Tabla completa de stock
+      // P3 — Tabla completa
       doc.addPage()
-      doc.setFontSize(14); doc.setTextColor(17, 24, 39)
-      doc.text('Tabla completa de stock', 14, 16)
-      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
-
       const bodyTabla = [
         ...controlSemanal.map(r => [
-          r.nombre,
-          `${r.stockInicial.toFixed(1)} ${r.unidad || ''}`.trim(),
+          r.nombre, `${r.stockInicial.toFixed(1)} ${r.unidad || ''}`.trim(),
           r.ingresosKg.toFixed(1), r.egresosKg.toFixed(1), r.stockSistema.toFixed(1),
           r.conteoFisico !== null ? r.conteoFisico.toFixed(1) : '—',
           r.diferencia !== null ? `${r.diferencia > 0 ? '+' : ''}${r.diferencia.toFixed(2)}` : '—',
-          r.diasStock === Infinity ? '♾' : r.diasStock.toFixed(0),
-          r.estado,
+          r.diasStock === Infinity ? '♾' : r.diasStock.toFixed(0), r.estado,
         ]),
-        ['TOTAL', '', controlSemanal.reduce((a, r) => a + r.ingresosKg, 0).toFixed(1),
+        ['TOTAL', '',
+          controlSemanal.reduce((a, r) => a + r.ingresosKg, 0).toFixed(1),
           controlSemanal.reduce((a, r) => a + r.egresosKg, 0).toFixed(1),
-          controlSemanal.reduce((a, r) => a + r.stockSistema, 0).toFixed(1), '', '', '', ''],
+          controlSemanal.reduce((a, r) => a + r.stockSistema, 0).toFixed(1),
+          '', '', '', ''],
       ]
-
       autoTable(doc, {
-        startY: 24,
-        head: [['PRODUCTO', 'ST.INICIAL', 'INGRESOS', 'EGRESOS', 'ST.SISTEMA', 'C.FÍSICO', 'DIFERENCIA', 'DÍAS', 'ESTADO']],
+        ...EST, styles: { ...EST.styles, fontSize: 7 },
+        startY: PDF_CONTENT_Y,
+        head: [['PRODUCTO', 'ST.INICIAL', 'INGRESOS', 'EGRESOS', 'ST.SISTEMA', 'C.FÍSICO', 'DIF.', 'DÍAS', 'ESTADO']],
         body: bodyTabla,
-        styles: { ...ST, fontSize: 7 }, headStyles: HS,
         didParseCell(data) {
           if (data.section !== 'body') return
           const row = controlSemanal[data.row.index]
           if (!row) return
-          if (row.estado === 'CRÍTICO') data.cell.styles.fillColor = [254, 226, 226]
-          else if (row.estado === 'ATENCIÓN') data.cell.styles.fillColor = [254, 249, 195]
+          if (row.estado === 'CRÍTICO') data.cell.styles.fillColor = [238, 210, 210]
+          else if (row.estado === 'ATENCIÓN') data.cell.styles.fillColor = [238, 232, 210]
+        },
+        didDrawPage: () => {
+          dibujarEncabezado(doc, pw, MOD, 'TABLA DE STOCK', hoy)
+          dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
         },
       })
 
-      // PÁGINA 4 — Faltantes y sobrantes
-      doc.addPage()
-      doc.setFontSize(14); doc.setTextColor(17, 24, 39)
-      doc.text('Análisis de faltantes y sobrantes', 14, 16)
-      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
-
+      // P4 — Análisis de inventario
       const faltantes = controlSemanal.filter(r => r.diferencia !== null && r.diferencia < 0)
       const sobrantes = controlSemanal.filter(r => r.diferencia !== null && r.diferencia > 0)
-
-      doc.setFontSize(11); doc.setTextColor(17, 24, 39); doc.text('A — Faltantes', 14, 26)
+      doc.addPage()
+      dibujarEncabezado(doc, pw, MOD, 'ANÁLISIS DE INVENTARIO', hoy)
+      dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+      let yInv = dibujarSeccion(doc, pw, 'A — Faltantes', PDF_CONTENT_Y)
       if (faltantes.length === 0) {
-        doc.setFontSize(9); doc.setTextColor(100, 100, 100); doc.text('Sin faltantes detectados.', 14, 33)
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...PDF_GRIS_OSC)
+        doc.text('Sin faltantes detectados.', 14, yInv); yInv += 10
       } else {
         autoTable(doc, {
-          startY: 30,
+          ...EST, styles: { ...EST.styles, fontSize: 7 }, startY: yInv,
           head: [['PRODUCTO', 'ST. SISTEMA', 'CONTEO FÍS.', 'FALTANTE', '%', 'CAUSA PROBABLE']],
           body: faltantes.map(r => {
-            const causa = r.pctDiferencia < 3 ? 'Dentro del margen normal (±3%)'
-              : r.pctDiferencia > 10 ? 'Posible error de registro o merma no registrada'
+            const causa = r.pctDiferencia < 3 ? 'Dentro del margen normal'
+              : r.pctDiferencia > 10 ? 'Posible error de registro o merma'
               : r.egresosKg > r.ingresosKg * 2 ? 'Alto consumo en el período'
               : r.ingresosKg === 0 ? 'Sin reposición reciente'
-              : 'Consumo normal, requiere revisión'
-            return [r.nombre, `${r.stockSistema.toFixed(2)}`, `${r.conteoFisico.toFixed(2)}`,
-              `${Math.abs(r.diferencia).toFixed(2)}`, `${r.pctDiferencia.toFixed(1)}%`, causa]
+              : 'Requiere revisión'
+            return [r.nombre, r.stockSistema.toFixed(2), r.conteoFisico.toFixed(2),
+              Math.abs(r.diferencia).toFixed(2), `${r.pctDiferencia.toFixed(1)}%`, causa]
           }),
-          styles: { ...ST, fontSize: 7 },
-          headStyles: { fillColor: [220, 38, 38], textColor: 255 },
+          didDrawPage: () => {
+            dibujarEncabezado(doc, pw, MOD, 'ANÁLISIS DE INVENTARIO', hoy)
+            dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+          },
         })
+        yInv = doc.lastAutoTable.finalY + 8
       }
-
-      const yB = (doc.lastAutoTable?.finalY || 38) + 10
-      doc.setFontSize(11); doc.setTextColor(17, 24, 39); doc.text('B — Sobrantes', 14, yB)
+      yInv = dibujarSeccion(doc, pw, 'B — Sobrantes', yInv)
       if (sobrantes.length === 0) {
-        doc.setFontSize(9); doc.setTextColor(100, 100, 100); doc.text('Sin sobrantes detectados.', 14, yB + 7)
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...PDF_GRIS_OSC)
+        doc.text('Sin sobrantes detectados.', 14, yInv)
       } else {
         autoTable(doc, {
-          startY: yB + 4,
+          ...EST, styles: { ...EST.styles, fontSize: 7 }, startY: yInv,
           head: [['PRODUCTO', 'ST. SISTEMA', 'CONTEO FÍS.', 'SOBRANTE', '%', 'CAUSA PROBABLE']],
           body: sobrantes.map(r => {
-            const causa = r.pctDiferencia > 20 ? 'Posible ingreso no registrado en el sistema'
+            const causa = r.pctDiferencia > 20 ? 'Posible ingreso no registrado'
               : r.ingresosKg > 0 && r.egresosKg === 0 ? 'Ingreso reciente sin consumo'
-              : 'Sobrante dentro del margen, verificar'
-            return [r.nombre, `${r.stockSistema.toFixed(2)}`, `${r.conteoFisico.toFixed(2)}`,
-              `${r.diferencia.toFixed(2)}`, `${r.pctDiferencia.toFixed(1)}%`, causa]
+              : 'Verificar'
+            return [r.nombre, r.stockSistema.toFixed(2), r.conteoFisico.toFixed(2),
+              r.diferencia.toFixed(2), `${r.pctDiferencia.toFixed(1)}%`, causa]
           }),
-          styles: { ...ST, fontSize: 7 },
-          headStyles: { fillColor: [22, 163, 74], textColor: 255 },
-        })
-      }
-
-      // PÁGINA 5 — Recomendaciones de reposición
-      doc.addPage()
-      doc.setFontSize(14); doc.setTextColor(17, 24, 39)
-      doc.text('Recomendaciones de reposición', 14, 16)
-      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
-
-      const recomendaciones = controlSemanal
-        .filter(r => r.consumoPromDiario > 0 && r.diasStock < 14)
-        .sort((a, b) => a.diasStock - b.diasStock)
-
-      if (recomendaciones.length === 0) {
-        doc.setFontSize(9); doc.setTextColor(100, 100, 100)
-        doc.text('No hay productos que requieran reposición inmediata.', 14, 26)
-      } else {
-        autoTable(doc, {
-          startY: 24,
-          head: [['URGENCIA', 'PRODUCTO', 'STOCK ACTUAL', 'CONSUMO/DÍA', 'DÍAS REST.', 'CANT. SUGERIDA']],
-          body: recomendaciones.map(r => [
-            r.diasStock < 3 ? 'URGENTE' : 'PRONTO',
-            r.nombre,
-            `${r.stockSistema.toFixed(1)} ${r.unidad || ''}`.trim(),
-            `${r.consumoPromDiario.toFixed(1)} ${r.unidad || ''}/día`.trim(),
-            r.diasStock === Infinity ? '♾' : `${r.diasStock.toFixed(0)} días`,
-            `${(r.consumoPromDiario * 14).toFixed(1)} ${r.unidad || ''}`.trim(),
-          ]),
-          styles: { ...ST, fontSize: 8 }, headStyles: HS,
-          didParseCell(data) {
-            if (data.section !== 'body') return
-            if (recomendaciones[data.row.index]?.diasStock < 3)
-              data.cell.styles.fillColor = [254, 226, 226]
+          didDrawPage: () => {
+            dibujarEncabezado(doc, pw, MOD, 'ANÁLISIS DE INVENTARIO', hoy)
+            dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
           },
         })
       }
 
-      // ÚLTIMA PÁGINA — Firmas
+      // P5 — Recomendaciones de reposición
+      const recomendaciones = controlSemanal
+        .filter(r => r.consumoPromDiario > 0 && r.diasStock < 14)
+        .sort((a, b) => a.diasStock - b.diasStock)
       doc.addPage()
-      doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text('Conformidad y Firmas', 14, 20)
-      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.8); doc.line(14, 24, pw - 14, 24)
-      doc.setFontSize(9); doc.setTextColor(100, 100, 100)
-      const ft = `El presente informe de control de stock corresponde al período ${periodoLabel} y fue generado automáticamente el ${new Date().toLocaleString('es-AR')}.`
-      doc.text(doc.splitTextToSize(ft, pw - 28), 14, 34)
-      let yF = 60
-      ;['Responsable de Depósito', 'Supervisor', 'Gerente'].forEach(rol => {
-        doc.setDrawColor(100, 100, 100); doc.setLineWidth(0.3); doc.line(14, yF, 80, yF)
-        doc.setFontSize(8); doc.setTextColor(100, 100, 100)
-        doc.text(rol, 14, yF + 5)
-        doc.text('Nombre y apellido: ___________________________', 14, yF + 11)
-        yF += 30
+      autoTable(doc, {
+        ...EST, startY: PDF_CONTENT_Y,
+        head: [['URGENCIA', 'PRODUCTO', 'STOCK ACTUAL', 'CONSUMO/DÍA', 'DÍAS REST.', 'CANT. SUGERIDA']],
+        body: recomendaciones.length === 0
+          ? [['—', 'Sin productos que requieran reposición inmediata', '', '', '', '']]
+          : recomendaciones.map(r => [
+              r.diasStock < 3 ? 'URGENTE' : 'PRONTO',
+              r.nombre,
+              `${r.stockSistema.toFixed(1)} ${r.unidad || ''}`.trim(),
+              `${r.consumoPromDiario.toFixed(1)}/día`,
+              r.diasStock === Infinity ? '♾' : `${r.diasStock.toFixed(0)} días`,
+              `${(r.consumoPromDiario * 14).toFixed(1)} ${r.unidad || ''}`.trim(),
+            ]),
+        didParseCell(data) {
+          if (data.section !== 'body') return
+          if (recomendaciones[data.row.index]?.diasStock < 3)
+            data.cell.styles.fillColor = [238, 210, 210]
+        },
+        didDrawPage: () => {
+          dibujarEncabezado(doc, pw, MOD, 'RECOMENDACIONES DE REPOSICIÓN', hoy)
+          dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+        },
       })
+
+      // Firmas
+      doc.addPage()
+      dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Responsable de Depósito', 'Supervisor', 'Gerente'])
 
       doc.save(`control_stock_${new Date().toISOString().split('T')[0]}.pdf`)
     } finally {
@@ -1775,7 +1722,7 @@ export default function Deposito() {
     const filas = egresos.map(e => `
       <tr>
         <td>${formatFechaMov(e)}</td><td>${e.producto_nombre || ''}</td><td>${e.marca || ''}</td>
-        <td>${e.presentacion || ''}</td><td style="text-align:right">${e.cantidad || ''}</td>
+        <td>${e.presentacion || ''}</td><td class="r">${e.cantidad || ''}</td>
         <td>${e.lote || ''}</td><td>${e.fecha_vencimiento || ''}</td>
         <td>${e.controlo || ''}</td><td>${e.observaciones || ''}</td>
         <td>${e.destino || ''}</td>
@@ -1785,23 +1732,31 @@ export default function Deposito() {
     <style>
       *{box-sizing:border-box;margin:0;padding:0}
       body{font-family:Arial,sans-serif;font-size:10px;padding:20px}
-      .header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px}
-      .logo-img{height:32px;display:block}
-      .sub{font-size:10px;color:#666}
+      .banner{background:#141414;color:#fff;padding:5px 14px;font-size:8px;font-weight:700;letter-spacing:.5px;display:flex;justify-content:space-between;margin:-20px -20px 14px}
+      .header{display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:2px solid #141414;margin-bottom:12px}
+      .logo-img{height:26px;display:block}
+      .title{font-size:12px;font-weight:700;color:#141414}
+      .sub{font-size:8px;color:#666;margin-top:2px}
       table{width:100%;border-collapse:collapse}
-      th{background:#f3f4f6;font-size:8px;font-weight:700;text-transform:uppercase;padding:5px 6px;text-align:left;border-bottom:2px solid ${colors.brand}}
-      td{padding:4px 6px;border-bottom:1px solid #f3f4f6;font-size:9px}
-      .firmas{display:flex;gap:48px;margin-top:48px}
-      .firma{flex:1;border-top:1px solid #374151;padding-top:6px;font-size:9px;color:#6b7280}
-      @media print{body{padding:0}}
+      th{background:#141414;color:#fff;font-size:7.5px;font-weight:700;text-transform:uppercase;padding:5px 6px;text-align:left}
+      td{padding:4px 6px;border-bottom:1px solid #e8e8e8;font-size:8.5px}
+      tr:nth-child(even) td{background:#f5f5f5}
+      .r{text-align:right}
+      .firmas{display:flex;gap:24px;margin-top:40px}
+      .firma{flex:1;border-top:1.5px solid #141414;padding-top:6px;font-size:8px;color:#555}
+      @media print{body{padding:0}.banner{margin:0 0 12px}}
     </style></head><body>
+    <div class="banner"><span>DEPÓSITO</span><span>DEL PARQUE</span></div>
     <div class="header">
       <img src="${logoUrl}" class="logo-img" alt="Del Parque" />
-      <div class="sub">Planilla de Trazabilidad — Egreso de Materiales · ${new Date().toLocaleDateString('es-AR')}</div>
+      <div style="text-align:right">
+        <div class="title">TRAZABILIDAD — EGRESO DE MATERIALES</div>
+        <div class="sub">${new Date().toLocaleDateString('es-AR')}</div>
+      </div>
     </div>
     <table>
       <thead><tr>
-        <th>Fecha</th><th>Producto</th><th>Marca</th><th>Presentación</th><th>Cant.</th>
+        <th>Fecha</th><th>Producto</th><th>Marca</th><th>Presentación</th><th class="r">Cant.</th>
         <th>Lote</th><th>Venc.</th><th>Controló</th><th>Observ.</th><th>Destino</th>
       </tr></thead>
       <tbody>${filas}</tbody>
@@ -1818,48 +1773,40 @@ export default function Deposito() {
 
   async function exportarPDF() {
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
-    const pageWidth = doc.internal.pageSize.getWidth()
-
-    try {
-      doc.addImage(LOGO_HORIZONTAL, 'PNG', 14, 8, 48, 12)
-    } catch {
-      // si no se puede cargar el logo, se continúa sin él
-    }
-
-    doc.setFontSize(11)
-    doc.setTextColor(40, 40, 40)
-    doc.text('Planilla de Trazabilidad — Egreso de Materiales', pageWidth - 14, 14, { align: 'right' })
-    doc.setFontSize(8)
-    doc.setTextColor(120, 120, 120)
-    doc.text(`Emitido: ${new Date().toLocaleDateString('es-AR')}`, pageWidth - 14, 19, { align: 'right' })
+    const pw  = doc.internal.pageSize.getWidth()
+    const ph  = doc.internal.pageSize.getHeight()
+    const hoy = new Date().toLocaleString('es-AR')
+    const MOD = 'DEPÓSITO'
+    const TIT = 'TRAZABILIDAD — EGRESOS'
+    const EST = getEstiloInforme()
 
     autoTable(doc, {
-      startY: 28,
+      ...EST, styles: { ...EST.styles, fontSize: 7 },
+      startY: PDF_CONTENT_Y,
       head: [['Fecha', 'Producto', 'Marca', 'Presentación', 'Cant.', 'Lote', 'Venc.', 'Controló', 'Observ.', 'Destino']],
       body: egresos.map(e => [
         formatFechaMov(e), e.producto_nombre || '', e.marca || '', e.presentacion || '',
         `${e.cantidad ?? ''} ${e.unidad || ''}`.trim(), e.lote || '', e.fecha_vencimiento || '',
         e.controlo || '', e.observaciones || '', e.destino || '',
       ]),
-      styles: { fontSize: 7, cellPadding: 1.5 },
-      headStyles: { fillColor: [212, 82, 26], textColor: 255 },
-      alternateRowStyles: { fillColor: [249, 250, 251] },
+      didDrawPage: () => {
+        dibujarEncabezado(doc, pw, MOD, TIT, hoy)
+        dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+      },
     })
 
-    let finalY = (doc.lastAutoTable?.finalY || 28) + 24
-    if (finalY > doc.internal.pageSize.getHeight() - 10) finalY = doc.internal.pageSize.getHeight() - 10
-
-    const firmas = [
-      { label: 'Responsable de Depósito', x: 20 },
-      { label: 'Jefe de Producción', x: pageWidth / 2 - 28 },
-      { label: 'Gerencia / Calidad', x: pageWidth - 80 },
-    ]
-    doc.setFontSize(8)
-    doc.setTextColor(80, 80, 80)
-    firmas.forEach(f => {
-      doc.line(f.x, finalY - 4, f.x + 60, finalY - 4)
-      doc.text(f.label, f.x, finalY)
-    })
+    // Firmas al pie si hay espacio
+    const finalY = (doc.lastAutoTable?.finalY || PDF_CONTENT_Y) + 10
+    if (finalY < ph - 30) {
+      const gap = (pw - 28) / 3
+      ;['Responsable de Depósito', 'Jefe de Producción', 'Gerencia / Calidad'].forEach((label, i) => {
+        const x = 14 + i * gap
+        doc.setDrawColor(...PDF_NEGRO); doc.setLineWidth(0.3)
+        doc.line(x, finalY + 6, x + gap - 8, finalY + 6)
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(80, 80, 80)
+        doc.text(label, x, finalY + 11)
+      })
+    }
 
     doc.save(`trazabilidad_delparque_${new Date().toISOString().split('T')[0]}.pdf`)
   }
@@ -1884,11 +1831,13 @@ export default function Deposito() {
 
   async function _pdfProveedores() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-    const pw = doc.internal.pageSize.getWidth()
-    const HS = { fillColor: [212, 82, 26], textColor: 255 }
-    const ST = { fontSize: 8, cellPadding: 2 }
+    const pw  = doc.internal.pageSize.getWidth()
+    const ph  = doc.internal.pageSize.getHeight()
     const hoy = new Date().toLocaleString('es-AR')
     const periodo = _periodoLabel()
+    const MOD = 'DEPÓSITO'
+    const EST = getEstiloInforme()
+
     const totalIngresos = comprasPorProveedor.reduce((a, g) => a + g.items.length, 0)
     const totalUnidades = comprasPorProveedor.reduce((a, g) => a + g.total, 0)
     const productoCounts = {}
@@ -1899,227 +1848,153 @@ export default function Deposito() {
     const masComprado = Object.entries(productoCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '—'
 
     // P1 — Portada
-    try { doc.addImage(LOGO_HORIZONTAL, 'PNG', (pw - 64) / 2, 35, 64, 16) } catch {}
-    doc.setFontSize(20); doc.setTextColor(17, 24, 39)
-    doc.text('INFORME DE COMPRAS POR PROVEEDOR', pw / 2, 80, { align: 'center' })
-    doc.setDrawColor(212, 82, 26); doc.setLineWidth(1); doc.line(30, 86, pw - 30, 86)
-    doc.setFontSize(12); doc.setTextColor(100, 100, 100)
-    doc.text(`Período: ${periodo}`, pw / 2, 96, { align: 'center' })
-    doc.setFontSize(9); doc.text(`Fecha de emisión: ${hoy}`, pw / 2, 104, { align: 'center' })
-    doc.setFontSize(7.5); doc.setTextColor(212, 82, 26)
-    doc.text('Confidencial — Del Parque', pw / 2, 114, { align: 'center' })
+    dibujarPortada(doc, pw, ph, MOD, 'COMPRAS POR PROVEEDOR', periodo, hoy)
 
     // P2 — Resumen ejecutivo
     doc.addPage()
-    doc.setFontSize(14); doc.setTextColor(17, 24, 39)
-    doc.text('Resumen ejecutivo', 14, 16)
-    doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
-    autoTable(doc, {
-      startY: 24,
-      body: [
-        ['Total ingresos', String(totalIngresos), 'Proveedores activos', String(comprasPorProveedor.length)],
-        ['Total unidades/kg', totalUnidades.toLocaleString('es-AR', { maximumFractionDigits: 2 }), 'Producto más comprado', masComprado],
-      ],
-      styles: { ...ST, fontSize: 9 }, theme: 'grid',
-      columnStyles: { 0: { textColor: [100, 100, 100] }, 1: { fontStyle: 'bold', textColor: [17, 24, 39] }, 2: { textColor: [100, 100, 100] }, 3: { fontStyle: 'bold', textColor: [17, 24, 39] } },
-    })
-    let y = doc.lastAutoTable.finalY + 10
-    doc.setFontSize(9); doc.setTextColor(70, 70, 70)
-    const p1 = `Durante el período ${periodo}, se registraron ${totalIngresos} ingreso${totalIngresos !== 1 ? 's' : ''} provenientes de ${comprasPorProveedor.length} proveedor${comprasPorProveedor.length !== 1 ? 'es' : ''} distinto${comprasPorProveedor.length !== 1 ? 's' : ''}, totalizando ${totalUnidades.toLocaleString('es-AR', { maximumFractionDigits: 2 })} unidades/kg de mercadería.`
-    doc.text(doc.splitTextToSize(`• ${p1}`, pw - 28), 14, y)
+    dibujarEncabezado(doc, pw, MOD, 'RESUMEN EJECUTIVO', hoy)
+    dibujarPie(doc, pw, ph, 2)
+    const kpiW = (pw - 28 - 4) / 2
+    dibujarKpi(doc, 14, PDF_CONTENT_Y, kpiW, 20, 'Total ingresos', totalIngresos)
+    dibujarKpi(doc, 14 + kpiW + 4, PDF_CONTENT_Y, kpiW, 20, 'Proveedores activos', comprasPorProveedor.length)
+    let y2 = PDF_CONTENT_Y + 28
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(50, 50, 50)
+    const p1Prov = `Durante el período ${periodo}, se registraron ${totalIngresos} ingreso${totalIngresos !== 1 ? 's' : ''} de ${comprasPorProveedor.length} proveedor${comprasPorProveedor.length !== 1 ? 'es' : ''}, totalizando ${totalUnidades.toLocaleString('es-AR', { maximumFractionDigits: 2 })} uds/kg. Producto más comprado: ${masComprado}.`
+    doc.text(doc.splitTextToSize(`• ${p1Prov}`, pw - 28), 14, y2)
 
     // P3+ — Detalle por proveedor
     for (const grupo of comprasPorProveedor) {
       doc.addPage()
-      doc.setFontSize(13); doc.setTextColor(17, 24, 39)
-      doc.text(`Proveedor: ${grupo.proveedor}`, 14, 16)
-      doc.setFontSize(9); doc.setTextColor(100, 100, 100)
-      doc.text(`${grupo.items.length} ingreso${grupo.items.length !== 1 ? 's' : ''} · Total: ${grupo.total.toLocaleString('es-AR', { maximumFractionDigits: 2 })}`, 14, 22)
-      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 25, pw - 14, 25)
       autoTable(doc, {
-        startY: 29,
+        ...EST, startY: PDF_CONTENT_Y,
         head: [['FECHA', 'PRODUCTO', 'CANTIDAD', 'UNIDAD', 'LOTE', 'VENCIMIENTO']],
         body: grupo.items.map(m => [
           formatFecha(m.created_at), m.producto_nombre || '—',
           String(m.cantidad ?? '—'), m.unidad || '—', m.lote || '—',
           m.fecha_vencimiento ? fmtFecha(m.fecha_vencimiento) : '—',
         ]),
-        styles: { ...ST, fontSize: 7.5 }, headStyles: HS,
-        foot: [[{ content: `SUBTOTAL: ${grupo.items.length} ingresos · ${grupo.total.toFixed(2)} uds/kg`, colSpan: 6, styles: { fontStyle: 'bold', halign: 'right', fillColor: [255, 247, 237], textColor: [212, 82, 26] } }]],
+        foot: [[{ content: `SUBTOTAL: ${grupo.items.length} ingresos · ${grupo.total.toFixed(2)} uds/kg`, colSpan: 6, styles: { ...EST.footStyles, halign: 'right' } }]],
+        didDrawPage: () => {
+          dibujarEncabezado(doc, pw, MOD, `PROVEEDOR: ${grupo.proveedor}`, hoy)
+          dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+        },
       })
     }
 
-    // Última — Firmas
+    // Firmas
     doc.addPage()
-    doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text('Conformidad y Firmas', 14, 20)
-    doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.8); doc.line(14, 24, pw - 14, 24)
-    doc.setFontSize(9); doc.setTextColor(100, 100, 100)
-    doc.text(doc.splitTextToSize(`Informe de compras por proveedor — período ${periodo} — generado el ${hoy}.`, pw - 28), 14, 34)
-    let yF = 60
-    ;['Responsable de Compras', 'Gerencia', 'Fecha'].forEach(rol => {
-      doc.setDrawColor(100, 100, 100); doc.setLineWidth(0.3); doc.line(14, yF, 80, yF)
-      doc.setFontSize(8); doc.setTextColor(100, 100, 100)
-      doc.text(rol, 14, yF + 5); doc.text('Nombre y apellido: ___________________________', 14, yF + 11)
-      yF += 30
-    })
+    dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Responsable de Compras', 'Gerencia', 'Fecha'])
     doc.save(`compras_proveedor_${new Date().toISOString().split('T')[0]}.pdf`)
   }
 
   async function _pdfDestinos() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-    const pw = doc.internal.pageSize.getWidth()
-    const HS = { fillColor: [30, 41, 59], textColor: 255 }
-    const ST = { fontSize: 8, cellPadding: 2 }
+    const pw  = doc.internal.pageSize.getWidth()
+    const ph  = doc.internal.pageSize.getHeight()
     const hoy = new Date().toLocaleString('es-AR')
     const periodo = _periodoLabel()
-    const totalEgresos = destinoMercaderia.reduce((a, g) => a + g.items.length, 0)
+    const MOD = 'DEPÓSITO'
+    const EST = getEstiloInforme()
+
+    const totalEgresos  = destinoMercaderia.reduce((a, g) => a + g.items.length, 0)
     const totalUnidades = destinoMercaderia.reduce((a, g) => a + g.total, 0)
 
     // P1 — Portada
-    try { doc.addImage(LOGO_HORIZONTAL, 'PNG', (pw - 64) / 2, 35, 64, 16) } catch {}
-    doc.setFontSize(20); doc.setTextColor(17, 24, 39)
-    doc.text('INFORME DE DESTINO DE MERCADERÍA', pw / 2, 80, { align: 'center' })
-    doc.setDrawColor(212, 82, 26); doc.setLineWidth(1); doc.line(30, 86, pw - 30, 86)
-    doc.setFontSize(12); doc.setTextColor(100, 100, 100)
-    doc.text(`Período: ${periodo}`, pw / 2, 96, { align: 'center' })
-    doc.setFontSize(9); doc.text(`Fecha de emisión: ${hoy}`, pw / 2, 104, { align: 'center' })
-    doc.setFontSize(7.5); doc.setTextColor(212, 82, 26)
-    doc.text('Confidencial — Del Parque', pw / 2, 114, { align: 'center' })
+    dibujarPortada(doc, pw, ph, MOD, 'DESTINO DE MERCADERÍA', periodo, hoy)
 
     // P2 — Resumen
     doc.addPage()
-    doc.setFontSize(14); doc.setTextColor(17, 24, 39)
-    doc.text('Resumen ejecutivo', 14, 16)
-    doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
-    autoTable(doc, {
-      startY: 24,
-      body: [
-        ['Total egresos', String(totalEgresos), 'Destinos distintos', String(destinoMercaderia.length)],
-        ['Total unidades/kg', totalUnidades.toLocaleString('es-AR', { maximumFractionDigits: 2 }), '', ''],
-      ],
-      styles: { ...ST, fontSize: 9 }, theme: 'grid',
-      columnStyles: { 0: { textColor: [100, 100, 100] }, 1: { fontStyle: 'bold', textColor: [17, 24, 39] }, 2: { textColor: [100, 100, 100] }, 3: { fontStyle: 'bold', textColor: [17, 24, 39] } },
-    })
-    let y = doc.lastAutoTable.finalY + 10
-    doc.setFontSize(9); doc.setTextColor(70, 70, 70)
-    const p1 = `Durante el período ${periodo}, se registraron ${totalEgresos} egreso${totalEgresos !== 1 ? 's' : ''} distribuidos en ${destinoMercaderia.length} destino${destinoMercaderia.length !== 1 ? 's' : ''} distintos, totalizando ${totalUnidades.toLocaleString('es-AR', { maximumFractionDigits: 2 })} unidades/kg de mercadería entregada.`
-    doc.text(doc.splitTextToSize(`• ${p1}`, pw - 28), 14, y)
+    dibujarEncabezado(doc, pw, MOD, 'RESUMEN EJECUTIVO', hoy)
+    dibujarPie(doc, pw, ph, 2)
+    const kpiW = (pw - 28 - 4) / 2
+    dibujarKpi(doc, 14, PDF_CONTENT_Y, kpiW, 20, 'Total egresos', totalEgresos)
+    dibujarKpi(doc, 14 + kpiW + 4, PDF_CONTENT_Y, kpiW, 20, 'Destinos distintos', destinoMercaderia.length)
+    let y2d = PDF_CONTENT_Y + 28
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(50, 50, 50)
+    const p1Dest = `Durante el período ${periodo}, se registraron ${totalEgresos} egreso${totalEgresos !== 1 ? 's' : ''} en ${destinoMercaderia.length} destino${destinoMercaderia.length !== 1 ? 's' : ''}, totalizando ${totalUnidades.toLocaleString('es-AR', { maximumFractionDigits: 2 })} uds/kg.`
+    doc.text(doc.splitTextToSize(`• ${p1Dest}`, pw - 28), 14, y2d)
 
     // P3+ — Detalle por destino
     for (const grupo of destinoMercaderia) {
       doc.addPage()
-      doc.setFontSize(13); doc.setTextColor(17, 24, 39)
-      doc.text(`Destino: ${grupo.destino}`, 14, 16)
-      doc.setFontSize(9); doc.setTextColor(100, 100, 100)
-      doc.text(`${grupo.items.length} egreso${grupo.items.length !== 1 ? 's' : ''} · Total: ${grupo.total.toLocaleString('es-AR', { maximumFractionDigits: 2 })}`, 14, 22)
-      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 25, pw - 14, 25)
       autoTable(doc, {
-        startY: 29,
+        ...EST, startY: PDF_CONTENT_Y,
         head: [['FECHA', 'PRODUCTO', 'CANTIDAD', 'LOTE', 'RECIBIÓ']],
         body: grupo.items.map(m => [
           formatFecha(m.created_at), m.producto_nombre || '—',
           formatCantidad(m), m.lote || '—', m.operario_recibe || '—',
         ]),
-        styles: { ...ST, fontSize: 7.5 }, headStyles: HS,
-        foot: [[{ content: `SUBTOTAL: ${grupo.items.length} egresos · ${grupo.total.toFixed(2)} uds/kg`, colSpan: 5, styles: { fontStyle: 'bold', halign: 'right', fillColor: [241, 245, 249], textColor: [30, 41, 59] } }]],
+        foot: [[{ content: `SUBTOTAL: ${grupo.items.length} egresos · ${grupo.total.toFixed(2)} uds/kg`, colSpan: 5, styles: { ...EST.footStyles, halign: 'right' } }]],
+        didDrawPage: () => {
+          dibujarEncabezado(doc, pw, MOD, `DESTINO: ${grupo.destino}`, hoy)
+          dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+        },
       })
     }
 
-    // Última — Firmas
+    // Firmas
     doc.addPage()
-    doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text('Conformidad y Firmas', 14, 20)
-    doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.8); doc.line(14, 24, pw - 14, 24)
-    doc.setFontSize(9); doc.setTextColor(100, 100, 100)
-    doc.text(doc.splitTextToSize(`Informe de destino de mercadería — período ${periodo} — generado el ${hoy}.`, pw - 28), 14, 34)
-    let yF = 60
-    ;['Responsable de Depósito', 'Gerencia', 'Fecha'].forEach(rol => {
-      doc.setDrawColor(100, 100, 100); doc.setLineWidth(0.3); doc.line(14, yF, 80, yF)
-      doc.setFontSize(8); doc.setTextColor(100, 100, 100)
-      doc.text(rol, 14, yF + 5); doc.text('Nombre y apellido: ___________________________', 14, yF + 11)
-      yF += 30
-    })
+    dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Responsable de Depósito', 'Gerencia', 'Fecha'])
     doc.save(`destino_mercaderia_${new Date().toISOString().split('T')[0]}.pdf`)
   }
 
   async function _pdfOperarios() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-    const pw = doc.internal.pageSize.getWidth()
-    const HS = { fillColor: [212, 82, 26], textColor: 255 }
-    const ST = { fontSize: 8, cellPadding: 2 }
+    const pw  = doc.internal.pageSize.getWidth()
+    const ph  = doc.internal.pageSize.getHeight()
     const hoy = new Date().toLocaleString('es-AR')
     const periodo = _periodoLabel()
-    const totalRetiros = entregasPorOperario.reduce((a, g) => a + g.items.length, 0)
+    const MOD = 'DEPÓSITO'
+    const EST = getEstiloInforme()
+
+    const totalRetiros  = entregasPorOperario.reduce((a, g) => a + g.items.length, 0)
     const totalUnidades = entregasPorOperario.reduce((a, g) => a + g.total, 0)
 
     // P1 — Portada
-    try { doc.addImage(LOGO_HORIZONTAL, 'PNG', (pw - 64) / 2, 35, 64, 16) } catch {}
-    doc.setFontSize(20); doc.setTextColor(17, 24, 39)
-    doc.text('INFORME DE ENTREGAS POR OPERARIO', pw / 2, 80, { align: 'center' })
-    doc.setDrawColor(212, 82, 26); doc.setLineWidth(1); doc.line(30, 86, pw - 30, 86)
-    doc.setFontSize(12); doc.setTextColor(100, 100, 100)
-    doc.text(`Período: ${periodo}`, pw / 2, 96, { align: 'center' })
-    doc.setFontSize(9); doc.text(`Fecha de emisión: ${hoy}`, pw / 2, 104, { align: 'center' })
-    doc.setFontSize(7.5); doc.setTextColor(212, 82, 26)
-    doc.text('Confidencial — Del Parque', pw / 2, 114, { align: 'center' })
+    dibujarPortada(doc, pw, ph, MOD, 'ENTREGAS POR OPERARIO', periodo, hoy)
 
     // P2 — Ranking
     doc.addPage()
-    doc.setFontSize(14); doc.setTextColor(17, 24, 39)
-    doc.text('Ranking de operarios', 14, 16)
-    doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 19, pw - 14, 19)
     autoTable(doc, {
-      startY: 24,
+      ...EST, startY: PDF_CONTENT_Y,
       head: [['#', 'OPERARIO', 'N° RETIROS', 'TOTAL UDS/KG', '% DEL TOTAL']],
       body: entregasPorOperario.map((g, i) => [
         String(i + 1), g.operario, String(g.items.length),
         g.total.toLocaleString('es-AR', { maximumFractionDigits: 2 }),
         totalUnidades > 0 ? `${((g.total / totalUnidades) * 100).toFixed(1)}%` : '—',
       ]),
-      styles: { ...ST, fontSize: 8 }, headStyles: HS,
-      didParseCell(data) {
-        if (data.section === 'body' && data.row.index === 0 && data.column.index === 0)
-          data.cell.styles.textColor = [212, 82, 26]
+      foot: [[{ content: `TOTAL: ${totalRetiros} retiros · ${totalUnidades.toFixed(2)} uds/kg`, colSpan: 5, styles: { ...EST.footStyles, halign: 'right' } }]],
+      didDrawPage: () => {
+        dibujarEncabezado(doc, pw, MOD, 'RANKING DE OPERARIOS', hoy)
+        dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
       },
-      foot: [[{ content: `TOTAL: ${totalRetiros} retiros · ${totalUnidades.toFixed(2)} uds/kg`, colSpan: 5, styles: { fontStyle: 'bold', halign: 'right', fillColor: [255, 247, 237], textColor: [212, 82, 26] } }]],
     })
-    let y2 = doc.lastAutoTable.finalY + 10
-    doc.setFontSize(9); doc.setTextColor(70, 70, 70)
-    const p1 = `Durante el período ${periodo}, ${entregasPorOperario.length} operario${entregasPorOperario.length !== 1 ? 's' : ''} realizaron ${totalRetiros} retiro${totalRetiros !== 1 ? 's' : ''} de mercadería, totalizando ${totalUnidades.toLocaleString('es-AR', { maximumFractionDigits: 2 })} unidades/kg.`
-    doc.text(doc.splitTextToSize(`• ${p1}`, pw - 28), 14, y2)
+    const rankY = doc.lastAutoTable.finalY + 7
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(50, 50, 50)
+    const p1Op = `Durante el período ${periodo}, ${entregasPorOperario.length} operario${entregasPorOperario.length !== 1 ? 's' : ''} realizaron ${totalRetiros} retiro${totalRetiros !== 1 ? 's' : ''}, totalizando ${totalUnidades.toLocaleString('es-AR', { maximumFractionDigits: 2 })} uds/kg.`
+    doc.text(doc.splitTextToSize(`• ${p1Op}`, pw - 28), 14, rankY)
 
     // P3+ — Detalle por operario
     for (const grupo of entregasPorOperario) {
       doc.addPage()
-      doc.setFontSize(13); doc.setTextColor(17, 24, 39)
-      doc.text(`Operario: ${grupo.operario}`, 14, 16)
-      doc.setFontSize(9); doc.setTextColor(100, 100, 100)
-      doc.text(`${grupo.items.length} retiro${grupo.items.length !== 1 ? 's' : ''} · Total: ${grupo.total.toLocaleString('es-AR', { maximumFractionDigits: 2 })}`, 14, 22)
-      doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5); doc.line(14, 25, pw - 14, 25)
       autoTable(doc, {
-        startY: 29,
+        ...EST, startY: PDF_CONTENT_Y,
         head: [['FECHA', 'PRODUCTO', 'CANTIDAD', 'DESTINO', 'MOTIVO']],
         body: grupo.items.map(m => [
           formatFecha(m.created_at), m.producto_nombre || '—',
           formatCantidad(m), m.destino || '—', m.motivo || '—',
         ]),
-        styles: { ...ST, fontSize: 7.5 }, headStyles: HS,
-        foot: [[{ content: `SUBTOTAL: ${grupo.items.length} retiros · ${grupo.total.toFixed(2)} uds/kg`, colSpan: 5, styles: { fontStyle: 'bold', halign: 'right', fillColor: [255, 247, 237], textColor: [212, 82, 26] } }]],
+        foot: [[{ content: `SUBTOTAL: ${grupo.items.length} retiros · ${grupo.total.toFixed(2)} uds/kg`, colSpan: 5, styles: { ...EST.footStyles, halign: 'right' } }]],
+        didDrawPage: () => {
+          dibujarEncabezado(doc, pw, MOD, `OPERARIO: ${grupo.operario}`, hoy)
+          dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+        },
       })
     }
 
-    // Última — Firmas
+    // Firmas
     doc.addPage()
-    doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text('Conformidad y Firmas', 14, 20)
-    doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.8); doc.line(14, 24, pw - 14, 24)
-    doc.setFontSize(9); doc.setTextColor(100, 100, 100)
-    doc.text(doc.splitTextToSize(`Informe de entregas por operario — período ${periodo} — generado el ${hoy}.`, pw - 28), 14, 34)
-    let yF = 60
-    ;['Responsable de Depósito', 'Gerencia', 'Fecha'].forEach(rol => {
-      doc.setDrawColor(100, 100, 100); doc.setLineWidth(0.3); doc.line(14, yF, 80, yF)
-      doc.setFontSize(8); doc.setTextColor(100, 100, 100)
-      doc.text(rol, 14, yF + 5); doc.text('Nombre y apellido: ___________________________', 14, yF + 11)
-      yF += 30
-    })
+    dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Responsable de Depósito', 'Gerencia', 'Fecha'])
     doc.save(`entregas_operario_${new Date().toISOString().split('T')[0]}.pdf`)
   }
 

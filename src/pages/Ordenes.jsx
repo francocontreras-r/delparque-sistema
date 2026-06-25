@@ -5,6 +5,11 @@ import { useUser } from '../context/UserContext'
 import { deduplicarOperarios } from '../lib/operarios'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import {
+  getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
+  dibujarKpi, dibujarSeccion, dibujarPaginaFirmas,
+  PDF_CONTENT_Y, PDF_NEGRO,
+} from '../lib/pdfEstilos'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
@@ -986,31 +991,40 @@ export default function Ordenes() {
     }
 
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-    const pageWidth = doc.internal.pageSize.getWidth()
+    const pw  = doc.internal.pageSize.getWidth()
+    const ph  = doc.internal.pageSize.getHeight()
+    const hoy = new Date().toLocaleString('es-AR')
+    const MOD = 'ÓRDENES'
+    const TIT = `ORDEN DE PRODUCCIÓN N° ${grupo.numero}`
+    const EST = getEstiloInforme()
 
-    try {
-      const logoData = await toDataURL(logoUrl)
-      doc.addImage(logoData, 'PNG', 14, 10, 36, 13)
-    } catch {
-      // si no se puede cargar el logo, se continúa sin él
-    }
+    const periodoPortada = [
+      grupo.fecha ? `Fecha programada: ${grupo.fecha}` : null,
+      grupo.operario ? `Operario: ${grupo.operario}` : null,
+    ].filter(Boolean).join('  ·  ')
 
-    doc.setFontSize(11)
-    doc.setTextColor(40, 40, 40)
-    doc.text(`Orden de Producción ${grupo.numero}`, pageWidth - 14, 14, { align: 'right' })
+    // P1 — Portada
+    dibujarPortada(doc, pw, ph, MOD, TIT, periodoPortada || null, hoy)
 
-    doc.setFontSize(8)
-    doc.setTextColor(120, 120, 120)
-    doc.text(`Emitida: ${new Date().toLocaleDateString('es-AR')}`, pageWidth - 14, 19, { align: 'right' })
+    // P2 — Detalle de la orden
+    doc.addPage()
 
-    doc.setFontSize(9)
-    doc.setTextColor(80, 80, 80)
-    doc.text(`Fecha programada: ${grupo.fecha || '—'}`, 14, 28)
-    doc.text(`Operario asignado: ${grupo.operario || '—'}`, 14, 33)
+    // KPIs compactos: total sabores, batches totales, impulsivos
+    const totalHelados   = grupo.items.filter(i => i.tipo_producto !== 'impulsivo').length
+    const totalImpulsivos = grupo.items.filter(i => i.tipo_producto === 'impulsivo').length
+    const totalBatches   = grupo.items.reduce((a, i) => a + (i.batches || 0), 0)
+    const kpiW = (pw - 28 - 6) / 3
+    dibujarKpi(doc, 14,                 PDF_CONTENT_Y, kpiW, 18, 'Helados', totalHelados)
+    dibujarKpi(doc, 14 + kpiW + 3,     PDF_CONTENT_Y, kpiW, 18, 'Impulsivos/Postres', totalImpulsivos)
+    dibujarKpi(doc, 14 + (kpiW + 3)*2, PDF_CONTENT_Y, kpiW, 18, 'Total batches', totalBatches)
+
+    let finalY = PDF_CONTENT_Y + 26
+    finalY = dibujarSeccion(doc, pw, 'Productos de la orden', finalY)
 
     autoTable(doc, {
-      startY: 40,
-      head: [['Producto', 'Tipo', 'Cantidad', 'Estado']],
+      ...EST,
+      startY: finalY,
+      head: [['PRODUCTO', 'TIPO', 'CANTIDAD', 'ESTADO']],
       body: grupo.items.map(it => [
         it.sabor_nombre,
         it.tipo_producto === 'impulsivo' ? 'Impulsivo/Postre' : 'Helado',
@@ -1019,76 +1033,65 @@ export default function Ordenes() {
           : `${it.batches} batch${it.batches !== 1 ? 'es' : ''} (${it.litros_total} L)`,
         estadoInfo(it.estado).label,
       ]),
-      styles: { fontSize: 9, cellPadding: 2 },
-      headStyles: { fillColor: [212, 82, 26], textColor: 255 },
-      alternateRowStyles: { fillColor: [249, 250, 251] },
+      didDrawPage: () => {
+        dibujarEncabezado(doc, pw, MOD, TIT, hoy)
+        dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+      },
     })
 
-    let finalY = (doc.lastAutoTable?.finalY || 40) + 10
+    finalY = (doc.lastAutoTable?.finalY || finalY) + 8
 
+    // Observaciones
     const obs = grupo.items.find(i => i.observaciones)?.observaciones
     if (obs) {
-      doc.setFontSize(8)
-      doc.setTextColor(120, 120, 120)
+      if (finalY > ph - 40) { doc.addPage(); finalY = PDF_CONTENT_Y }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...PDF_NEGRO)
       doc.text('Observaciones:', 14, finalY)
-      doc.setFontSize(9)
-      doc.setTextColor(40, 40, 40)
-      doc.text(obs, 14, finalY + 5, { maxWidth: pageWidth - 28 })
-      finalY += 15
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(50, 50, 50)
+      const obsLines = doc.splitTextToSize(obs, pw - 28)
+      doc.text(obsLines, 14, finalY + 5)
+      finalY += 6 + obsLines.length * 5
     }
 
-    // Sección de materias primas por cada helado
+    // Materias primas por cada helado
     const mpSecciones = grupo.items
       .filter(it => it.tipo_producto === 'helado')
       .map(it => ({ it, mp: computeMateriasPrimas(it, ctx) }))
       .filter(s => s.mp.length > 0)
 
     for (const { it, mp } of mpSecciones) {
-      if (finalY > doc.internal.pageSize.getHeight() - 40) {
-        doc.addPage()
-        finalY = 20
-      }
-      doc.setFontSize(9)
-      doc.setTextColor(55, 65, 81)
-      doc.setFont(undefined, 'bold')
-      doc.text(`Materias Primas — ${it.sabor_nombre} (${it.batches} batches)`, 14, finalY)
-      doc.setFont(undefined, 'normal')
-      finalY += 4
+      if (finalY > ph - 50) { doc.addPage(); finalY = PDF_CONTENT_Y }
+      finalY = dibujarSeccion(doc, pw, `Materias primas — ${it.sabor_nombre} (${it.batches} batch${it.batches !== 1 ? 'es' : ''})`, finalY + 4)
       autoTable(doc, {
+        ...EST,
+        styles: { ...EST.styles, fontSize: 7.5 },
         startY: finalY,
-        head: [['Ingrediente', 'Necesario', 'Desglose', 'Stock', 'Estado', 'Entregado ✓']],
+        head: [['INGREDIENTE', 'NECESARIO', 'DESGLOSE', 'STOCK', 'ESTADO', 'ENTREGADO']],
         body: mp.map(m => [
           m.nombre,
           `${fmtNum(m.necesario)} ${m.unidad}`,
-          m.batches > 0 ? `${fmtNum(m.cantidadPorBatch)} ${m.unidad} × ${m.batches} btch` : '',
-          m.estado === 'sinlimite' ? '♾️' : `${fmtNum(m.disponible)} ${m.unidad}`,
-          m.estado === 'sinlimite' ? 'Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUF.',
+          m.batches > 0 ? `${fmtNum(m.cantidadPorBatch)} × ${m.batches} btch` : '',
+          m.estado === 'sinlimite' ? '∞' : `${fmtNum(m.disponible)} ${m.unidad}`,
+          m.estado === 'sinlimite' ? 'Sin límite' : m.estado === 'ok' ? 'OK' : 'INSUF.',
           '',
         ]),
-        styles: { fontSize: 8, cellPadding: 1.5 },
-        headStyles: { fillColor: [212, 82, 26], textColor: 255 },
-        alternateRowStyles: { fillColor: [249, 250, 251] },
+        didParseCell(data) {
+          if (data.section !== 'body' || data.column.index !== 4) return
+          const estado = mp[data.row.index]?.estado
+          if (estado === 'insuficiente') data.cell.styles.textColor = [180, 40, 40]
+          else if (estado === 'ok') data.cell.styles.textColor = [30, 120, 60]
+        },
+        didDrawPage: () => {
+          dibujarEncabezado(doc, pw, MOD, TIT, hoy)
+          dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+        },
       })
       finalY = (doc.lastAutoTable?.finalY || finalY) + 8
     }
 
-    finalY += 20
-    if (finalY > doc.internal.pageSize.getHeight() - 10) {
-      doc.addPage()
-      finalY = 20
-    }
-
-    const firmas = [
-      { label: 'Supervisor', x: 14 },
-      { label: 'Operario / Fecha', x: pageWidth / 2 - 28 },
-      { label: 'Control de Calidad', x: pageWidth - 70 },
-    ]
-    doc.setFontSize(8)
-    doc.setTextColor(80, 80, 80)
-    firmas.forEach(f => {
-      doc.line(f.x, finalY - 4, f.x + 56, finalY - 4)
-      doc.text(f.label, f.x, finalY)
-    })
+    // Firmas
+    doc.addPage()
+    dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Supervisor', 'Operario / Fecha', 'Control de Calidad'])
 
     doc.save(`orden_${grupo.numero}.pdf`)
     setPdfLoadingGrupo(null)

@@ -566,55 +566,80 @@ export default function Produccion() {
 
   function imprimirInforme() {
     const w = window.open('', '_blank')
-    const filas = informeData.map(r => `
-      <tr>
+    const totalKg  = informeData.reduce((a, r) => a + (r.peso_kg || 0), 0)
+    const totalOps = new Set(informeData.map(r => r.operario_nombre).filter(Boolean)).size
+    const filas = informeData.map((r, i) => `
+      <tr class="${i % 2 === 1 ? 'alt' : ''}">
         <td>${new Date(r.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</td>
         <td>${r.producto_nombre}</td>
         <td>${r.categoria || '—'}</td>
         <td>${r.operario_nombre || '—'}</td>
-        <td style="text-align:right">${fmtPeso(r.peso_kg, unidadDe(r))} ${unidadDe(r)}</td>
+        <td class="r">${fmtPeso(r.peso_kg, unidadDe(r))} ${unidadDe(r)}</td>
         <td>${r.lote || '—'}</td>
         <td>${r.observaciones || ''}</td>
       </tr>`).join('')
-    const subfilas = subtotales.map(s => `
-      <tr>
+    const subfilas = subtotales.map((s, i) => `
+      <tr class="${i % 2 === 1 ? 'alt' : ''}">
         <td>${s.operario}</td>
-        <td style="text-align:right">${s.registros}</td>
-        <td style="text-align:right">${fmtNum(s.cantidad)}</td>
+        <td class="r">${s.registros}</td>
+        <td class="r">${fmtNum(s.cantidad)}</td>
       </tr>`).join('')
     w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
     <title>Informe de producción ${fechaHoy}</title>
     <style>
       *{box-sizing:border-box;margin:0;padding:0}
-      body{font-family:Arial,sans-serif;font-size:11px;padding:24px}
-      .header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:20px}
-      .logo-img{height:32px;display:block}
-      .sub{font-size:10px;color:#666}
-      h2{font-size:13px;margin:18px 0 8px}
-      table{width:100%;border-collapse:collapse;margin-bottom:8px}
-      th{background:#f3f4f6;font-size:9px;font-weight:700;text-transform:uppercase;padding:6px 8px;text-align:left;border-bottom:2px solid ${colors.brand}}
-      td{padding:6px 8px;border-bottom:1px solid #f3f4f6;font-size:11px}
-      .firma-area{display:flex;gap:48px;margin-top:48px}
-      .firma{flex:1;border-top:1px solid #374151;padding-top:8px;font-size:9px;color:#6b7280}
-      @media print{body{padding:0}}
+      body{font-family:Arial,sans-serif;font-size:10px;padding:20px}
+      .banner{background:#141414;color:#fff;padding:5px 14px;font-size:8px;font-weight:700;letter-spacing:.5px;display:flex;justify-content:space-between;margin:-20px -20px 14px}
+      .header{display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:2px solid #141414;margin-bottom:14px}
+      .logo-img{height:26px;display:block}
+      .title{font-size:13px;font-weight:700;color:#141414}
+      .sub{font-size:8px;color:#555;margin-top:2px}
+      .kpis{display:flex;gap:10px;margin-bottom:14px}
+      .kpi{flex:1;background:#f5f5f5;padding:8px 10px;border-left:3px solid #141414}
+      .kpi-lbl{font-size:7px;color:#666;text-transform:uppercase;letter-spacing:.3px}
+      .kpi-val{font-size:14px;font-weight:700;color:#141414;margin-top:2px}
+      h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 6px;color:#141414;padding-bottom:3px;border-bottom:1px solid #d0d0d0}
+      table{width:100%;border-collapse:collapse;margin-bottom:10px}
+      th{background:#141414;color:#fff;font-size:7.5px;font-weight:700;text-transform:uppercase;padding:5px 6px;text-align:left}
+      td{padding:4px 6px;border-bottom:1px solid #e8e8e8;font-size:9px}
+      tr.alt td{background:#f5f5f5}
+      .r{text-align:right}
+      .footer-line{border-top:1.5px solid #141414;margin-top:36px;padding-top:4px;display:flex;justify-content:space-between}
+      .footer-txt{font-size:7px;color:#666}
+      .firmas{display:flex;gap:24px;margin-top:32px}
+      .firma{flex:1;border-top:1.5px solid #141414;padding-top:6px;font-size:8px;color:#555}
+      @media print{body{padding:0}.banner{margin:0 0 12px}}
     </style></head><body>
+    <div class="banner"><span>PRODUCCIÓN</span><span>DEL PARQUE</span></div>
     <div class="header">
       <img src="${logoUrl}" class="logo-img" alt="Del Parque" />
-      <div class="sub">Informe de producción del día · ${fechaHoy} · Lote ${lote}</div>
+      <div style="text-align:right">
+        <div class="title">INFORME DE PRODUCCIÓN DIARIA</div>
+        <div class="sub">${fechaHoy} &nbsp;·&nbsp; Lote ${lote}</div>
+      </div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="kpi-lbl">Total registros</div><div class="kpi-val">${informeData.length}</div></div>
+      <div class="kpi"><div class="kpi-lbl">Total producido</div><div class="kpi-val">${totalKg.toFixed(2)} kg</div></div>
+      <div class="kpi"><div class="kpi-lbl">Operarios activos</div><div class="kpi-val">${totalOps}</div></div>
     </div>
     <h2>Detalle de registros</h2>
     <table>
-      <thead><tr><th>Hora</th><th>Producto</th><th>Categoría</th><th>Operario</th><th>Cantidad</th><th>Lote</th><th>Observaciones</th></tr></thead>
+      <thead><tr><th>Hora</th><th>Producto</th><th>Categoría</th><th>Operario</th><th class="r">Cantidad</th><th>Lote</th><th>Observaciones</th></tr></thead>
       <tbody>${filas}</tbody>
     </table>
     <h2>Subtotales por operario</h2>
     <table>
-      <thead><tr><th>Operario</th><th>Registros</th><th>Cantidad total</th></tr></thead>
+      <thead><tr><th>Operario</th><th class="r">Registros</th><th class="r">Cantidad total</th></tr></thead>
       <tbody>${subfilas}</tbody>
     </table>
-    <div class="firma-area">
+    <div class="firmas">
       <div class="firma">Supervisor</div>
       <div class="firma">Control de Calidad</div>
+    </div>
+    <div class="footer-line">
+      <span class="footer-txt">Confidencial — Del Parque</span>
+      <span class="footer-txt">Emitido: ${new Date().toLocaleString('es-AR')}</span>
     </div>
     </body></html>`)
     w.document.close()

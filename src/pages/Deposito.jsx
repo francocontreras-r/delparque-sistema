@@ -22,6 +22,7 @@ import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, ClipboardCheck, AlertTriangle, TrendingUp, BarChart2, ChevronRight, Plus, Trash2, Clock } from 'lucide-react'
 const logoUrl = '/logo_delparque.png'
+import { LOGO_HORIZONTAL } from '../assets/logos'
 import {
   getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
   dibujarKpi, dibujarSeccion, dibujarPaginaFirmas,
@@ -844,6 +845,48 @@ function ModalDetMovimiento({ mov, onClose }) {
   )
 }
 
+// ── Modal para aprobar conteo con motivos obligatorios ────────────────────────
+const MOTIVOS_AJUSTE = [
+  'Error de conteo anterior', 'Merma no registrada', 'Ingreso no registrado',
+  'Egreso no registrado', 'Vencimiento y descarte', 'Rotura o derrame',
+  'Ajuste de inventario',
+]
+function ModalAprobarConteo({ productos, onClose, onConfirm, saving }) {
+  const [motivos, setMotivos] = useState(() => Object.fromEntries(productos.map(p => [p.nombre, ''])))
+  const completo = productos.every(p => motivos[p.nombre])
+  return (
+    <Modal open onClose={onClose} title="Aprobar conteo — Ajustes de inventario" maxWidth="max-w-md"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">Cancelar</Button>
+          <Button variant="primary" onClick={() => onConfirm(motivos)} disabled={!completo} loading={saving} className="flex-1">
+            Confirmar y aprobar
+          </Button>
+        </>
+      }>
+      <div className="space-y-3">
+        <p className="text-xs" style={{ color: colors.textMuted }}>
+          Ingresá el motivo para cada diferencia detectada. Esto generará un ajuste en el stock.
+        </p>
+        {productos.map(p => (
+          <div key={p.nombre} className="p-3 rounded-lg space-y-2" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold" style={{ color: colors.textPrimary }}>{p.nombre}</span>
+              <span className="text-xs font-bold" style={{ color: p.diferencia > 0 ? colors.success : colors.danger }}>
+                {p.diferencia > 0 ? '+' : ''}{p.diferencia.toFixed(2)} {p.unidad}
+              </span>
+            </div>
+            <Select value={motivos[p.nombre]} onChange={e => setMotivos(m => ({ ...m, [p.nombre]: e.target.value }))}>
+              <option value="">— Motivo obligatorio —</option>
+              {MOTIVOS_AJUSTE.map(m => <option key={m} value={m}>{m}</option>)}
+            </Select>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  )
+}
+
 export default function Deposito() {
   const [tab, setTab]             = useState('Movimientos')
   const [movimientos, setMovimientos] = useState([])
@@ -894,6 +937,14 @@ export default function Deposito() {
   const [filtroVencimiento, setFiltroVencimiento] = useState(false)
   const [generandoPDFcamara, setGenerandoPDFcamara] = useState(false)
   const tablaDepositoRef = useRef(null)
+
+  // ── Conteo formal semanal ──────────────────────────────────────────────────
+  const [conteoEstado, setConteoEstado]         = useState('SIN_INICIAR') // SIN_INICIAR | EN_PROCESO | COMPLETADO | APROBADO
+  const [conteoResponsable, setConteoResponsable] = useState('')
+  const [conteoFilasDepo, setConteoFilasDepo]   = useState([]) // [{id,nombre,categoria,unidad,stockSistema,costo_unitario,stockFisico}]
+  const [conteoFilasCam, setConteoFilasCam]     = useState([]) // [{id,nombre,tipo,stockKg,stockBaldes,fisKg,fisBaldes}]
+  const [modalAjustes, setModalAjustes]         = useState(false)
+  const [generandoPDFconteo, setGenerandoPDFconteo] = useState(false)
 
   const { isAdmin, profile, user } = useUser()
   const showVal = isAdmin
@@ -1282,6 +1333,90 @@ export default function Deposito() {
     cargar()
   }
 
+  // ── Conteo formal ─────────────────────────────────────────────────────────
+  function iniciarConteo() {
+    if (!conteoResponsable) { toast2('Seleccioná un responsable antes de iniciar', 'error'); return }
+    setConteoFilasDepo(insumos.map(i => ({
+      id: i.id, nombre: i.nombre, categoria: i.categoria || 'General',
+      unidad: i.unidad || 'u', stockSistema: i.stock_actual || 0,
+      costo_unitario: i.costo_unitario || 0, stockFisico: '',
+    })))
+    setConteoFilasCam(stockCamaras.map(c => ({
+      id: c.id, nombre: c.nombre, tipo: c.tipo_producto || 'helado',
+      stockKg: c.kg || 0, stockBaldes: c.baldes || 0, fisKg: '', fisBaldes: '',
+    })))
+    setConteoEstado('EN_PROCESO')
+    toast2('Conteo iniciado — ingresá los stocks físicos')
+  }
+
+  async function guardarConteoFormal() {
+    setSavingConteo(true)
+    const tipo = seccionCS
+    const filas = tipo === 'deposito'
+      ? conteoFilasDepo.filter(f => f.stockFisico !== '').map(f => ({
+          tipo, producto_nombre: f.nombre, stock_sistema: f.stockSistema,
+          stock_fisico: parseFloat(f.stockFisico),
+          diferencia: parseFloat(f.stockFisico) - f.stockSistema,
+          responsable: conteoResponsable,
+        }))
+      : conteoFilasCam.filter(c => c.fisKg !== '' || c.fisBaldes !== '').map(c => ({
+          tipo, producto_nombre: c.nombre, stock_sistema: c.stockKg,
+          stock_fisico: parseFloat(c.fisKg) || c.stockKg,
+          diferencia: (parseFloat(c.fisKg) || c.stockKg) - c.stockKg,
+          responsable: conteoResponsable,
+        }))
+    if (filas.length === 0) { setSavingConteo(false); toast2('Sin datos de conteo para guardar', 'error'); return }
+    const { error } = await supabase.from('conteos_stock').insert(filas)
+    setSavingConteo(false)
+    if (error) { toast2(error.message, 'error'); return }
+    setConteoEstado('COMPLETADO')
+    toast2(`Conteo guardado — ${filas.length} producto${filas.length !== 1 ? 's' : ''} registrado${filas.length !== 1 ? 's' : ''}`)
+  }
+
+  async function aprobarConteoFormal(motivos) {
+    setSavingConteo(true)
+    try {
+      const fecha = new Date().toISOString().split('T')[0]
+      const filasDepo = conteoFilasDepo.filter(f => {
+        const fis = parseFloat(f.stockFisico)
+        return !isNaN(fis) && fis !== f.stockSistema
+      })
+      const filasCAM = conteoFilasCam.filter(c => {
+        const fk = parseFloat(c.fisKg)
+        return !isNaN(fk) && fk !== c.stockKg
+      })
+      for (const f of filasDepo) {
+        const fis = parseFloat(f.stockFisico)
+        const diff = fis - f.stockSistema
+        const motivo = motivos[f.nombre] || 'Ajuste de inventario'
+        await supabase.from('insumos').update({ stock_actual: fis }).eq('id', f.id)
+        await supabase.from('movimientos_deposito').insert({
+          tipo: diff > 0 ? 'ingreso' : 'egreso',
+          fecha, producto_nombre: f.nombre,
+          cantidad: Math.abs(diff), unidad: f.unidad,
+          motivo: 'Ajuste de inventario', observaciones: motivo,
+          controlo: (conteoResponsable || '').toUpperCase() || null,
+          marca: 'AJUSTE', presentacion: 'Sin Presentación', lote: `CONTEO-${fecha}`,
+          fecha_vencimiento: null, usuario_email: user?.email || null,
+        })
+      }
+      for (const c of filasCAM) {
+        const fk = parseFloat(c.fisKg)
+        const fb = c.fisBaldes !== '' ? parseInt(c.fisBaldes, 10) : c.stockBaldes
+        await supabase.from('stock_camaras').update({ kg: fk, baldes: fb }).eq('id', c.id)
+      }
+      const total = filasDepo.length + filasCAM.length
+      setConteoEstado('APROBADO')
+      setModalAjustes(false)
+      toast2(`Conteo aprobado — ${total} ajuste${total !== 1 ? 's' : ''} realizado${total !== 1 ? 's' : ''}`)
+      cargar()
+    } catch (err) {
+      toast2(err.message, 'error')
+    } finally {
+      setSavingConteo(false)
+    }
+  }
+
   const aniosDisponibles = useMemo(() => {
     const set = new Set(movimientos.map(m => m.fecha ? Number(m.fecha.split('-')[0]) : null).filter(Boolean))
     set.add(new Date().getFullYear())
@@ -1416,6 +1551,16 @@ export default function Deposito() {
     })
   }, [insumos, movimientos, ultimosConteos, rangoCS])
 
+  const semanaLabel = useMemo(() => {
+    if (!rangoCS.desde || !rangoCS.hasta) return 'Semana actual'
+    const d = new Date(rangoCS.desde + 'T12:00:00')
+    const h = new Date(rangoCS.hasta + 'T12:00:00')
+    const M = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+    if (d.getMonth() === h.getMonth() && d.getFullYear() === h.getFullYear())
+      return `Semana del ${d.getDate()} al ${h.getDate()} de ${M[h.getMonth()]} ${h.getFullYear()}`
+    return `Semana del ${d.getDate()} de ${M[d.getMonth()]} al ${h.getDate()} de ${M[h.getMonth()]} ${h.getFullYear()}`
+  }, [rangoCS])
+
   const alertasCS = useMemo(() => {
     const al = []
     controlSemanal.forEach(r => {
@@ -1541,6 +1686,244 @@ export default function Deposito() {
       setGenerandoPDFcamara(false)
     }
   }
+
+  async function generarPDFConteoSemanal() {
+    setGenerandoPDFconteo(true)
+    try {
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+      const W = doc.internal.pageSize.getWidth()
+      const H = doc.internal.pageSize.getHeight()
+      const N  = [212, 82, 26]   // naranja
+      const OS = [15, 23, 42]    // oscuro bg
+      const ME = [30, 41, 59]    // medio bg
+      const TX = [241, 245, 249] // texto claro
+      const HS = { fillColor: N, textColor: [255,255,255], fontStyle: 'bold', fontSize: 8 }
+      const BS = { fillColor: ME, textColor: TX, fontSize: 8 }
+      const AS = { fillColor: OS }
+      const LI = { lineColor: [51,65,85], lineWidth: 0.1 }
+      const hoyStr = new Date().toLocaleDateString('es-AR')
+      const secLbl = seccionCS === 'deposito' ? 'DEPÓSITO' : 'CÁMARAS'
+      const filasDep = conteoFilasDepo
+      const filasCam = conteoFilasCam
+
+      function fondoOscuro() {
+        doc.setFillColor(...OS); doc.rect(0, 0, W, H, 'F')
+        doc.setFillColor(...N); doc.rect(0, 0, W, 3, 'F')
+      }
+
+      // ── P1 PORTADA ───────────────────────────────────────────────────────
+      fondoOscuro()
+      try { doc.addImage(LOGO_HORIZONTAL, 'PNG', (W - 64) / 2, 32, 64, 16) } catch {}
+      doc.setFillColor(...N); doc.rect(0, H / 2 - 1, W, 2, 'F')
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(255, 255, 255)
+      doc.text('CONTROL DE STOCK SEMANAL', W / 2, H / 2 - 15, { align: 'center' })
+      doc.setFontSize(13); doc.setTextColor(...N)
+      doc.text(secLbl, W / 2, H / 2 - 5, { align: 'center' })
+      doc.setFontSize(10); doc.setTextColor(...TX)
+      doc.text(semanaLabel, W / 2, H / 2 + 12, { align: 'center' })
+      if (conteoResponsable) doc.text(`Responsable: ${conteoResponsable}`, W / 2, H / 2 + 22, { align: 'center' })
+      doc.text(`Fecha de emisión: ${hoyStr}`, W / 2, H / 2 + 32, { align: 'center' })
+      doc.setFontSize(10); doc.setTextColor(...N)
+      doc.text(`Estado: ${conteoEstado}`, W / 2, H / 2 + 42, { align: 'center' })
+      doc.setFontSize(8); doc.setTextColor(100, 116, 139)
+      doc.text('CONFIDENCIAL — USO INTERNO', W / 2, H - 14, { align: 'center' })
+
+      // ── P2 RESUMEN EJECUTIVO ──────────────────────────────────────────────
+      doc.addPage(); fondoOscuro()
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(255, 255, 255)
+      doc.text('RESUMEN EJECUTIVO', 14, 14)
+
+      const contados = seccionCS === 'deposito'
+        ? filasDep.filter(f => f.stockFisico !== '').length
+        : filasCam.filter(c => c.fisKg !== '').length
+      const conDiff = seccionCS === 'deposito'
+        ? filasDep.filter(f => { const v = parseFloat(f.stockFisico); return !isNaN(v) && v !== f.stockSistema }).length
+        : filasCam.filter(c => { const v = parseFloat(c.fisKg); return !isNaN(v) && v !== c.stockKg }).length
+      const sinDiff = contados - conDiff
+      const totalProd = seccionCS === 'deposito' ? filasDep.length : filasCam.length
+      const impactoUSD = seccionCS === 'deposito'
+        ? filasDep.reduce((a, f) => {
+            const v = parseFloat(f.stockFisico)
+            if (isNaN(v) || v === f.stockSistema) return a
+            return a + Math.abs(v - f.stockSistema) * (f.costo_unitario || 0)
+          }, 0)
+        : 0
+
+      // KPI boxes
+      const kpiW = (W - 28 - 9) / 4
+      const kpiH = 26; const kpiY = 20
+      ;[
+        ['TOTAL PRODUCTOS', totalProd],
+        ['SIN DIFERENCIAS', sinDiff],
+        ['CON DIFERENCIAS', conDiff],
+        ['IMPACTO EST.', impactoUSD > 0 ? `$${pesos(impactoUSD)}` : '—'],
+      ].forEach(([lbl, val], i) => {
+        const x = 14 + i * (kpiW + 3)
+        doc.setFillColor(...ME); doc.rect(x, kpiY, kpiW, kpiH, 'F')
+        doc.setFillColor(...N); doc.rect(x, kpiY, kpiW, 1.5, 'F')
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(148, 163, 184)
+        doc.text(lbl, x + kpiW / 2, kpiY + 7, { align: 'center' })
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(255, 255, 255)
+        doc.text(String(val), x + kpiW / 2, kpiY + 19, { align: 'center' })
+      })
+
+      // Párrafo automático
+      let y2 = kpiY + kpiH + 10
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...TX)
+      const parr = `Durante ${semanaLabel.toLowerCase()}, se realizó el control de stock de ${totalProd} productos en ${seccionCS === 'deposito' ? 'el depósito' : 'las cámaras'}. Se contaron ${contados} productos, detectándose ${conDiff} diferencia${conDiff !== 1 ? 's' : ''} respecto al stock del sistema${impactoUSD > 0 ? `, con un impacto estimado de $${pesos(impactoUSD)}` : ''}. Responsable: ${conteoResponsable || 'N/A'}.`
+      const pLines = doc.splitTextToSize(parr, W - 28)
+      doc.text(pLines, 14, y2); y2 += pLines.length * 5 + 10
+
+      // Top 5 diferencias
+      if (conDiff > 0 && seccionCS === 'deposito') {
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...N)
+        doc.text('TOP DIFERENCIAS', 14, y2); y2 += 4
+        const top5 = [...filasDep]
+          .map(f => ({ ...f, diff: parseFloat(f.stockFisico) - f.stockSistema }))
+          .filter(f => !isNaN(f.diff) && f.diff !== 0)
+          .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
+          .slice(0, 5)
+        autoTable(doc, {
+          startY: y2, headStyles: HS, bodyStyles: BS, alternateRowStyles: AS, styles: LI,
+          margin: { left: 14, right: 14 },
+          head: [['PRODUCTO', 'SISTEMA', 'FÍSICO', 'DIFERENCIA', '%']],
+          body: top5.map(f => {
+            const pct = f.stockSistema > 0 ? (Math.abs(f.diff) / f.stockSistema * 100).toFixed(1) : '—'
+            return [f.nombre, `${f.stockSistema.toFixed(2)} ${f.unidad}`, `${parseFloat(f.stockFisico).toFixed(2)} ${f.unidad}`,
+              `${f.diff > 0 ? '+' : ''}${f.diff.toFixed(2)} ${f.unidad}`, typeof pct === 'string' ? pct : `${pct}%`]
+          }),
+        })
+      }
+
+      // ── P3 DETALLE DEPÓSITO ───────────────────────────────────────────────
+      if (filasDep.length > 0) {
+        doc.addPage(); fondoOscuro()
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(255, 255, 255)
+        doc.text('CONTROL DE STOCK — DEPÓSITO', 14, 14)
+        autoTable(doc, {
+          startY: 20, headStyles: HS, bodyStyles: BS, alternateRowStyles: AS,
+          styles: { ...LI, fontSize: 7.5 }, margin: { left: 12, right: 12, top: 20, bottom: 15 },
+          head: [['PRODUCTO', 'CAT.', 'UNIDAD', 'STOCK SISTEMA', 'STOCK FÍSICO', 'DIFERENCIA', 'ESTADO']],
+          body: filasDep.map(f => {
+            const fis = parseFloat(f.stockFisico)
+            const hasFis = !isNaN(fis)
+            const diff = hasFis ? fis - f.stockSistema : null
+            const pct = diff !== null && f.stockSistema > 0 ? Math.abs(diff / f.stockSistema) * 100 : 0
+            const estado = !hasFis ? 'PENDIENTE' : diff === 0 ? 'OK' : pct > 5 ? 'DIF. CRÍTICA' : 'DIF. MENOR'
+            return [f.nombre, f.categoria, f.unidad, f.stockSistema.toFixed(2),
+              hasFis ? fis.toFixed(2) : '—',
+              diff !== null ? `${diff > 0 ? '+' : ''}${diff.toFixed(2)}` : '—',
+              estado]
+          }),
+          didParseCell(data) {
+            if (data.section !== 'body') return
+            const f = filasDep[data.row.index]; if (!f) return
+            const fis = parseFloat(f.stockFisico)
+            if (isNaN(fis) || fis === f.stockSistema) return
+            const pct = f.stockSistema > 0 ? Math.abs((fis - f.stockSistema) / f.stockSistema) * 100 : 100
+            data.cell.styles.fillColor = pct > 5 ? [100, 20, 20] : [100, 70, 10]
+            data.cell.styles.textColor = TX
+          },
+          didDrawPage() { fondoOscuro() },
+        })
+      }
+
+      // ── P4 DETALLE CÁMARAS ────────────────────────────────────────────────
+      if (filasCam.length > 0) {
+        doc.addPage(); fondoOscuro()
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(255, 255, 255)
+        doc.text('CONTROL DE STOCK — CÁMARAS', 14, 14)
+        const grupos = [
+          { tipo: 'helado',    label: 'HELADOS',     cols: ['SABOR','SIS. BAL.','SIS. KG','FÍS. BAL.','FÍS. KG','DIF. KG','ESTADO'] },
+          { tipo: 'impulsivo', label: 'IMPULSIVOS',  cols: ['PRODUCTO','SIS. UNID.','FÍS. UNID.','DIFERENCIA','ESTADO'] },
+          { tipo: 'postre',    label: 'POSTRES',     cols: ['PRODUCTO','SIS. UNID.','SIS. KG','FÍS. UNID.','FÍS. KG','DIF.','ESTADO'] },
+        ]
+        let yC = 20
+        for (const g of grupos) {
+          const items = filasCam.filter(c => c.tipo === g.tipo)
+          if (!items.length) continue
+          if (yC > H - 60) { doc.addPage(); fondoOscuro(); yC = 14 }
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...N)
+          doc.text(g.label, 14, yC + 5); yC += 8
+          autoTable(doc, {
+            startY: yC, headStyles: HS, bodyStyles: BS, alternateRowStyles: AS,
+            styles: { ...LI, fontSize: 7 }, margin: { left: 12, right: 12 },
+            head: [g.cols],
+            body: items.map(c => {
+              const fk = parseFloat(c.fisKg); const fb = parseInt(c.fisBaldes, 10)
+              const hasFk = !isNaN(fk); const hasFb = !isNaN(fb)
+              const dkg = hasFk ? fk - c.stockKg : null
+              const dbl = hasFb ? fb - c.stockBaldes : null
+              const estado = !hasFk && !hasFb ? 'PENDIENTE' : (dkg === 0 && dbl === 0) ? 'OK' : 'DIFERENCIA'
+              if (g.tipo === 'helado') return [c.nombre, String(c.stockBaldes), `${c.stockKg.toFixed(1)} kg`,
+                hasFb ? String(fb) : '—', hasFk ? `${fk.toFixed(1)} kg` : '—',
+                dkg !== null ? `${dkg > 0 ? '+' : ''}${dkg.toFixed(1)} kg` : '—', estado]
+              if (g.tipo === 'impulsivo') return [c.nombre, String(c.stockBaldes),
+                hasFb ? String(fb) : '—', dbl !== null ? `${dbl > 0 ? '+' : ''}${dbl}` : '—', estado]
+              return [c.nombre, String(c.stockBaldes), `${c.stockKg.toFixed(1)} kg`,
+                hasFb ? String(fb) : '—', hasFk ? `${fk.toFixed(1)} kg` : '—',
+                dkg !== null ? `${dkg > 0 ? '+' : ''}${dkg.toFixed(1)}` : '—', estado]
+            }),
+            didParseCell(data) {
+              if (data.section !== 'body') return
+              const c = items[data.row.index]; if (!c) return
+              const fk = parseFloat(c.fisKg)
+              if (!isNaN(fk) && fk !== c.stockKg) {
+                data.cell.styles.fillColor = [100, 20, 20]; data.cell.styles.textColor = TX
+              }
+            },
+            didDrawPage() { fondoOscuro() },
+          })
+          yC = (doc.lastAutoTable?.finalY || yC) + 10
+        }
+      }
+
+      // ── P5 AJUSTES REALIZADOS (solo si APROBADO) ──────────────────────────
+      const ajustesRealizados = filasDep.filter(f => {
+        const fis = parseFloat(f.stockFisico)
+        return !isNaN(fis) && fis !== f.stockSistema && conteoEstado === 'APROBADO'
+      })
+      if (ajustesRealizados.length > 0) {
+        doc.addPage(); fondoOscuro()
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(255, 255, 255)
+        doc.text('AJUSTES REALIZADOS', 14, 14)
+        autoTable(doc, {
+          startY: 20, headStyles: HS, bodyStyles: BS, alternateRowStyles: AS,
+          styles: { ...LI, fontSize: 7.5 }, margin: { left: 12, right: 12 },
+          head: [['PRODUCTO', 'STOCK ANT.', 'STOCK NUEVO', 'DIFERENCIA', 'APROBADO POR']],
+          body: ajustesRealizados.map(f => {
+            const fis = parseFloat(f.stockFisico)
+            const diff = fis - f.stockSistema
+            return [f.nombre, `${f.stockSistema.toFixed(2)} ${f.unidad}`,
+              `${fis.toFixed(2)} ${f.unidad}`,
+              `${diff > 0 ? '+' : ''}${diff.toFixed(2)} ${f.unidad}`,
+              conteoResponsable || '—']
+          }),
+          didDrawPage() { fondoOscuro() },
+        })
+      }
+
+      // ── ÚLTIMA PÁGINA FIRMAS ──────────────────────────────────────────────
+      doc.addPage(); fondoOscuro()
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(255, 255, 255)
+      doc.text('CONFORMIDAD Y FIRMAS', W / 2, 40, { align: 'center' })
+      ;['Responsable del conteo', 'Supervisor de producción', 'Gerencia'].forEach((f, i) => {
+        const x = [22, W / 2 - 28, W - 82][i]
+        doc.setDrawColor(...N); doc.setLineWidth(0.8)
+        doc.line(x, H * 0.55, x + 56, H * 0.55)
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(148, 163, 184)
+        doc.text(f, x + 28, H * 0.55 + 8, { align: 'center' })
+        doc.setFontSize(7); doc.text('Fecha: ___/___/___', x, H * 0.55 + 16)
+      })
+
+      doc.save(`conteo_${seccionCS}_${new Date().toISOString().split('T')[0]}.pdf`)
+    } catch (err) {
+      toast2('Error al generar PDF: ' + err.message, 'error')
+    } finally {
+      setGenerandoPDFconteo(false)
+    }
+  }
+
 
   async function generarPDFStock() {
     setGenerandoPDFstock(true)
@@ -2528,13 +2911,13 @@ export default function Deposito() {
           )}
 
           {tab === 'Control Semanal' && (
-            <div className="space-y-5">
+            <div className="space-y-4">
 
-              {/* ── Toggle Depósito / Cámaras ─── */}
+              {/* ── Sub-tabs ─── */}
               <div className="flex gap-2 flex-wrap">
                 {[
-                  { key: 'deposito', label: '📦 Depósito (Insumos)' },
-                  { key: 'camara',   label: '🧊 Cámaras (Productos elaborados)' },
+                  { key: 'deposito', label: 'Depósito' },
+                  { key: 'camara',   label: 'Cámaras' },
                 ].map(s => (
                   <button key={s.key} onClick={() => setSeccionCS(s.key)}
                     className="px-4 py-2 rounded-full text-sm font-semibold transition-all border"
@@ -2543,17 +2926,62 @@ export default function Deposito() {
                       borderColor: seccionCS === s.key ? colors.brand : colors.border,
                       color: seccionCS === s.key ? 'white' : colors.textSecondary,
                     }}>
-                    {s.label}
+                    {s.key === 'deposito' ? '📦 ' : '🧊 '}{s.label}
                   </button>
                 ))}
               </div>
 
-              {/* ══════════════ SECCIÓN DEPÓSITO ══════════════ */}
-              {seccionCS === 'deposito' && (<>
-
-              {/* ── Selector de período ─── */}
-              <div className="p-3 flex flex-wrap items-center gap-3 justify-between" style={SURFACE}>
-                <div className="flex gap-1.5 flex-wrap">
+              {/* ══ SECCIÓN 1 — Estado del conteo ══════════════════════════════ */}
+              <div className="p-4 rounded-xl space-y-3" style={SURFACE}>
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>{semanaLabel}</p>
+                    <span className="inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-bold"
+                      style={{
+                        backgroundColor: conteoEstado === 'APROBADO' ? 'rgba(34,197,94,0.15)' : conteoEstado === 'COMPLETADO' ? 'rgba(59,130,246,0.15)' : conteoEstado === 'EN_PROCESO' ? 'rgba(245,158,11,0.15)' : 'rgba(100,116,139,0.15)',
+                        color: conteoEstado === 'APROBADO' ? colors.success : conteoEstado === 'COMPLETADO' ? colors.info : conteoEstado === 'EN_PROCESO' ? colors.warning : colors.textMuted,
+                      }}>
+                      {conteoEstado === 'SIN_INICIAR' ? '○ SIN INICIAR' : conteoEstado === 'EN_PROCESO' ? '● EN PROCESO' : conteoEstado === 'COMPLETADO' ? '✓ COMPLETADO' : '✓ APROBADO'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Select value={conteoResponsable} onChange={e => setConteoResponsable(e.target.value)}
+                      disabled={conteoEstado === 'APROBADO'}>
+                      <option value="">— Responsable —</option>
+                      {operariosUnicos.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+                    </Select>
+                    {conteoEstado === 'SIN_INICIAR' && (
+                      <Button variant="primary" size="sm" onClick={iniciarConteo}>
+                        <ClipboardCheck size={13} /> Iniciar conteo
+                      </Button>
+                    )}
+                    {conteoEstado === 'EN_PROCESO' && (
+                      <Button variant="success" size="sm" onClick={guardarConteoFormal} loading={savingConteo}>
+                        Guardar conteo
+                      </Button>
+                    )}
+                    {conteoEstado === 'COMPLETADO' && isAdmin && (
+                      <Button variant="primary" size="sm" onClick={() => setModalAjustes(true)}>
+                        ✓ Aprobar y cerrar
+                      </Button>
+                    )}
+                    {conteoEstado !== 'SIN_INICIAR' && (
+                      <Button variant="secondary" size="sm" onClick={generarPDFConteoSemanal} loading={generandoPDFconteo}>
+                        <FileDown size={13} /> PDF
+                      </Button>
+                    )}
+                    {conteoEstado !== 'SIN_INICIAR' && conteoEstado !== 'APROBADO' && (
+                      <button onClick={() => { setConteoEstado('SIN_INICIAR'); setConteoFilasDepo([]); setConteoFilasCam([]) }}
+                        className="text-xs px-2 py-1 rounded-md transition-colors"
+                        style={{ color: colors.textMuted, backgroundColor: 'transparent' }}>
+                        ✕ Cancelar
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {/* Selector de período */}
+                <div className="flex gap-1.5 flex-wrap items-center pt-1" style={{ borderTop: `1px solid ${colors.border}` }}>
+                  <span className="text-xs" style={{ color: colors.textMuted }}>Período de análisis:</span>
                   {[
                     { key: 'semana_actual', label: 'Esta semana' },
                     { key: 'semana_pasada', label: 'Semana pasada' },
@@ -2561,7 +2989,7 @@ export default function Deposito() {
                     { key: 'personalizado', label: 'Personalizado' },
                   ].map(p => (
                     <button key={p.key} onClick={() => setPeriodoCS(p.key)}
-                      className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all border"
+                      className="px-2.5 py-1 rounded-full text-xs font-semibold transition-all border"
                       style={{
                         backgroundColor: periodoCS === p.key ? colors.brand : 'transparent',
                         borderColor: periodoCS === p.key ? colors.brand : colors.border,
@@ -2570,320 +2998,264 @@ export default function Deposito() {
                       {p.label}
                     </button>
                   ))}
-                </div>
-                {periodoCS === 'personalizado' && (
-                  <div className="flex gap-2 items-center">
-                    <Input type="date" value={periodoCSDesde} onChange={e => setPeriodoCSDesde(e.target.value)} />
-                    <span className="text-xs" style={{ color: colors.textMuted }}>–</span>
-                    <Input type="date" value={periodoCSHasta} onChange={e => setPeriodoCSHasta(e.target.value)} />
-                  </div>
-                )}
-                {periodoCS !== 'personalizado' && (
-                  <p className="text-xs" style={{ color: colors.textMuted }}>
-                    {fmtFecha(rangoCS.desde)} – {fmtFecha(rangoCS.hasta)}
-                  </p>
-                )}
-              </div>
-
-              {/* ── KPIs clickeables ─── */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <KpiCard label="Insumos analizados" value={controlSemanal.length} icon={Warehouse} color={colors.brand}
-                  onClick={() => { setFiltroTablaCS(null); setTimeout(() => tablaDepositoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50) }} />
-                <KpiCard label="Stock crítico" value={controlSemanal.filter(r => r.estado === 'CRÍTICO').length}
-                  icon={AlertTriangle} color={colors.danger}
-                  onClick={() => { setFiltroTablaCS(f => f === 'critico' ? null : 'critico'); setTimeout(() => tablaDepositoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50) }} />
-                <KpiCard label="Requieren atención" value={controlSemanal.filter(r => r.estado === 'ATENCIÓN').length}
-                  icon={TrendingUp} color={colors.warning}
-                  onClick={() => { setFiltroTablaCS(f => f === 'atencion' ? null : 'atencion'); setTimeout(() => tablaDepositoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50) }} />
-                <KpiCard label="Diferencias inventario" value={controlSemanal.filter(r => r.pctDiferencia > 3).length}
-                  icon={BarChart2} color={colors.info}
-                  onClick={() => { setFiltroTablaCS(f => f === 'diferencia' ? null : 'diferencia'); setTimeout(() => tablaDepositoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50) }} />
-              </div>
-
-              {/* ── Panel de alertas ─── */}
-              {alertasCS.length > 0 && (
-                <div className="p-4 space-y-2" style={SURFACE}>
-                  <h3 className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>Alertas inteligentes</h3>
-                  {alertasCS.map((a, idx) => (
-                    <div key={idx} className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs"
-                      style={{
-                        backgroundColor: a.tipo === 'critico' ? 'rgba(239,68,68,0.12)' : a.tipo === 'reposicion' ? 'rgba(245,158,11,0.12)' : a.tipo === 'diferencia' ? 'rgba(96,165,250,0.12)' : colors.surface,
-                        border: `1px solid ${a.tipo === 'critico' ? 'rgba(239,68,68,0.25)' : a.tipo === 'reposicion' ? 'rgba(245,158,11,0.25)' : a.tipo === 'diferencia' ? 'rgba(96,165,250,0.25)' : colors.border}`,
-                      }}>
-                      <span className="text-base leading-none mt-0.5">
-                        {a.tipo === 'critico' ? '🔴' : a.tipo === 'reposicion' ? '🟡' : a.tipo === 'diferencia' ? '⚠️' : '🕐'}
-                      </span>
-                      <span style={{ color: a.tipo === 'critico' ? colors.danger : a.tipo === 'reposicion' ? colors.warning : a.tipo === 'diferencia' ? colors.info : colors.textSecondary }}>
-                        {a.tipo === 'critico' && <><strong>STOCK CRÍTICO — {a.producto}:</strong> quedan {a.diasStock.toFixed(1)} días con consumo de {a.consumo.toFixed(1)} {a.unidad}/día.</>}
-                        {a.tipo === 'reposicion' && <><strong>REPOSICIÓN SUGERIDA — {a.producto}:</strong> {a.diasStock.toFixed(1)} días de stock. Sugerido: {a.cantSugerida.toFixed(1)} {a.unidad} (2 semanas).</>}
-                        {a.tipo === 'diferencia' && <><strong>DIFERENCIA DE INVENTARIO — {a.producto}:</strong> {a.diferencia > 0 ? '+' : ''}{a.diferencia.toFixed(2)} {a.unidad} ({a.pct.toFixed(1)}%).</>}
-                        {a.tipo === 'sin_movimiento' && <><strong>SIN MOVIMIENTO — {a.producto}:</strong> hace {a.dias} días sin movimientos.</>}
-                      </span>
+                  {periodoCS === 'personalizado' && (
+                    <div className="flex gap-1.5 items-center">
+                      <Input type="date" value={periodoCSDesde} onChange={e => setPeriodoCSDesde(e.target.value)} />
+                      <span className="text-xs" style={{ color: colors.textMuted }}>–</span>
+                      <Input type="date" value={periodoCSHasta} onChange={e => setPeriodoCSHasta(e.target.value)} />
                     </div>
-                  ))}
+                  )}
+                </div>
+              </div>
+
+              {/* ══ SECCIÓN 3 — KPIs resumen ════════════════════════════════════ */}
+              {conteoEstado !== 'SIN_INICIAR' && (() => {
+                const filas = seccionCS === 'deposito' ? conteoFilasDepo : conteoFilasCam
+                const contados = seccionCS === 'deposito'
+                  ? filas.filter(f => f.stockFisico !== '').length
+                  : filas.filter(c => c.fisKg !== '').length
+                const conDif = seccionCS === 'deposito'
+                  ? filas.filter(f => { const v = parseFloat(f.stockFisico); return !isNaN(v) && v !== f.stockSistema }).length
+                  : filas.filter(c => { const v = parseFloat(c.fisKg); return !isNaN(v) && v !== c.stockKg }).length
+                const impacto = seccionCS === 'deposito'
+                  ? filas.reduce((a, f) => { const v = parseFloat(f.stockFisico); return isNaN(v) || v === f.stockSistema ? a : a + Math.abs(v - f.stockSistema) * (f.costo_unitario || 0) }, 0)
+                  : 0
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <KpiCard label="Productos totales" value={filas.length} icon={Warehouse} color={colors.brand} />
+                    <KpiCard label="Contados" value={`${contados} / ${filas.length}`} icon={ClipboardCheck} color={colors.info} />
+                    <KpiCard label="Sin diferencias" value={contados - conDif} icon={ChevronRight} color={colors.success} />
+                    <KpiCard label="Con diferencias" value={conDif} icon={AlertTriangle} color={conDif > 0 ? colors.danger : colors.success}
+                      sub={impacto > 0 ? `$${pesos(impacto)} est.` : undefined} />
+                  </div>
+                )
+              })()}
+
+              {/* ══ SECCIÓN 2 — Tabla de conteo ═════════════════════════════════ */}
+              {conteoEstado !== 'SIN_INICIAR' && seccionCS === 'deposito' && (
+                <div className="overflow-hidden" style={SURFACE}>
+                  <div className="px-4 py-2.5" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                    <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>
+                      Conteo de stock — Depósito · {conteoFilasDepo.length} productos
+                    </span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <Table className="min-w-[700px]">
+                      <Thead>
+                        <Tr>
+                          <Th>PRODUCTO</Th><Th>CATEGORÍA</Th><Th>UNIDAD</Th>
+                          <Th>STOCK SISTEMA</Th><Th>STOCK FÍSICO</Th><Th>DIFERENCIA</Th><Th>ESTADO</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {conteoFilasDepo.map((f, idx) => {
+                          const fis = parseFloat(f.stockFisico)
+                          const hasFis = !isNaN(fis)
+                          const diff = hasFis ? fis - f.stockSistema : null
+                          const pct = diff !== null && f.stockSistema > 0 ? Math.abs(diff / f.stockSistema) * 100 : 0
+                          const estColor = !hasFis ? colors.textMuted : diff === 0 ? colors.success : pct > 5 ? colors.danger : colors.warning
+                          const estLabel = !hasFis ? '—' : diff === 0 ? '✓ OK' : pct > 5 ? '⚠ CRÍTICA' : '△ MENOR'
+                          const rowBg = hasFis && diff !== 0 ? (pct > 5 ? 'rgba(239,68,68,0.07)' : 'rgba(245,158,11,0.07)') : 'transparent'
+                          return (
+                            <Tr key={f.id} style={{ backgroundColor: rowBg }}>
+                              <Td className="font-medium text-sm" style={{ color: colors.textPrimary }}>{f.nombre}</Td>
+                              <Td className="text-xs" style={{ color: colors.textMuted }}>{f.categoria}</Td>
+                              <Td className="text-xs">{f.unidad}</Td>
+                              <Td className="text-right font-semibold">{f.stockSistema.toFixed(2)}</Td>
+                              <Td className="text-right">
+                                {conteoEstado === 'APROBADO' ? (
+                                  <span className="font-semibold" style={{ color: colors.textPrimary }}>{hasFis ? fis.toFixed(2) : '—'}</span>
+                                ) : (
+                                  <input type="number" step="0.01" min="0"
+                                    value={f.stockFisico}
+                                    onChange={e => setConteoFilasDepo(prev => prev.map((r, i) => i === idx ? { ...r, stockFisico: e.target.value } : r))}
+                                    placeholder={f.stockSistema.toFixed(2)}
+                                    className="w-24 text-right rounded-md border px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+                                    style={{ borderColor: colors.border, backgroundColor: colors.bg, color: colors.textPrimary }}
+                                  />
+                                )}
+                              </Td>
+                              <Td className="text-right font-semibold"
+                                style={{ color: diff === null ? colors.textMuted : diff === 0 ? colors.success : pct > 5 ? colors.danger : colors.warning }}>
+                                {diff !== null ? `${diff > 0 ? '+' : ''}${diff.toFixed(2)}` : '—'}
+                              </Td>
+                              <Td>
+                                <span className="text-xs font-semibold" style={{ color: estColor }}>{estLabel}</span>
+                              </Td>
+                            </Tr>
+                          )
+                        })}
+                      </Tbody>
+                    </Table>
+                  </div>
                 </div>
               )}
 
-              {/* ── Filtro por categoría ─── */}
-              <div className="flex gap-1.5 flex-wrap items-center">
-                <span className="text-xs font-medium" style={{ color: colors.textMuted }}>Categoría:</span>
-                {CATS_FILTRO_BASE.map(cat => (
-                  <button key={cat} onClick={() => setFiltroCSCategoria(cat)}
-                    className="px-3 py-1 rounded-full text-xs font-semibold transition-all border"
-                    style={{
-                      backgroundColor: filtroCSCategoria === cat ? colors.brand : 'transparent',
-                      borderColor: filtroCSCategoria === cat ? colors.brand : colors.border,
-                      color: filtroCSCategoria === cat ? 'white' : colors.textSecondary,
-                    }}>
-                    {cat}
-                  </button>
-                ))}
-              </div>
-
-              {/* ── Tabla principal (con filtro activo) ─── */}
-              <div ref={tablaDepositoRef} className="overflow-hidden" style={SURFACE}>
-                <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Control de stock — Depósito</span>
-                    {filtroCSCategoria !== 'TODOS' && (
-                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                        style={{ backgroundColor: '#eff6ff', color: colors.info }}>
-                        {filtroCSCategoria}
-                        <button onClick={() => setFiltroCSCategoria('TODOS')} className="ml-1 font-bold hover:opacity-70">✕</button>
-                      </span>
-                    )}
-                    {filtroTablaCS && (
-                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1"
-                        style={{ backgroundColor: filtroTablaCS === 'critico' ? 'rgba(239,68,68,0.12)' : filtroTablaCS === 'atencion' ? 'rgba(245,158,11,0.12)' : 'rgba(96,165,250,0.12)', color: filtroTablaCS === 'critico' ? colors.danger : filtroTablaCS === 'atencion' ? colors.warning : colors.info }}>
-                        {filtroTablaCS === 'critico' ? '🔴 Solo críticos' : filtroTablaCS === 'atencion' ? '🟡 Críticos + Atención' : '⚠️ Con diferencias'}
-                        <button onClick={() => setFiltroTablaCS(null)} className="ml-1 font-bold hover:opacity-70">✕</button>
-                      </span>
-                    )}
-                    <span className="text-xs" style={{ color: colors.textMuted }}>
-                      {controlSemanalFiltrado.length} de {controlSemanal.length} insumos
+              {conteoEstado !== 'SIN_INICIAR' && seccionCS === 'camara' && (
+                <div className="overflow-hidden" style={SURFACE}>
+                  <div className="px-4 py-2.5" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                    <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>
+                      Conteo de stock — Cámaras · {conteoFilasCam.length} productos
                     </span>
                   </div>
-                  <Button variant="secondary" size="sm" onClick={() => setModalConteo('deposito')}>
-                    <ClipboardCheck size={13} /> Registrar conteo
-                  </Button>
-                </div>
-                {controlSemanalFiltrado.length === 0 ? (
-                  <EmptyState icon={Warehouse} title={filtroTablaCS ? 'Sin insumos con ese estado' : 'Sin insumos cargados'} />
-                ) : (
                   <div className="overflow-x-auto">
-                    <Table className="min-w-[1100px]">
+                    <Table className="min-w-[800px]">
                       <Thead>
                         <Tr>
-                          <Th>PRODUCTO</Th><Th>ST. INICIAL</Th><Th>INGRESOS</Th><Th>EGRESOS</Th>
-                          <Th>BALANCE</Th><Th>ST. SISTEMA</Th><Th>CONTEO FÍSICO</Th>
-                          <Th>DIFERENCIA</Th><Th>DÍAS DE STOCK</Th><Th>ESTADO</Th>
+                          <Th>PRODUCTO</Th><Th>TIPO</Th>
+                          <Th>SIS. BALDES/U</Th><Th>SIS. KG</Th>
+                          <Th>FÍS. BALDES/U</Th><Th>FÍS. KG</Th>
+                          <Th>DIF.</Th><Th>ESTADO</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
-                        {controlSemanalFiltrado.map(r => {
-                          const rowBg = r.estado === 'CRÍTICO' ? 'rgba(239,68,68,0.08)' : r.estado === 'ATENCIÓN' ? 'rgba(245,158,11,0.08)' : 'transparent'
-                          const diffBig = r.conteoFisico !== null && r.pctDiferencia > 3
-                          const diasColor = r.diasStock < 3 ? colors.danger : r.diasStock < 7 ? colors.warning : r.diasStock === Infinity ? colors.textMuted : colors.success
-                          return (
-                            <Tr key={r.id} style={{ backgroundColor: rowBg }}>
-                              <Td>
-                                <button className="font-medium text-left hover:underline flex items-center gap-1"
-                                  style={{ color: colors.brand }}
-                                  onClick={() => setModalEvolCS(r)}>
-                                  {r.nombre}
-                                  <BarChart2 size={12} style={{ color: colors.textMuted }} />
-                                </button>
-                              </Td>
-                              <Td className="text-right text-xs" style={{ color: colors.textMuted }}>
-                                {r.stockInicial.toFixed(1)} {r.unidad}
-                              </Td>
-                              <Td className="text-right">
-                                {r.ingresosKg > 0 ? (
-                                  <button className="font-semibold hover:underline" style={{ color: colors.success }}
-                                    onClick={() => setModalMovsDet({ tipo: 'ingreso', producto: r.nombre, movs: r.ingresosMovs })}>
-                                    +{r.ingresosKg.toFixed(1)} {r.unidad}
-                                  </button>
-                                ) : <span style={{ color: colors.textMuted }}>—</span>}
-                              </Td>
-                              <Td className="text-right">
-                                {r.egresosKg > 0 ? (
-                                  <button className="font-semibold hover:underline" style={{ color: colors.danger }}
-                                    onClick={() => setModalMovsDet({ tipo: 'egreso', producto: r.nombre, movs: r.egresosMovs })}>
-                                    -{r.egresosKg.toFixed(1)} {r.unidad}
-                                  </button>
-                                ) : <span style={{ color: colors.textMuted }}>—</span>}
-                              </Td>
-                              <Td className="text-right text-xs font-semibold"
-                                style={{ color: r.balance > 0 ? colors.success : r.balance < 0 ? colors.danger : colors.textMuted }}>
-                                {r.balance > 0 ? '+' : ''}{r.balance.toFixed(1)} {r.unidad}
-                              </Td>
-                              <Td className="text-right font-semibold">{r.stockSistema.toFixed(1)} {r.unidad}</Td>
-                              <Td className="text-right text-xs" style={{ color: colors.textSecondary }}>
-                                {r.conteoFisico !== null ? `${r.conteoFisico.toFixed(1)} ${r.unidad}` : '—'}
-                              </Td>
-                              <Td className="text-right font-semibold"
-                                style={{ color: diffBig ? colors.danger : r.diferencia !== null ? colors.textSecondary : colors.textMuted }}>
-                                {r.diferencia !== null ? (
-                                  <span className="inline-flex items-center gap-1">
-                                    {r.diferencia > 0 ? '+' : ''}{r.diferencia.toFixed(2)} {r.unidad}
-                                    {diffBig && <AlertTriangle size={12} />}
-                                    {diffBig && <span className="text-[10px]">({r.pctDiferencia.toFixed(1)}%)</span>}
-                                  </span>
-                                ) : '—'}
-                              </Td>
-                              <Td className="text-right font-bold" style={{ color: diasColor }}>
-                                {r.diasStock === Infinity ? '♾' : `${r.diasStock.toFixed(0)} días`}
-                              </Td>
-                              <Td>
-                                <Badge variant={r.estado === 'CRÍTICO' ? 'danger' : r.estado === 'ATENCIÓN' ? 'warning' : 'success'}>
-                                  {r.estado === 'CRÍTICO' ? '🔴 CRÍTICO' : r.estado === 'ATENCIÓN' ? '🟡 ATENCIÓN' : '🟢 OK'}
-                                </Badge>
-                              </Td>
-                            </Tr>
-                          )
-                        })}
-                      </Tbody>
-                    </Table>
-                  </div>
-                )}
-              </div>
-
-              {/* ── Comparación semana vs semana ─── */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {[{ key: 'deposito', label: 'Depósito' }, { key: 'camara', label: 'Cámaras' }].map(({ key, label }) => {
-                  const comp = comparacionSemanal[key]
-                  const actual = comp.actual?.[1] || 0
-                  const anterior = comp.anterior?.[1]
-                  const mejora = anterior > 0 ? ((anterior - actual) / anterior) * 100 : null
-                  return (
-                    <div key={key} className="p-4" style={SURFACE}>
-                      <h3 className="text-sm font-semibold mb-2" style={{ color: colors.textPrimary }}>{label} — diferencia vs. semana anterior</h3>
-                      <div className="flex gap-6">
-                        <div>
-                          <p className="text-xs" style={{ color: colors.textMuted }}>Esta semana</p>
-                          <p className="text-xl font-bold" style={{ color: colors.textPrimary }}>{actual.toFixed(2)} {key === 'camara' ? 'kg' : 'u'}</p>
-                        </div>
-                        {anterior !== undefined && <div>
-                          <p className="text-xs" style={{ color: colors.textMuted }}>Semana anterior</p>
-                          <p className="text-xl font-bold" style={{ color: colors.textMuted }}>{anterior.toFixed(2)} {key === 'camara' ? 'kg' : 'u'}</p>
-                        </div>}
-                      </div>
-                      {mejora !== null && <p className="text-xs mt-2 font-semibold" style={{ color: mejora >= 0 ? colors.success : colors.danger }}>{mejora >= 0 ? `↓ Mejoró ${mejora.toFixed(0)}%` : `↑ Empeoró ${Math.abs(mejora).toFixed(0)}%`} vs. semana anterior</p>}
-                      {!comp.actual && <p className="text-xs mt-2" style={{ color: colors.textMuted }}>Sin conteos aún</p>}
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* ── Botón PDF depósito ─── */}
-              <div className="flex justify-end">
-                <Button variant="primary" onClick={generarPDFStock} loading={generandoPDFstock} disabled={generandoPDFstock || (periodoCS === 'personalizado' && (!periodoCSDesde || !periodoCSHasta))}>
-                  <FileDown size={15} /> Generar Informe PDF de Stock
-                </Button>
-              </div>
-
-              </>)} {/* fin seccionCS === 'deposito' */}
-
-              {/* ══════════════ SECCIÓN CÁMARAS ══════════════ */}
-              {seccionCS === 'camara' && (<>
-
-              {/* KPIs cámaras */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <KpiCard label="Total en cámara" value={kpisCamara.total} icon={Warehouse} color={colors.brand} />
-                <KpiCard label="Agotados" value={kpisCamara.agotados} icon={AlertTriangle} color={colors.danger} />
-                <KpiCard label="Stock bajo (≤ 3 baldes)" value={kpisCamara.bajos} icon={TrendingUp} color={colors.warning} />
-                <KpiCard label="KG totales en cámara" value={`${kpisCamara.totalKg.toFixed(1)} kg`} icon={BarChart2} color={colors.info} />
-              </div>
-
-              {/* Tabla cámaras */}
-              <div className="overflow-hidden" style={SURFACE}>
-                <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Productos en cámara</span>
-                  <Button variant="secondary" size="sm" onClick={() => setModalConteo('camara')}>
-                    <ClipboardCheck size={13} /> Registrar conteo
-                  </Button>
-                </div>
-                {stockCamaras.length === 0 ? (
-                  <EmptyState icon={Warehouse} title="Sin productos en cámaras" />
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table className="min-w-[900px]">
-                      <Thead>
-                        <Tr>
-                          <Th>PRODUCTO</Th><Th>TIPO</Th><Th>STOCK KG</Th><Th>BALDES / UNIDADES</Th>
-                          <Th>ING. PER.</Th><Th>EGR. PER.</Th><Th>LOTE</Th><Th>ESTADO</Th>
-                        </Tr>
-                      </Thead>
-                      <Tbody>
-                        {[...stockCamaras].sort((a, b) => {
-                          const o = { AGOTADO: 0, BAJO: 1, OK: 2 }
-                          return (o[estadoCamara(a)] ?? 2) - (o[estadoCamara(b)] ?? 2) || (a.nombre || '').localeCompare(b.nombre || '')
-                        }).map(c => {
-                          const est = estadoCamara(c)
-                          const rowBg = est === 'AGOTADO' ? 'rgba(239,68,68,0.08)' : est === 'BAJO' ? 'rgba(245,158,11,0.08)' : 'transparent'
-                          const esImpC  = (c.tipo_producto || '') === 'impulsivo'
-                          const esPostC = (c.tipo_producto || '') === 'postre'
-                          const statsRow = statsCamaraCS[(c.nombre || '').trim().toLowerCase()] || {}
-                          const movsProd = movsCamara.filter(m => {
-                            const sn = (m.sabor_nombre || m.producto_nombre || '').trim().toLowerCase()
-                            return sn === (c.nombre || '').trim().toLowerCase()
-                          })
+                        {conteoFilasCam.map((c, idx) => {
+                          const fk = parseFloat(c.fisKg); const fb = parseInt(c.fisBaldes, 10)
+                          const hasFk = !isNaN(fk); const hasFb = !isNaN(fb)
+                          const dkg = hasFk ? fk - c.stockKg : null
+                          const dbl = hasFb ? fb - c.stockBaldes : null
+                          const tieneDiff = (dkg !== null && dkg !== 0) || (dbl !== null && dbl !== 0)
+                          const rowBg = tieneDiff ? 'rgba(245,158,11,0.07)' : 'transparent'
+                          const estado = !hasFk && !hasFb ? '—' : !tieneDiff ? '✓ OK' : '△ DIF.'
+                          const estColor = !hasFk && !hasFb ? colors.textMuted : !tieneDiff ? colors.success : colors.warning
+                          const esImp = c.tipo === 'impulsivo'
                           return (
                             <Tr key={c.id} style={{ backgroundColor: rowBg }}>
-                              <Td>
-                                <button className="font-medium text-left hover:underline" style={{ color: colors.brand }}
-                                  onClick={() => setModalMovsCamara({ producto: c.nombre, movs: movsProd })}>
-                                  {c.nombre}
-                                </button>
+                              <Td className="font-medium text-sm" style={{ color: colors.textPrimary }}>{c.nombre}</Td>
+                              <Td><Badge variant={c.tipo === 'helado' ? 'info' : c.tipo === 'impulsivo' ? 'warning' : 'neutral'}>
+                                {c.tipo}
+                              </Badge></Td>
+                              <Td className="text-right font-semibold">{c.stockBaldes}</Td>
+                              <Td className="text-right text-xs" style={{ color: colors.textMuted }}>
+                                {esImp ? '—' : `${c.stockKg.toFixed(1)} kg`}
                               </Td>
-                              <Td>
-                                <Badge variant={c.tipo_producto === 'helado' ? 'info' : c.tipo_producto === 'impulsivo' ? 'warning' : 'neutral'}>
-                                  {c.tipo_producto ? c.tipo_producto.charAt(0).toUpperCase() + c.tipo_producto.slice(1) : '—'}
-                                </Badge>
-                              </Td>
-                              <Td className="text-right font-semibold">{esImpC ? '—' : `${(c.kg || 0).toFixed(1)} kg`}</Td>
                               <Td className="text-right">
-                                {c.baldes || 0}
-                                {esImpC ? ' u.' : esPostC ? ' u.' : ' bal.'}
-                                {esPostC && (c.kg || 0) > 0 ? <span className="text-[10px] ml-1" style={{ color: colors.textMuted }}>/ {(c.kg || 0).toFixed(1)} kg</span> : null}
+                                {conteoEstado === 'APROBADO' ? (hasFb ? String(fb) : '—') : (
+                                  <input type="number" step="1" min="0" value={c.fisBaldes}
+                                    onChange={e => setConteoFilasCam(prev => prev.map((r, i) => i === idx ? { ...r, fisBaldes: e.target.value } : r))}
+                                    placeholder={String(c.stockBaldes)}
+                                    className="w-20 text-right rounded-md border px-2 py-1 text-sm outline-none"
+                                    style={{ borderColor: colors.border, backgroundColor: colors.bg, color: colors.textPrimary }}
+                                  />
+                                )}
                               </Td>
-                              <Td className="text-right text-xs" style={{ color: colors.success }}>
-                                {(esImpC || esPostC)
-                                  ? (statsRow.ingresosU || 0) > 0 ? `+${statsRow.ingresosU} u.` : '—'
-                                  : (statsRow.ingresosKg || 0) > 0 ? `+${(statsRow.ingresosKg).toFixed(1)} kg` : '—'}
+                              <Td className="text-right">
+                                {esImp ? '—' : conteoEstado === 'APROBADO' ? (hasFk ? `${fk.toFixed(1)} kg` : '—') : (
+                                  <input type="number" step="0.1" min="0" value={c.fisKg}
+                                    onChange={e => setConteoFilasCam(prev => prev.map((r, i) => i === idx ? { ...r, fisKg: e.target.value } : r))}
+                                    placeholder={`${c.stockKg.toFixed(1)}`}
+                                    className="w-24 text-right rounded-md border px-2 py-1 text-sm outline-none"
+                                    style={{ borderColor: colors.border, backgroundColor: colors.bg, color: colors.textPrimary }}
+                                  />
+                                )}
                               </Td>
-                              <Td className="text-right text-xs" style={{ color: colors.danger }}>
-                                {(esImpC || esPostC)
-                                  ? (statsRow.egresosU || 0) > 0 ? `-${statsRow.egresosU} u.` : '—'
-                                  : (statsRow.egresosKg || 0) > 0 ? `-${(statsRow.egresosKg).toFixed(1)} kg` : '—'}
+                              <Td className="text-right text-xs font-semibold" style={{ color: tieneDiff ? colors.warning : colors.textMuted }}>
+                                {dkg !== null ? `${dkg > 0 ? '+' : ''}${dkg.toFixed(1)} kg` : '—'}
                               </Td>
-                              <Td>
-                                {c.lote
-                                  ? <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: 'rgba(212,82,26,0.15)', color: colors.brand }}>{c.lote}</span>
-                                  : <span style={{ color: colors.textMuted }}>—</span>}
-                              </Td>
-                              <Td>
-                                <Badge variant={est === 'AGOTADO' ? 'danger' : est === 'BAJO' ? 'warning' : 'success'}>
-                                  {est === 'AGOTADO' ? '🔴 AGOTADO' : est === 'BAJO' ? '🟡 BAJO' : '🟢 OK'}
-                                </Badge>
-                              </Td>
+                              <Td><span className="text-xs font-semibold" style={{ color: estColor }}>{estado}</span></Td>
                             </Tr>
                           )
                         })}
                       </Tbody>
                     </Table>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
-              {/* Botón PDF cámaras */}
-              <div className="flex justify-end">
-                <Button variant="primary" onClick={generarPDFCamaras} loading={generandoPDFcamara} disabled={generandoPDFcamara}>
-                  <FileDown size={15} /> Generar PDF Cámaras
-                </Button>
-              </div>
+              {/* Tabla de análisis (solo si SIN_INICIAR) */}
+              {conteoEstado === 'SIN_INICIAR' && seccionCS === 'deposito' && (
+                <div ref={tablaDepositoRef} className="overflow-hidden" style={SURFACE}>
+                  <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Análisis de stock — {semanaLabel}</span>
+                      <span className="text-xs" style={{ color: colors.textMuted }}>{controlSemanalFiltrado.length} de {controlSemanal.length} insumos</span>
+                    </div>
+                    <div className="flex gap-2 flex-wrap">
+                      <div className="flex gap-1.5 flex-wrap">
+                        {CATS_FILTRO_BASE.map(cat => (
+                          <button key={cat} onClick={() => setFiltroCSCategoria(cat)}
+                            className="px-2.5 py-1 rounded-full text-xs font-semibold transition-all border"
+                            style={{ backgroundColor: filtroCSCategoria === cat ? colors.brand : 'transparent', borderColor: filtroCSCategoria === cat ? colors.brand : colors.border, color: filtroCSCategoria === cat ? 'white' : colors.textSecondary }}>
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
+                      <Button variant="secondary" size="sm" onClick={generarPDFStock} loading={generandoPDFstock}>
+                        <FileDown size={13} /> PDF análisis
+                      </Button>
+                    </div>
+                  </div>
+                  {controlSemanalFiltrado.length === 0 ? (
+                    <EmptyState icon={Warehouse} title="Sin insumos cargados" />
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table className="min-w-[900px]">
+                        <Thead>
+                          <Tr>
+                            <Th>PRODUCTO</Th><Th>ST. SISTEMA</Th><Th>INGRESOS</Th><Th>EGRESOS</Th>
+                            <Th>CONTEO FÍSICO</Th><Th>DIFERENCIA</Th><Th>DÍAS DE STOCK</Th><Th>ESTADO</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {controlSemanalFiltrado.map(r => {
+                            const rowBg = r.estado === 'CRÍTICO' ? 'rgba(239,68,68,0.08)' : r.estado === 'ATENCIÓN' ? 'rgba(245,158,11,0.08)' : 'transparent'
+                            const diffBig = r.conteoFisico !== null && r.pctDiferencia > 3
+                            const diasColor = r.diasStock < 3 ? colors.danger : r.diasStock < 7 ? colors.warning : r.diasStock === Infinity ? colors.textMuted : colors.success
+                            return (
+                              <Tr key={r.id} style={{ backgroundColor: rowBg }}>
+                                <Td>
+                                  <button className="font-medium text-left hover:underline flex items-center gap-1" style={{ color: colors.brand }} onClick={() => setModalEvolCS(r)}>
+                                    {r.nombre} <BarChart2 size={11} style={{ color: colors.textMuted }} />
+                                  </button>
+                                </Td>
+                                <Td className="text-right font-semibold">{r.stockSistema.toFixed(1)} {r.unidad}</Td>
+                                <Td className="text-right text-xs" style={{ color: colors.success }}>
+                                  {r.ingresosKg > 0 ? <button className="hover:underline" onClick={() => setModalMovsDet({ tipo: 'ingreso', producto: r.nombre, movs: r.ingresosMovs })}>+{r.ingresosKg.toFixed(1)}</button> : '—'}
+                                </Td>
+                                <Td className="text-right text-xs" style={{ color: colors.danger }}>
+                                  {r.egresosKg > 0 ? <button className="hover:underline" onClick={() => setModalMovsDet({ tipo: 'egreso', producto: r.nombre, movs: r.egresosMovs })}>-{r.egresosKg.toFixed(1)}</button> : '—'}
+                                </Td>
+                                <Td className="text-right text-xs" style={{ color: colors.textSecondary }}>
+                                  {r.conteoFisico !== null ? `${r.conteoFisico.toFixed(1)} ${r.unidad}` : '—'}
+                                </Td>
+                                <Td className="text-right font-semibold"
+                                  style={{ color: diffBig ? colors.danger : r.diferencia !== null ? colors.textSecondary : colors.textMuted }}>
+                                  {r.diferencia !== null ? `${r.diferencia > 0 ? '+' : ''}${r.diferencia.toFixed(2)} ${r.unidad}${diffBig ? ` (${r.pctDiferencia.toFixed(1)}%)` : ''}` : '—'}
+                                </Td>
+                                <Td className="text-right font-bold" style={{ color: diasColor }}>
+                                  {r.diasStock === Infinity ? '♾' : `${r.diasStock.toFixed(0)} días`}
+                                </Td>
+                                <Td>
+                                  <Badge variant={r.estado === 'CRÍTICO' ? 'danger' : r.estado === 'ATENCIÓN' ? 'warning' : 'success'}>
+                                    {r.estado === 'CRÍTICO' ? '🔴 CRÍTICO' : r.estado === 'ATENCIÓN' ? '🟡 ATENCIÓN' : '🟢 OK'}
+                                  </Badge>
+                                </Td>
+                              </Tr>
+                            )
+                          })}
+                        </Tbody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              )}
 
-              </>)} {/* fin seccionCS === 'camara' */}
+              {conteoEstado === 'SIN_INICIAR' && seccionCS === 'camara' && (
+                <div className="overflow-hidden" style={SURFACE}>
+                  <div className="px-4 py-2.5 flex items-center justify-between" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                    <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Vista de cámaras</span>
+                    <Button variant="secondary" size="sm" onClick={generarPDFCamaras} loading={generandoPDFcamara}>
+                      <FileDown size={13} /> PDF cámaras
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4">
+                    <KpiCard label="Total en cámara" value={kpisCamara.total} icon={Warehouse} color={colors.brand} />
+                    <KpiCard label="Agotados" value={kpisCamara.agotados} icon={AlertTriangle} color={colors.danger} />
+                    <KpiCard label="Stock bajo (≤ 3)" value={kpisCamara.bajos} icon={TrendingUp} color={colors.warning} />
+                    <KpiCard label="KG totales" value={`${kpisCamara.totalKg.toFixed(1)} kg`} icon={BarChart2} color={colors.info} />
+                  </div>
+                </div>
+              )}
 
             </div>
           )}
@@ -2968,6 +3340,23 @@ export default function Deposito() {
           categorias={categoriasSelect}
         />
       )}
+
+      {modalAjustes && (() => {
+        const prods = conteoFilasDepo.filter(f => {
+          const v = parseFloat(f.stockFisico)
+          return !isNaN(v) && v !== f.stockSistema
+        }).map(f => ({ nombre: f.nombre, unidad: f.unidad, diferencia: parseFloat(f.stockFisico) - f.stockSistema }))
+        return prods.length === 0 ? (
+          (() => { aprobarConteoFormal({}); return null })()
+        ) : (
+          <ModalAprobarConteo
+            productos={prods}
+            onClose={() => setModalAjustes(false)}
+            onConfirm={aprobarConteoFormal}
+            saving={savingConteo}
+          />
+        )
+      })()}
     </div>
   )
 }

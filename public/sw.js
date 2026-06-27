@@ -1,4 +1,4 @@
-const CACHE_NAME = 'delparque-v4';
+const CACHE_NAME = 'delparque-' + Date.now();
 const STATIC_EXTENSIONS = ['.js', '.css', '.woff2', '.woff', '.ttf'];
 
 self.addEventListener('install', e => {
@@ -11,6 +11,9 @@ self.addEventListener('activate', e => {
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
+     .then(() => self.clients.matchAll({ type: 'window' }).then(clients => {
+       clients.forEach(client => client.navigate(client.url));
+     }))
   );
 });
 

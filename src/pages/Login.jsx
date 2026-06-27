@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
+import logoColor from '/logo-color.png'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -40,9 +41,10 @@ export default function Login() {
           {/* Logo */}
           <div className="flex flex-col items-center mb-8">
             <img
-              src="/logo-color.png"
+              src={logoColor}
+              width="140"
               alt="Del Parque"
-              style={{ width: '120px', height: 'auto', objectFit: 'contain', marginBottom: '16px' }}
+              style={{ height: 'auto', objectFit: 'contain', marginBottom: '16px' }}
             />
             <p className="text-sm" style={{ color: '#64748B' }}>Sistema de gestión industrial</p>
           </div>

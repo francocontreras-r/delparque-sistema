@@ -276,6 +276,17 @@ export default function Finanzas() {
     if (campo === 'mano_de_obra') updates.costo_total = (producto.costo_materiales || 0) + num
     const { error } = await supabase.from(producto.tabla).update(updates).eq('id', producto.id)
     if (error) { showToast(error.message, 'error'); return }
+    if (campo === 'precio_venta') {
+      const costoTotal = producto.costo_total || 0
+      await supabase.from('precios_historicos').insert({
+        producto_nombre: producto.nombre,
+        tipo_producto: producto.tabla === 'sabores' ? 'sabor' : producto.tabla === 'impulsivos' ? 'impulsivo' : 'base',
+        precio_venta: num,
+        costo_total: costoTotal,
+        margen: num > 0 ? ((num - costoTotal) / num * 100).toFixed(1) : 0,
+        fecha_vigencia: new Date().toISOString().split('T')[0],
+      })
+    }
     if (producto.tabla === 'sabores') {
       setSabores(prev => prev.map(s => s.id === producto.id ? { ...s, ...updates } : s))
     } else if (producto.tabla === 'bases') {

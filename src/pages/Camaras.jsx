@@ -1355,6 +1355,16 @@ export default function Camaras() {
     const currentBaldes = Number(sabor.baldes) || 0
     const currentKg     = Number(sabor.kg)     || 0
 
+    if (tipo === 'egreso') {
+      const unidadLabel = tipoCam === 'helado' ? 'baldes' : 'unidades'
+      if (baldes > currentBaldes) {
+        return `Stock insuficiente — hay ${currentBaldes} ${unidadLabel}, querés egresar ${baldes}`
+      }
+      if (tipoCam !== 'impulsivo' && (kg || 0) > 0 && (kg || 0) > currentKg) {
+        return `KG insuficientes — hay ${currentKg.toFixed(1)} kg, querés egresar ${(kg || 0)} kg`
+      }
+    }
+
     // Baldes/unidades: aplica a todos los tipos
     const nuevoBaldes = tipo === 'ingreso'
       ? currentBaldes + baldes

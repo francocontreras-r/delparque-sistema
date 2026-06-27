@@ -59,6 +59,18 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal, usuarioE
     return { error: null, toastMsg: '✅ Orden completada', toastType: 'ok' }
   }
 
+  if (orden.id) {
+    const { data: mermaExistente } = await supabase
+      .from('mermas')
+      .select('id')
+      .eq('orden_id', orden.id)
+      .maybeSingle()
+    if (mermaExistente) {
+      console.log('Merma ya registrada para orden', orden.id)
+      return { error: null, toastMsg: '✅ Orden completada', toastType: 'ok' }
+    }
+  }
+
   // Buscar si es un sabor con base asociada
   const { data: saborData } = await supabase
     .from('sabores')
@@ -103,6 +115,7 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal, usuarioE
     const absDif = Math.abs(diferencia)
     const { error } = await supabase.from('mermas').insert({
       fecha,
+      orden_id: orden.id || null,
       sabor_nombre: saborNombre,
       operario_nombre: orden.operario_nombre || null,
       kg_teoricos: kgBaseTeorica,
@@ -114,6 +127,9 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal, usuarioE
       usuario_email: usuarioEmail,
     })
     if (error) return { error }
+    if (orden.id) {
+      await supabase.from('ordenes_produccion').update({ merma_registrada: true }).eq('id', orden.id)
+    }
     return {
       error: null,
       toastMsg: `⚠️ Merma registrada: ${absDif.toFixed(2)} kg (${((absDif / kgBaseTeorica) * 100).toFixed(1)}%)`,
@@ -136,6 +152,7 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal, usuarioE
   const merma = absDif
   const { error } = await supabase.from('mermas').insert({
     fecha,
+    orden_id: orden.id || null,
     sabor_nombre: saborNombre,
     operario_nombre: orden.operario_nombre || null,
     kg_teoricos: kgObjetivo,
@@ -147,6 +164,9 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal, usuarioE
     usuario_email: usuarioEmail,
   })
   if (error) return { error }
+  if (orden.id) {
+    await supabase.from('ordenes_produccion').update({ merma_registrada: true }).eq('id', orden.id)
+  }
   return { error: null, toastMsg: `⚠️ Orden completada — Merma: ${merma.toFixed(2)} kg`, toastType: 'warn' }
 }
 

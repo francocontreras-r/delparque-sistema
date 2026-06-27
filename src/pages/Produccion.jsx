@@ -342,19 +342,29 @@ export default function Produccion() {
 
     console.log('Iniciando confirmación, items:', preCarga)
 
-    // 1. Insertar en producciones (excluir campos internos)
-    const payload = preCarga.map(({ _id, _pesoTotalKg, _unidades, tipo_producto, categoria, ...item }) => ({
-      ...item,
-      observaciones: item.observaciones?.trim() || null,
-      usuario_email: user?.email || null,
-    }))
-    const { error } = await supabase.from('producciones').insert(payload)
-    if (error) {
+    // 1. Insertar en producciones por item para poder identificar errores
+    const erroresProduccion = []
+    let guardados = 0
+    for (const item of preCarga) {
+      const { _id, _pesoTotalKg, _unidades, tipo_producto, categoria, ...rest } = item
+      const { error: errItem } = await supabase.from('producciones').insert({
+        ...rest,
+        observaciones: rest.observaciones?.trim() || null,
+        usuario_email: user?.email || null,
+      })
+      if (errItem) {
+        erroresProduccion.push(item.producto_nombre || 'Sin nombre')
+        console.error('Error al insertar producción:', item.producto_nombre, errItem)
+      } else {
+        guardados++
+      }
+    }
+    if (erroresProduccion.length > 0 && guardados === 0) {
       setConfirmando(false)
-      toast2('Error: ' + error.message, 'error')
+      toast2(`Error al registrar producciones: ${erroresProduccion.join(', ')}`, 'error')
       return
     }
-    const cantidad = preCarga.length
+    const cantidad = guardados
 
     // 2. Agrupar por producto para acumular kg/unidades antes de tocar cámaras
     const sumasPorProducto = {}
@@ -494,7 +504,11 @@ export default function Produccion() {
     setConfirmando(false)
 
     // Toast detallado
-    toast2(`✅ ${cantidad} registro${cantidad === 1 ? '' : 's'} guardado${cantidad === 1 ? '' : 's'} — ${camarasActualizadas} producto${camarasActualizadas === 1 ? '' : 's'} actualizado${camarasActualizadas === 1 ? '' : 's'} en cámara${mensajesOrdenes.length > 0 ? ' · ' + mensajesOrdenes.join(' · ') : ''}`)
+    if (erroresProduccion.length > 0) {
+      toast2(`✅ ${cantidad} guardado${cantidad === 1 ? '' : 's'} — ⚠️ Errores en: ${erroresProduccion.join(', ')}`, 'error')
+    } else {
+      toast2(`✅ ${cantidad} registro${cantidad === 1 ? '' : 's'} guardado${cantidad === 1 ? '' : 's'} — ${camarasActualizadas} producto${camarasActualizadas === 1 ? '' : 's'} actualizado${camarasActualizadas === 1 ? '' : 's'} en cámara${mensajesOrdenes.length > 0 ? ' · ' + mensajesOrdenes.join(' · ') : ''}`)
+    }
     if (noEncontrados.length > 0) {
       setTimeout(() => toast2(`⚠️ No se encontró en cámara: ${noEncontrados.join(', ')}`, 'error'), 1500)
     }

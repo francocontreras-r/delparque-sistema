@@ -777,6 +777,29 @@ export default function Recetas() {
                         <span style={{ color: colors.textPrimary }}>COSTO TOTAL</span>
                         <span style={{ color: colors.brand }}>${pesos(r.costoTotal)}</span>
                       </div>
+                      {(() => {
+                        const costoGuardadoMP = r.costoTotal - r.manoDeObra
+                        const difiere = Math.abs(r.subtotalMP - costoGuardadoMP) > 1
+                        if (!difiere) return null
+                        return (
+                          <div className="mt-2 pt-2 space-y-1" style={{ borderTop: '1px solid #fed7aa' }}>
+                            <div className="flex justify-between text-xs">
+                              <span style={{ color: colors.textMuted }}>Costo calculado desde insumos</span>
+                              <span style={{ color: colors.success, fontWeight: '600' }}>${pesos(r.subtotalMP)}</span>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                              <span style={{ color: colors.textMuted }}>Costo guardado</span>
+                              <span style={{ color: colors.textSecondary }}>${pesos(costoGuardadoMP)}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 pt-1">
+                              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                                style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#d97706', border: '1px solid rgba(245,158,11,0.3)' }}>
+                                ⚠️ Costo desactualizado — abrí la receta para recalcular
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })()}
                       {costoKg != null && (
                         <div className="flex justify-between text-xs">
                           <span style={{ color: colors.textMuted }}>Costo por litro</span>

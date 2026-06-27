@@ -390,6 +390,7 @@ export default function Ordenes() {
   function agregarLinea() {
     if (!productoSel) { toast2('Seleccioná un producto', 'error'); return }
     const horasEstimadas = parseFloat(lineaHoras || '0') || 0
+    if (!(horasEstimadas > 0)) { toast2('Las horas estimadas son obligatorias', 'error'); return }
     if (productoSelEsHelado) {
       const cantidad = parseFloat(lineaCantidad || '1')
       if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
@@ -1487,7 +1488,7 @@ export default function Ordenes() {
                   </Button>
                 </div>
                 <div className="w-32 mt-2">
-                  <Input label="Tiempo estimado (horas)" type="number" min="0" step="0.5" placeholder="ej: 4.5"
+                  <Input label="Horas estimadas *" type="number" min="0.5" step="0.5" placeholder="ej: 4.5"
                     value={lineaHoras} onChange={e => setLineaHoras(e.target.value)} />
                 </div>
 

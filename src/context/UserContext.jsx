@@ -22,6 +22,8 @@ export const ROLE_PERMISOS = {
 
 export const ROLES = ['operario', 'supervisor', 'admin']
 
+const INACTIVIDAD_MS = 30 * 60 * 1000
+
 const UserContext = createContext(null)
 
 export function UserProvider({ children }) {
@@ -34,6 +36,25 @@ export function UserProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session))
     return () => subscription.unsubscribe()
   }, [])
+
+  useEffect(() => {
+    if (!session) return
+    let timer
+    const resetTimer = () => {
+      clearTimeout(timer)
+      timer = setTimeout(async () => {
+        await supabase.auth.signOut()
+        window.location.href = '/login'
+      }, INACTIVIDAD_MS)
+    }
+    const eventos = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click']
+    eventos.forEach(e => window.addEventListener(e, resetTimer))
+    resetTimer()
+    return () => {
+      clearTimeout(timer)
+      eventos.forEach(e => window.removeEventListener(e, resetTimer))
+    }
+  }, [session])
 
   useEffect(() => {
     if (session === undefined) return

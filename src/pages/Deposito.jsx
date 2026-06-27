@@ -155,7 +155,32 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
   const [showResumen, setShowResumen] = useState(false)
   const [showMarcaAC, setShowMarcaAC] = useState(false)
   const [localError, setLocalError] = useState('')
+  const [proveedores, setProveedores] = useState([])
+  const [mostrarNuevoProveedor, setMostrarNuevoProveedor] = useState(false)
+  const [nuevoProveedorNombre, setNuevoProveedorNombre] = useState('')
+  const [guardandoProveedor, setGuardandoProveedor] = useState(false)
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  useEffect(() => {
+    if (!esIngreso) return
+    supabase.from('proveedores').select('id, nombre').eq('activo', true).order('nombre')
+      .then(({ data }) => setProveedores(data || []))
+  }, [esIngreso])
+
+  async function handleGuardarNuevoProveedor() {
+    const nombre = nuevoProveedorNombre.trim()
+    if (!nombre) return
+    setGuardandoProveedor(true)
+    const { data, error } = await supabase.from('proveedores')
+      .insert({ nombre, activo: true }).select('id, nombre').single()
+    setGuardandoProveedor(false)
+    if (!error && data) {
+      setProveedores(prev => [...prev, data].sort((a, b) => a.nombre.localeCompare(b.nombre)))
+      upd('proveedor', data.nombre)
+      setNuevoProveedorNombre('')
+      setMostrarNuevoProveedor(false)
+    }
+  }
 
   function handleClose() {
     const dirty = form.producto_nombre.trim() !== '' || form.cantidad !== ''
@@ -412,7 +437,30 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
 
           {esIngreso ? (
             <div className="space-y-3">
-              <Input label="Proveedor *" type="text" value={form.proveedor} onChange={e => upd('proveedor', e.target.value)} />
+              {!mostrarNuevoProveedor ? (
+                <Select label="Proveedor *" value={form.proveedor} onChange={e => {
+                  if (e.target.value === '__nuevo__') { setMostrarNuevoProveedor(true) }
+                  else upd('proveedor', e.target.value)
+                }}>
+                  <option value="">— Seleccionar proveedor —</option>
+                  {proveedores.map(p => <option key={p.id} value={p.nombre}>{p.nombre}</option>)}
+                  <option value="__nuevo__">＋ Agregar nuevo proveedor</option>
+                </Select>
+              ) : (
+                <div className="space-y-2">
+                  <Input label="Nombre del nuevo proveedor *" value={nuevoProveedorNombre}
+                    onChange={e => setNuevoProveedorNombre(e.target.value)}
+                    placeholder="Nombre del proveedor" />
+                  <div className="flex gap-2">
+                    <Button variant="secondary" className="flex-1" onClick={() => { setMostrarNuevoProveedor(false); setNuevoProveedorNombre('') }}>
+                      Cancelar
+                    </Button>
+                    <Button variant="primary" className="flex-1" onClick={handleGuardarNuevoProveedor} loading={guardandoProveedor} disabled={!nuevoProveedorNombre.trim()}>
+                      Guardar proveedor
+                    </Button>
+                  </div>
+                </div>
+              )}
               <Select label="Tipo de ingreso *" value={form.motivo} onChange={e => upd('motivo', e.target.value)}>
                 <option value="">— Seleccionar motivo —</option>
                 {MOTIVOS_INGRESO_DEPOSITO.map(m => <option key={m} value={m}>{m}</option>)}

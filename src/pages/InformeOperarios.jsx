@@ -38,7 +38,8 @@ export default function InformeOperarios() {
   const [periodo, setPeriodo]       = useState('mes')
   const [operarioSel, setOperarioSel] = useState('')
   const [datos, setDatos] = useState({ operarios: [], ordenes: [], ranking: [], comparativas: {} })
-  const chartRef = useRef(null)
+  const chartRef     = useRef(null)
+  const chartRefEvol = useRef(null)
 
   useEffect(() => { cargar() }, [periodo]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -242,6 +243,23 @@ export default function InformeOperarios() {
           columnStyles: { 0: { fontStyle: 'bold', cellWidth: 80 }, 1: { halign: 'right' } },
           didDrawPage: didDP(`OPERARIO: ${op.nombre}`),
         })
+
+        // Gráfico evolución últimas 10 órdenes
+        if (chartRefEvol.current && op.ultimas10.length > 0) {
+          try {
+            let yE = doc.lastAutoTable.finalY + 8
+            if (yE > ph - 60) { doc.addPage(); yE = PDF_CONTENT_Y }
+            yE = dibujarSeccion(doc, pw, 'Evolución últimas órdenes', yE)
+            const canvasEvol = await html2canvas(chartRefEvol.current, { backgroundColor: '#1e293b', scale: 2, logging: false, useCORS: true })
+            const imgEvol = canvasEvol.toDataURL('image/png')
+            const imgEvolH = (canvasEvol.height * (pw - 28)) / canvasEvol.width
+            doc.setDrawColor(51, 65, 85); doc.setLineWidth(0.3)
+            doc.rect(14, yE, pw - 28, imgEvolH)
+            doc.addImage(imgEvol, 'PNG', 14, yE, pw - 28, imgEvolH)
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139)
+            doc.text('KG objetivo vs producido — últimas 10 órdenes completadas', 14, yE + imgEvolH + 3)
+          } catch (e) { console.warn('chart evol:', e) }
+        }
 
         const ords = datos.ordenes.filter(o => o.operario_nombre === op.nombre)
         if (ords.length > 0) {
@@ -646,17 +664,30 @@ export default function InformeOperarios() {
         </div>
       )}
 
-      {/* Gráfico oculto para captura PDF con html2canvas — fondo blanco para PDF b&w */}
-      <div ref={chartRef} style={{ position: 'fixed', left: '-9999px', top: '0', width: '580px', height: '240px', background: '#ffffff', padding: '12px 16px', zIndex: -1 }}>
-        <BarChart width={548} height={216} data={datos.ranking.slice(0, 10).map(r => ({ nombre: r.nombre.split(' ')[0], 'Ef. KG': r.efKg || 0, 'Ef. Tiempo': r.efTiempo || 0, 'Rendimiento': r.rendimiento || 0 }))}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#d1d5db" />
-          <XAxis dataKey="nombre" stroke="#6b7280" tick={{ fill: '#374151', fontSize: 10 }} />
-          <YAxis domain={[0, 100]} stroke="#6b7280" tick={{ fill: '#374151', fontSize: 10 }} />
-          <Tooltip contentStyle={{ background: '#ffffff', border: '1px solid #d1d5db' }} />
-          <Legend wrapperStyle={{ color: '#374151', fontSize: 11 }} />
-          <Bar dataKey="Ef. KG" fill="#4b5563" />
-          <Bar dataKey="Ef. Tiempo" fill="#9ca3af" />
-          <Bar dataKey="Rendimiento" fill="#111827" />
+      {/* Gráfico oculto ranking — captura PDF */}
+      <div ref={chartRef} style={{ position: 'fixed', left: '-9999px', top: '0', width: '760px', height: '280px', background: '#1e293b', padding: '16px 20px', zIndex: -1, borderRadius: '8px' }}>
+        <BarChart width={720} height={248} data={datos.ranking.slice(0, 10).map(r => ({ nombre: r.nombre.split(' ')[0], 'Ef. KG': r.pctProduccion || 0, 'Ef. Tiempo': r.pctTiempo || 0, 'Rendimiento': r.rendimiento || 0 }))}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+          <XAxis dataKey="nombre" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
+          <YAxis domain={[0, 120]} stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
+          <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9' }} />
+          <Legend wrapperStyle={{ color: '#94a3b8', fontSize: 11 }} />
+          <Bar dataKey="Ef. KG" fill="#D4521A" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="Ef. Tiempo" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="Rendimiento" fill="#10b981" radius={[3, 3, 0, 0]} />
+        </BarChart>
+      </div>
+
+      {/* Gráfico oculto evolución operario — captura PDF */}
+      <div ref={chartRefEvol} style={{ position: 'fixed', left: '-9999px', top: '0', width: '760px', height: '260px', background: '#1e293b', padding: '16px 20px', zIndex: -1, borderRadius: '8px' }}>
+        <BarChart width={720} height={228} data={opActual?.ultimas10 || []}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+          <XAxis dataKey="nombre" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 9 }} interval={0} angle={-20} textAnchor="end" height={50} />
+          <YAxis stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
+          <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9' }} />
+          <Legend wrapperStyle={{ color: '#94a3b8', fontSize: 11 }} />
+          <Bar dataKey="objetivo" fill="#334155" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="producido" fill="#D4521A" radius={[3, 3, 0, 0]} />
         </BarChart>
       </div>
     </div>

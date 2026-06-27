@@ -1,12 +1,15 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown, FileDown, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { deduplicarOperarios } from '../lib/operarios'
 import { useUser } from '../context/UserContext'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import html2canvas from 'html2canvas'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { LOGO_HORIZONTAL } from '../assets/logos'
 const logoUrl = '/logo_delparque.png'
+import { dibujarPortada, dibujarEncabezado, dibujarPie, dibujarKpi, dibujarSeccion, dibujarPaginaFirmas, getEstiloInforme, PDF_CONTENT_Y } from '../lib/pdfEstilos'
 import { colors, shadow, radius } from '../styles/design-system'
 import KpiCard from '../components/ui/KpiCard'
 import Toast from '../components/ui/Toast'
@@ -1039,6 +1042,9 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
 // ── Página principal ──────────────────────────────────────────────────────────
 
 export default function Camaras() {
+  const chartRefCat     = useRef(null)
+  const chartRefImpuls  = useRef(null)
+
   const [stock, setStock]               = useState([])
   const [loading, setLoading]           = useState(true)
   const [errorCarga, setErrorCarga]     = useState(null)
@@ -1410,11 +1416,102 @@ export default function Camaras() {
     w.onload = () => w.print()
   }
 
-  function imprimirStockActual() {
-    const w = window.open('', '_blank')
-    w.document.write(generarStockActual(stock))
-    w.document.close()
-    w.onload = () => w.print()
+  async function generarPDFStockActual() {
+    const hoy = new Date().toLocaleDateString('es-AR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const pw = doc.internal.pageSize.getWidth()
+    const ph = doc.internal.pageSize.getHeight()
+    const { HS, BS, AS, LI } = getEstiloInforme()
+    const N = [20, 20, 20]
+    let y = PDF_CONTENT_Y
+
+    function saltarSiNecesario(yy, h = 40) {
+      if (yy + h > ph - 18) { doc.addPage(); dibujarEncabezado(doc, pw, 'Cámaras', 'Stock Actual', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber); return PDF_CONTENT_Y }
+      return yy
+    }
+
+    // P1 Portada
+    dibujarPortada(doc, pw, ph, 'Cámaras', 'Informe Stock Actual', 'Cierre de período', hoy)
+
+    // P2 KPIs + gráfico categorías
+    doc.addPage()
+    dibujarEncabezado(doc, pw, 'Cámaras', 'Stock Actual', hoy)
+    y = PDF_CONTENT_Y
+
+    const helados = stock.filter(s => s.tipoCam !== 'impulsivo')
+    const impulsivos = stock.filter(s => s.tipoCam === 'impulsivo')
+    const totalBaldes = helados.reduce((a, s) => a + (s.baldes || 0), 0)
+    const totalKg = helados.reduce((a, s) => a + (s.kg || 0), 0)
+    const totalUnid = impulsivos.reduce((a, s) => a + (s.baldes || 0), 0)
+    const kpiW = (pw - 28 - 4) / 3
+    dibujarKpi(doc, 14,               y, kpiW, 18, 'Baldes helado', `${totalBaldes}`)
+    dibujarKpi(doc, 14 + kpiW + 2,   y, kpiW, 18, 'KG helado', `${totalKg.toFixed(1)} kg`)
+    dibujarKpi(doc, 14 + (kpiW+2)*2, y, kpiW, 18, 'Unid. impulsivos', `${totalUnid}`)
+    y += 26
+
+    // Gráfico stock por categoría
+    if (chartRefCat.current) {
+      try {
+        const canvas = await html2canvas(chartRefCat.current, { backgroundColor: '#1e293b', scale: 2, logging: false, useCORS: true })
+        const imgData = canvas.toDataURL('image/png')
+        const imgH = (canvas.height * (pw - 28)) / canvas.width
+        y = saltarSiNecesario(y, imgH + 8)
+        doc.setDrawColor(51, 65, 85); doc.setLineWidth(0.3)
+        doc.rect(14, y, pw - 28, imgH)
+        doc.addImage(imgData, 'PNG', 14, y, pw - 28, imgH)
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139)
+        doc.text('Stock de helados por categoría — baldes', 14, y + imgH + 3)
+        y += imgH + 8
+      } catch (e) { console.warn('chart cat:', e) }
+    }
+
+    // Gráfico impulsivos
+    if (chartRefImpuls.current && impulsivos.length > 0) {
+      try {
+        y = saltarSiNecesario(y, 55)
+        const canvas2 = await html2canvas(chartRefImpuls.current, { backgroundColor: '#1e293b', scale: 2, logging: false, useCORS: true })
+        const imgData2 = canvas2.toDataURL('image/png')
+        const imgH2 = (canvas2.height * (pw - 28)) / canvas2.width
+        y = saltarSiNecesario(y, imgH2 + 8)
+        doc.setDrawColor(51, 65, 85); doc.setLineWidth(0.3)
+        doc.rect(14, y, pw - 28, imgH2)
+        doc.addImage(imgData2, 'PNG', 14, y, pw - 28, imgH2)
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139)
+        doc.text('Stock impulsivos — unidades', 14, y + imgH2 + 3)
+        y += imgH2 + 8
+      } catch (e) { console.warn('chart impuls:', e) }
+    }
+
+    // Tabla helados por categoría
+    y = saltarSiNecesario(y)
+    y = dibujarSeccion(doc, pw, 'Detalle helados', y)
+    autoTable(doc, {
+      startY: y, headStyles: HS, bodyStyles: BS, alternateRowStyles: AS, styles: LI,
+      margin: { left: 14, right: 14 },
+      head: [['PRODUCTO', 'TIPO', 'BALDES', 'KG']],
+      body: helados.map(s => [s.nombre || '—', s.tipoCam || '—', String(s.baldes || 0), `${(s.kg || 0).toFixed(1)} kg`]),
+    })
+    y = doc.lastAutoTable.finalY + 8
+
+    // Tabla impulsivos
+    if (impulsivos.length > 0) {
+      y = saltarSiNecesario(y)
+      y = dibujarSeccion(doc, pw, 'Impulsivos', y)
+      autoTable(doc, {
+        startY: y, headStyles: HS, bodyStyles: BS, alternateRowStyles: AS, styles: LI,
+        margin: { left: 14, right: 14 },
+        head: [['PRODUCTO', 'UNIDADES']],
+        body: impulsivos.map(s => [s.nombre || '—', String(s.baldes || 0)]),
+      })
+    }
+
+    // Página firmas
+    dibujarPaginaFirmas(doc, pw, ph, 'Cámaras', hoy, ['Responsable Cámaras', 'Jefe de Producción'])
+
+    const totalPag = doc.internal.getNumberOfPages()
+    for (let p = 2; p <= totalPag; p++) { doc.setPage(p); dibujarPie(doc, pw, ph, p) }
+
+    doc.save(`stock-camaras-${new Date().toISOString().slice(0, 10)}.pdf`)
   }
 
   const PILL_BASE = 'px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border'
@@ -1439,7 +1536,7 @@ export default function Camaras() {
             <Printer size={15} /> Imprimir
           </Button>
           {userRole === 'admin' && (
-            <Button variant="secondary" onClick={imprimirStockActual} disabled={loading || !!errorCarga}>
+            <Button variant="secondary" onClick={generarPDFStockActual} disabled={loading || !!errorCarga}>
               <FileDown size={15} /> Stock Actual
             </Button>
           )}
@@ -1899,6 +1996,38 @@ export default function Camaras() {
           saving={savingAgregar}
         />
       )}
+
+      {/* Gráficos ocultos para captura PDF */}
+      {(() => {
+        const catData = ['Lisa', 'Con Agregado', 'Agua', 'Especial'].map(tipo => ({
+          tipo,
+          baldes: stock.filter(s => s.tipo === tipo || s.tipoCam === tipo.toLowerCase().replace(' ', '_')).reduce((a, s) => a + (s.baldes || 0), 0),
+        })).filter(c => c.baldes > 0)
+        const impulsData = stock
+          .filter(s => s.tipoCam === 'impulsivo')
+          .map(s => ({ nombre: s.nombre?.length > 12 ? s.nombre.slice(0, 12) + '…' : s.nombre, unidades: s.baldes || 0 }))
+          .sort((a, b) => b.unidades - a.unidades)
+        return (<>
+          <div ref={chartRefCat} style={{ position: 'fixed', left: '-9999px', top: 0, width: '760px', height: '260px', background: '#1e293b', padding: '16px 20px', zIndex: -1, borderRadius: '8px' }}>
+            <BarChart width={720} height={228} data={catData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis dataKey="tipo" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 11 }} />
+              <YAxis stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
+              <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9' }} formatter={v => [`${v} baldes`, 'Stock']} />
+              <Bar dataKey="baldes" fill="#D4521A" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </div>
+          <div ref={chartRefImpuls} style={{ position: 'fixed', left: '-9999px', top: 0, width: '760px', height: '260px', background: '#1e293b', padding: '16px 20px', zIndex: -1, borderRadius: '8px' }}>
+            <BarChart width={720} height={228} data={impulsData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis dataKey="nombre" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
+              <YAxis stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
+              <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9' }} formatter={v => [`${v} u`, 'Stock']} />
+              <Bar dataKey="unidades" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </div>
+        </>)
+      })()}
     </div>
   )
 }

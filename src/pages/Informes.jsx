@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import html2canvas from 'html2canvas'
 import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
@@ -161,6 +162,8 @@ export default function Informes() {
   const [diaSeleccionado, setDiaSeleccionado] = useState(hoyISO)
   const [loading, setLoading]       = useState(true)
   const [exportando, setExportando] = useState(false)
+  const chartRefProd = useRef(null)
+  const chartRefOp   = useRef(null)
 
   const [modalDetalle, setModalDetalle] = useState(null) // { nombre, tipo, registros }
 
@@ -535,6 +538,39 @@ export default function Informes() {
         dibujarKpi(doc, 14 + (kpiW + 2) * 2, y, kpiW, 18, 'Operarios activos', actual.porOperario.length)
         y += 26
 
+        // Gráfico Top sabores por kg
+        if (chartRefProd.current && chartProduccion.length > 0) {
+          try {
+            const canvas = await html2canvas(chartRefProd.current, { backgroundColor: '#1e293b', scale: 2, logging: false, useCORS: true })
+            const imgData = canvas.toDataURL('image/png')
+            y = saltarSiNecesario(y + 2)
+            const imgH = (canvas.height * (pw - 28)) / canvas.width
+            doc.setDrawColor(51, 65, 85); doc.setLineWidth(0.3)
+            doc.rect(14, y, pw - 28, imgH)
+            doc.addImage(imgData, 'PNG', 14, y, pw - 28, imgH)
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139)
+            doc.text('Top sabores — kg producidos en el período', 14, y + imgH + 3)
+            y += imgH + 8
+          } catch (e) { console.warn('chart prod:', e) }
+        }
+
+        // Gráfico producción por operario
+        if (chartRefOp.current && actual.porOperario.length > 0) {
+          try {
+            y = saltarSiNecesario(y + 2)
+            const canvas2 = await html2canvas(chartRefOp.current, { backgroundColor: '#1e293b', scale: 2, logging: false, useCORS: true })
+            const imgData2 = canvas2.toDataURL('image/png')
+            const imgH2 = (canvas2.height * (pw - 28)) / canvas2.width
+            doc.setDrawColor(51, 65, 85); doc.setLineWidth(0.3)
+            doc.rect(14, y, pw - 28, imgH2)
+            doc.addImage(imgData2, 'PNG', 14, y, pw - 28, imgH2)
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139)
+            doc.text('Producción por operario — kg en el período', 14, y + imgH2 + 3)
+            y += imgH2 + 8
+          } catch (e) { console.warn('chart op:', e) }
+        }
+
+        y = saltarSiNecesario(y)
         y = dibujarSeccion(doc, pw, 'Resumen general', y)
         autoTable(doc, {
           ...EST, startY: y,
@@ -1182,6 +1218,26 @@ export default function Informes() {
           </Modal>
         )
       })()}
+
+      {/* Gráficos ocultos para captura PDF */}
+      <div ref={chartRefProd} style={{ position: 'fixed', left: '-9999px', top: 0, width: '760px', height: '300px', background: '#1e293b', padding: '16px 20px', zIndex: -1, borderRadius: '8px' }}>
+        <BarChart width={720} height={268} data={chartProduccion}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+          <XAxis dataKey="nombre" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} interval={0} angle={-25} textAnchor="end" height={70} />
+          <YAxis stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
+          <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9' }} formatter={v => [`${v} kg`, 'Producción']} />
+          <Bar dataKey="kg" fill="#D4521A" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </div>
+      <div ref={chartRefOp} style={{ position: 'fixed', left: '-9999px', top: 0, width: '760px', height: '260px', background: '#1e293b', padding: '16px 20px', zIndex: -1, borderRadius: '8px' }}>
+        <BarChart width={720} height={228} data={produccionInforme.actual.porOperario.map(o => ({ nombre: (o.nombre || '').split(' ')[0], kg: Number(o.kgSabores.toFixed(1)) }))}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+          <XAxis dataKey="nombre" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
+          <YAxis stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
+          <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9' }} formatter={v => [`${v} kg`, 'KG producidos']} />
+          <Bar dataKey="kg" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </div>
     </div>
   )
 }

@@ -5,8 +5,9 @@ import { deduplicarOperarios } from '../lib/operarios'
 import { clasificarVencimiento, esAlertaVencimiento, labelDias } from '../lib/vencimientos'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import html2canvas from 'html2canvas'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
 import Spinner from '../components/ui/Spinner'
@@ -984,7 +985,8 @@ export default function Deposito() {
   const [vencimientosIngresos, setVencimientosIngresos] = useState([])
   const [filtroVencimiento, setFiltroVencimiento] = useState(false)
   const [generandoPDFcamara, setGenerandoPDFcamara] = useState(false)
-  const tablaDepositoRef = useRef(null)
+  const tablaDepositoRef  = useRef(null)
+  const chartRefConteo    = useRef(null)
 
   // ── Conteo formal semanal ──────────────────────────────────────────────────
   const [conteoEstado, setConteoEstado]         = useState('SIN_INICIAR') // SIN_INICIAR | EN_PROCESO | COMPLETADO | APROBADO
@@ -1822,15 +1824,31 @@ export default function Deposito() {
       const pLines = doc.splitTextToSize(parr, W - 28)
       doc.text(pLines, 14, y2); y2 += pLines.length * 5 + 10
 
-      // Top 5 diferencias
+      // Top 5 diferencias — tabla + gráfico
+      const top5 = [...filasDep]
+        .map(f => ({ ...f, diff: parseFloat(f.stockFisico) - f.stockSistema }))
+        .filter(f => !isNaN(f.diff) && f.diff !== 0)
+        .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
+        .slice(0, 5)
       if (conDiff > 0 && seccionCS === 'deposito') {
+        // Captura gráfico barras horizontal
+        if (chartRefConteo.current && top5.length > 0) {
+          try {
+            const canvasC = await html2canvas(chartRefConteo.current, { backgroundColor: '#1e293b', scale: 2, logging: false, useCORS: true })
+            const imgC = canvasC.toDataURL('image/png')
+            const imgCH = (canvasC.height * (W - 28)) / canvasC.width
+            if (y2 + imgCH > H - 20) { doc.addPage(); fondoOscuro(); y2 = 16 }
+            doc.setDrawColor(51, 65, 85); doc.setLineWidth(0.3)
+            doc.rect(14, y2, W - 28, imgCH)
+            doc.addImage(imgC, 'PNG', 14, y2, W - 28, imgCH)
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(148, 163, 184)
+            doc.text('Top diferencias de stock (valor absoluto)', 14, y2 + imgCH + 3)
+            y2 += imgCH + 10
+          } catch (e) { console.warn('chart conteo:', e) }
+        }
+
         doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...N)
         doc.text('TOP DIFERENCIAS', 14, y2); y2 += 4
-        const top5 = [...filasDep]
-          .map(f => ({ ...f, diff: parseFloat(f.stockFisico) - f.stockSistema }))
-          .filter(f => !isNaN(f.diff) && f.diff !== 0)
-          .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
-          .slice(0, 5)
         autoTable(doc, {
           startY: y2, headStyles: HS, bodyStyles: BS, alternateRowStyles: AS, styles: LI,
           margin: { left: 14, right: 14 },
@@ -3403,6 +3421,27 @@ export default function Deposito() {
             onConfirm={aprobarConteoFormal}
             saving={savingConteo}
           />
+        )
+      })()}
+
+      {/* Gráfico oculto top diferencias Control Semanal — captura PDF */}
+      {(() => {
+        const top5Chart = conteoFilasDepo
+          .map(f => ({ nombre: f.nombre, diff: parseFloat(f.stockFisico) - f.stockSistema }))
+          .filter(f => !isNaN(f.diff) && f.diff !== 0)
+          .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
+          .slice(0, 5)
+          .map(f => ({ nombre: f.nombre.length > 14 ? f.nombre.slice(0, 14) + '…' : f.nombre, diff: Number(f.diff.toFixed(2)) }))
+        return (
+          <div ref={chartRefConteo} style={{ position: 'fixed', left: '-9999px', top: 0, width: '760px', height: '240px', background: '#1e293b', padding: '16px 20px', zIndex: -1, borderRadius: '8px' }}>
+            <BarChart width={720} height={208} data={top5Chart} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis type="number" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
+              <YAxis type="category" dataKey="nombre" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} width={110} />
+              <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9' }} />
+              <Bar dataKey="diff" fill="#D4521A" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </div>
         )
       })()}
     </div>

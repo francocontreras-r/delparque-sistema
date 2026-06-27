@@ -24,7 +24,7 @@ import { colors, radius, shadow } from '../styles/design-system'
 import { finalizarOrdenManual, progresoColor, ESTADO_EN_PROCESO, ESTADO_COMPLETADA } from '../lib/ordenes'
 import { POSTRES } from '../lib/postres'
 import { ClipboardList, Plus, Printer, FileDown, CheckCircle2, Warehouse, X, ChevronDown, ChevronUp, Package, Clock, BarChart2, AlertTriangle } from 'lucide-react'
-const logoUrl = '/logo_delparque.png'
+const logoUrl = '/logo-byn.png'
 
 function toDataURL(url) {
   return fetch(url)

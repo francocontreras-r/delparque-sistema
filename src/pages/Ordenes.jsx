@@ -6,9 +6,7 @@ import { deduplicarOperarios } from '../lib/operarios'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import {
-  getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
-  dibujarKpi, dibujarSeccion, dibujarPaginaFirmas,
-  PDF_CONTENT_Y, PDF_NEGRO,
+  getEstiloInforme, dibujarSeccion, LOGO_PDF,
 } from '../lib/pdfEstilos'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
@@ -994,36 +992,103 @@ export default function Ordenes() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const pw  = doc.internal.pageSize.getWidth()
     const ph  = doc.internal.pageSize.getHeight()
-    const hoy = new Date().toLocaleString('es-AR')
-    const MOD = 'ÓRDENES'
-    const TIT = `ORDEN DE PRODUCCIÓN N° ${grupo.numero}`
-    const EST = getEstiloInforme()
+    const hoy = new Date().toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-    const periodoPortada = [
-      grupo.fecha ? `Fecha programada: ${grupo.fecha}` : null,
-      grupo.operario ? `Operario: ${grupo.operario}` : null,
-    ].filter(Boolean).join('  ·  ')
+    const N   = [20, 20, 20]
+    const B   = [255, 255, 255]
+    const G   = [245, 245, 245]
+    const GM  = [210, 210, 210]
+    const VER = [22, 101, 52]
+    const ROJ = [153, 27, 27]
 
-    // P1 — Portada
-    dibujarPortada(doc, pw, ph, MOD, TIT, periodoPortada || null, hoy)
+    const HDR_H  = 18
+    const KPI_H  = 12
+    const CNT_Y1 = HDR_H + KPI_H + 4   // primera página (con KPI row)
+    const CNT_Y2 = HDR_H + 4            // páginas siguientes
 
-    // P2 — Detalle de la orden
-    doc.addPage()
+    const totalHelados  = grupo.items.filter(i => i.tipo_producto !== 'impulsivo').length
+    const totalImpPost  = grupo.items.filter(i => i.tipo_producto === 'impulsivo').length
+    const totalBatches  = grupo.items.reduce((a, i) => a + (i.batches || 0), 0)
 
-    // KPIs compactos: total sabores, batches totales, impulsivos
-    const totalHelados   = grupo.items.filter(i => i.tipo_producto !== 'impulsivo').length
-    const totalImpulsivos = grupo.items.filter(i => i.tipo_producto === 'impulsivo').length
-    const totalBatches   = grupo.items.reduce((a, i) => a + (i.batches || 0), 0)
-    const kpiW = (pw - 28 - 6) / 3
-    dibujarKpi(doc, 14,                 PDF_CONTENT_Y, kpiW, 18, 'Helados', totalHelados)
-    dibujarKpi(doc, 14 + kpiW + 3,     PDF_CONTENT_Y, kpiW, 18, 'Impulsivos/Postres', totalImpulsivos)
-    dibujarKpi(doc, 14 + (kpiW + 3)*2, PDF_CONTENT_Y, kpiW, 18, 'Total batches', totalBatches)
+    function _header(pg) {
+      doc.setFillColor(...N)
+      doc.rect(0, 0, pw, HDR_H, 'F')
+      try { doc.addImage(LOGO_PDF, 'PNG', 4, 3, 40, 12) } catch {}
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(10.5)
+      doc.setTextColor(...B)
+      doc.text(`ORDEN DE PRODUCCIÓN N° ${grupo.numero}`, pw / 2, HDR_H - 5, { align: 'center' })
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(6.5)
+      doc.text(`Emitido: ${hoy}`, pw - 4, HDR_H - 4, { align: 'right' })
+      doc.setTextColor(110, 110, 110)
+      doc.text(`Pág. ${pg}`, pw - 4, ph - 3, { align: 'right' })
+      doc.text('Del Parque — Confidencial', 4, ph - 3)
+    }
 
-    let finalY = PDF_CONTENT_Y + 26
+    function _kpiFila() {
+      const kpis = [
+        { label: 'Operario',         val: grupo.operario || '—' },
+        { label: 'Fecha programada', val: grupo.fecha    || '—' },
+        { label: 'Helados',          val: String(totalHelados) },
+        { label: 'Imp./Postres',     val: String(totalImpPost) },
+        { label: 'Batches',          val: String(totalBatches) },
+      ]
+      const kY   = HDR_H
+      const kpiW = pw / kpis.length
+      doc.setFillColor(...G)
+      doc.rect(0, kY, pw, KPI_H, 'F')
+      doc.setFillColor(...N)
+      doc.rect(0, kY, 1.5, KPI_H, 'F')
+      kpis.forEach((k, i) => {
+        const x = i * kpiW + 5
+        if (i > 0) {
+          doc.setDrawColor(...GM)
+          doc.setLineWidth(0.2)
+          doc.line(i * kpiW, kY + 2, i * kpiW, kY + KPI_H - 2)
+        }
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(5.5)
+        doc.setTextColor(110, 110, 110)
+        doc.text(k.label.toUpperCase(), x, kY + 4)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(8)
+        doc.setTextColor(...N)
+        doc.text(k.val, x, kY + 10)
+      })
+    }
+
+    function _firmas() {
+      const y = ph - 26
+      const roles = ['Supervisor', 'Operario / Fecha', 'Control de Calidad']
+      const gap = (pw - 28) / roles.length
+      roles.forEach((rol, i) => {
+        const x = 14 + i * gap
+        doc.setDrawColor(...N)
+        doc.setLineWidth(0.5)
+        doc.line(x, y, x + gap - 6, y)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(7.5)
+        doc.setTextColor(80, 80, 80)
+        doc.text(rol, x, y + 5)
+      })
+    }
+
+    const TS = {
+      headStyles: { fillColor: N, textColor: B, fontStyle: 'bold', fontSize: 7.5, cellPadding: 2.5, lineColor: N, lineWidth: 0.1 },
+      bodyStyles: { fontSize: 7.5, cellPadding: 2.5, textColor: [40, 40, 40], lineColor: GM, lineWidth: 0.1 },
+      alternateRowStyles: { fillColor: G },
+      margin: { left: 14, right: 14, bottom: 18 },
+    }
+
+    // ── Página 1 ──────────────────────────────────────────────────────────────
+    _header(1)
+    _kpiFila()
+    let finalY = CNT_Y1
+
     finalY = dibujarSeccion(doc, pw, 'Productos de la orden', finalY)
-
     autoTable(doc, {
-      ...EST,
+      ...TS,
       startY: finalY,
       head: [['PRODUCTO', 'TIPO', 'CANTIDAD', 'ESTADO']],
       body: grupo.items.map(it => [
@@ -1035,8 +1100,8 @@ export default function Ordenes() {
         estadoInfo(it.estado).label,
       ]),
       didDrawPage: () => {
-        dibujarEncabezado(doc, pw, MOD, TIT, hoy)
-        dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+        const pg = doc.internal.getCurrentPageInfo().pageNumber
+        if (pg > 1) _header(pg)
       },
     })
 
@@ -1045,54 +1110,57 @@ export default function Ordenes() {
     // Observaciones
     const obs = grupo.items.find(i => i.observaciones)?.observaciones
     if (obs) {
-      if (finalY > ph - 40) { doc.addPage(); finalY = PDF_CONTENT_Y }
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...PDF_NEGRO)
-      doc.text('Observaciones:', 14, finalY)
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(50, 50, 50)
+      if (finalY > ph - 55) { doc.addPage(); _header(doc.internal.getCurrentPageInfo().pageNumber); finalY = CNT_Y2 }
+      finalY = dibujarSeccion(doc, pw, 'Observaciones', finalY)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(8)
+      doc.setTextColor(50, 50, 50)
       const obsLines = doc.splitTextToSize(obs, pw - 28)
-      doc.text(obsLines, 14, finalY + 5)
-      finalY += 6 + obsLines.length * 5
+      doc.text(obsLines, 14, finalY)
+      finalY += obsLines.length * 4.5 + 8
     }
 
-    // Materias primas por cada helado
+    // Materias primas por helado
     const mpSecciones = grupo.items
       .filter(it => it.tipo_producto === 'helado')
       .map(it => ({ it, mp: computeMateriasPrimas(it, ctx) }))
       .filter(s => s.mp.length > 0)
 
     for (const { it, mp } of mpSecciones) {
-      if (finalY > ph - 50) { doc.addPage(); finalY = PDF_CONTENT_Y }
-      finalY = dibujarSeccion(doc, pw, `Materias primas — ${it.sabor_nombre} (${it.batches} batch${it.batches !== 1 ? 'es' : ''})`, finalY + 4)
+      if (finalY > ph - 55) { doc.addPage(); _header(doc.internal.getCurrentPageInfo().pageNumber); finalY = CNT_Y2 }
+      finalY = dibujarSeccion(doc, pw, `MP — ${it.sabor_nombre} (${it.batches} batch${it.batches !== 1 ? 'es' : ''})`, finalY + 3)
       autoTable(doc, {
-        ...EST,
-        styles: { ...EST.styles, fontSize: 7.5 },
+        ...TS,
+        bodyStyles: { ...TS.bodyStyles, cellPadding: 2 },
+        headStyles: { ...TS.headStyles, cellPadding: 2 },
         startY: finalY,
-        head: [['INGREDIENTE', 'NECESARIO', 'DESGLOSE', 'STOCK', 'ESTADO', 'ENTREGADO']],
+        head: [['INGREDIENTE', 'NECESARIO', 'STOCK', 'ESTADO']],
         body: mp.map(m => [
           m.nombre,
           `${fmtNum(m.necesario)} ${m.unidad}`,
-          m.batches > 0 ? `${fmtNum(m.cantidadPorBatch)} × ${m.batches} btch` : '',
           m.estado === 'sinlimite' ? '∞' : `${fmtNum(m.disponible)} ${m.unidad}`,
           m.estado === 'sinlimite' ? 'Sin límite' : m.estado === 'ok' ? 'OK' : 'INSUF.',
-          '',
         ]),
         didParseCell(data) {
-          if (data.section !== 'body' || data.column.index !== 4) return
+          if (data.section !== 'body' || data.column.index !== 3) return
           const estado = mp[data.row.index]?.estado
-          if (estado === 'insuficiente') data.cell.styles.textColor = [180, 40, 40]
-          else if (estado === 'ok') data.cell.styles.textColor = [30, 120, 60]
+          if (estado === 'insuficiente') data.cell.styles.textColor = ROJ
+          else if (estado === 'ok') data.cell.styles.textColor = VER
         },
         didDrawPage: () => {
-          dibujarEncabezado(doc, pw, MOD, TIT, hoy)
-          dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+          const pg = doc.internal.getCurrentPageInfo().pageNumber
+          if (pg > 1) _header(pg)
         },
       })
-      finalY = (doc.lastAutoTable?.finalY || finalY) + 8
+      finalY = (doc.lastAutoTable?.finalY || finalY) + 6
     }
 
-    // Firmas
-    doc.addPage()
-    dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Supervisor', 'Operario / Fecha', 'Control de Calidad'])
+    // Firmas al pie de la última página (sin hoja separada)
+    if (finalY > ph - 42) {
+      doc.addPage()
+      _header(doc.internal.getCurrentPageInfo().pageNumber)
+    }
+    _firmas()
 
     doc.save(`orden_${grupo.numero}.pdf`)
     setPdfLoadingGrupo(null)

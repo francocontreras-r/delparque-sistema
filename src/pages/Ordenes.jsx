@@ -793,12 +793,180 @@ export default function Ordenes() {
     return filtroProyeccion === 'posibles' ? raw.filter(i => i.batchesPosibles > 0) : raw
   }, [proyeccionData, tabProyeccion, filtroProyeccion])
 
-  async function imprimirOrden(grupo) {
-    const w = window.open('', '_blank')
-    if (!w) { toast2('Popups bloqueados — habilitá popups para imprimir', 'error'); return }
-    w.document.write('<html><body><p style="font-family:sans-serif;padding:24px;color:#6b7280">Preparando impresión…</p></body></html>')
-    setPdfLoadingGrupo(grupo.numero + '-print')
+  function _buildPDFOrden(grupo, ctx) {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    const pw  = doc.internal.pageSize.getWidth()
+    const ph  = doc.internal.pageSize.getHeight()
+    const hoy = new Date().toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
+    const N   = [20, 20, 20]
+    const B   = [255, 255, 255]
+    const G   = [245, 245, 245]
+    const GM  = [210, 210, 210]
+    const VER = [22, 101, 52]
+    const ROJ = [153, 27, 27]
+
+    const HDR_H  = 18
+    const KPI_H  = 12
+    const CNT_Y1 = HDR_H + KPI_H + 4
+    const CNT_Y2 = HDR_H + 4
+
+    const totalHelados = grupo.items.filter(i => i.tipo_producto !== 'impulsivo').length
+    const totalImpPost = grupo.items.filter(i => i.tipo_producto === 'impulsivo').length
+    const totalBatches = grupo.items.reduce((a, i) => a + (i.batches || 0), 0)
+
+    function _header(pg) {
+      doc.setFillColor(...N)
+      doc.rect(0, 0, pw, HDR_H, 'F')
+      try { doc.addImage(LOGO_PDF, 'PNG', 4, 3, 40, 12) } catch {}
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(10.5)
+      doc.setTextColor(...B)
+      doc.text(`ORDEN DE PRODUCCIÓN N° ${grupo.numero}`, pw / 2, HDR_H - 5, { align: 'center' })
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(6.5)
+      doc.text(`Emitido: ${hoy}`, pw - 4, HDR_H - 4, { align: 'right' })
+      doc.setTextColor(110, 110, 110)
+      doc.text(`Pág. ${pg}`, pw - 4, ph - 3, { align: 'right' })
+      doc.text('Del Parque — Confidencial', 4, ph - 3)
+    }
+
+    function _kpiFila() {
+      const kpis = [
+        { label: 'Operario',         val: grupo.operario || '—' },
+        { label: 'Fecha programada', val: grupo.fecha    || '—' },
+        { label: 'Helados',          val: String(totalHelados) },
+        { label: 'Imp./Postres',     val: String(totalImpPost) },
+        { label: 'Batches',          val: String(totalBatches) },
+      ]
+      const kY   = HDR_H
+      const kpiW = pw / kpis.length
+      doc.setFillColor(...G)
+      doc.rect(0, kY, pw, KPI_H, 'F')
+      doc.setFillColor(...N)
+      doc.rect(0, kY, 1.5, KPI_H, 'F')
+      kpis.forEach((k, i) => {
+        const x = i * kpiW + 5
+        if (i > 0) {
+          doc.setDrawColor(...GM)
+          doc.setLineWidth(0.2)
+          doc.line(i * kpiW, kY + 2, i * kpiW, kY + KPI_H - 2)
+        }
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(5.5)
+        doc.setTextColor(110, 110, 110)
+        doc.text(k.label.toUpperCase(), x, kY + 4)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(8)
+        doc.setTextColor(...N)
+        doc.text(k.val, x, kY + 10)
+      })
+    }
+
+    function _firmas() {
+      const y = ph - 26
+      const roles = ['Supervisor', 'Operario / Fecha', 'Control de Calidad']
+      const gap = (pw - 28) / roles.length
+      roles.forEach((rol, i) => {
+        const x = 14 + i * gap
+        doc.setDrawColor(...N)
+        doc.setLineWidth(0.5)
+        doc.line(x, y, x + gap - 6, y)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(7.5)
+        doc.setTextColor(80, 80, 80)
+        doc.text(rol, x, y + 5)
+      })
+    }
+
+    const TS = {
+      headStyles: { fillColor: N, textColor: B, fontStyle: 'bold', fontSize: 7.5, cellPadding: 2.5, lineColor: N, lineWidth: 0.1 },
+      bodyStyles: { fontSize: 7.5, cellPadding: 2.5, textColor: [40, 40, 40], lineColor: GM, lineWidth: 0.1 },
+      alternateRowStyles: { fillColor: G },
+      margin: { left: 14, right: 14, bottom: 18 },
+    }
+
+    _header(1)
+    _kpiFila()
+    let finalY = CNT_Y1
+
+    finalY = dibujarSeccion(doc, pw, 'Productos de la orden', finalY)
+    autoTable(doc, {
+      ...TS,
+      startY: finalY,
+      head: [['PRODUCTO', 'TIPO', 'CANTIDAD', 'ESTADO']],
+      body: grupo.items.map(it => [
+        it.sabor_nombre,
+        it.tipo_producto === 'impulsivo' ? 'Impulsivo/Postre' : 'Helado',
+        it.tipo_producto === 'impulsivo'
+          ? `${it.cantidad_unidades} u`
+          : `${it.batches} batch${it.batches !== 1 ? 'es' : ''} (${it.litros_total} L)`,
+        estadoInfo(it.estado).label,
+      ]),
+      didDrawPage: () => {
+        const pg = doc.internal.getCurrentPageInfo().pageNumber
+        if (pg > 1) _header(pg)
+      },
+    })
+
+    finalY = (doc.lastAutoTable?.finalY || finalY) + 8
+
+    const obs = grupo.items.find(i => i.observaciones)?.observaciones
+    if (obs) {
+      if (finalY > ph - 55) { doc.addPage(); _header(doc.internal.getCurrentPageInfo().pageNumber); finalY = CNT_Y2 }
+      finalY = dibujarSeccion(doc, pw, 'Observaciones', finalY)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(8)
+      doc.setTextColor(50, 50, 50)
+      const obsLines = doc.splitTextToSize(obs, pw - 28)
+      doc.text(obsLines, 14, finalY)
+      finalY += obsLines.length * 4.5 + 8
+    }
+
+    const mpSecciones = grupo.items
+      .filter(it => it.tipo_producto === 'helado')
+      .map(it => ({ it, mp: computeMateriasPrimas(it, ctx) }))
+      .filter(s => s.mp.length > 0)
+
+    for (const { it, mp } of mpSecciones) {
+      if (finalY > ph - 55) { doc.addPage(); _header(doc.internal.getCurrentPageInfo().pageNumber); finalY = CNT_Y2 }
+      finalY = dibujarSeccion(doc, pw, `MP — ${it.sabor_nombre} (${it.batches} batch${it.batches !== 1 ? 'es' : ''})`, finalY + 3)
+      autoTable(doc, {
+        ...TS,
+        bodyStyles: { ...TS.bodyStyles, cellPadding: 2 },
+        headStyles: { ...TS.headStyles, cellPadding: 2 },
+        startY: finalY,
+        head: [['INGREDIENTE', 'NECESARIO', 'STOCK', 'ESTADO']],
+        body: mp.map(m => [
+          m.nombre,
+          `${fmtNum(m.necesario)} ${m.unidad}`,
+          m.estado === 'sinlimite' ? '∞' : `${fmtNum(m.disponible)} ${m.unidad}`,
+          m.estado === 'sinlimite' ? 'Sin límite' : m.estado === 'ok' ? 'OK' : 'INSUF.',
+        ]),
+        didParseCell(data) {
+          if (data.section !== 'body' || data.column.index !== 3) return
+          const estado = mp[data.row.index]?.estado
+          if (estado === 'insuficiente') data.cell.styles.textColor = ROJ
+          else if (estado === 'ok') data.cell.styles.textColor = VER
+        },
+        didDrawPage: () => {
+          const pg = doc.internal.getCurrentPageInfo().pageNumber
+          if (pg > 1) _header(pg)
+        },
+      })
+      finalY = (doc.lastAutoTable?.finalY || finalY) + 6
+    }
+
+    if (finalY > ph - 42) {
+      doc.addPage()
+      _header(doc.internal.getCurrentPageInfo().pageNumber)
+    }
+    _firmas()
+
+    return doc
+  }
+
+  async function _cargarDatosOrden() {
     let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock }
     if (!saborIngredientes.length || !insumosStock.length) {
       const [{ data: ings }, { data: ins }, { data: baseIngs }] = await Promise.all([
@@ -810,87 +978,16 @@ export default function Ordenes() {
       if (ins)  { setInsumosStock(ins);  ctx = { ...ctx, insumosStock: ins } }
       if (baseIngs) { setBaseIngredientes(baseIngs); ctx = { ...ctx, baseIngredientes: baseIngs } }
     }
+    return ctx
+  }
 
+  async function imprimirOrden(grupo) {
+    setPdfLoadingGrupo(grupo.numero + '-print')
+    const ctx = await _cargarDatosOrden()
+    const doc = _buildPDFOrden(grupo, ctx)
+    doc.autoPrint()
+    window.open(doc.output('bloburl'), '_blank')
     setPdfLoadingGrupo(null)
-    const obs = grupo.items.find(i => i.observaciones)?.observaciones
-    const filas = grupo.items.map(it => `
-      <tr>
-        <td>${it.sabor_nombre}</td>
-        <td>${it.tipo_producto === 'impulsivo' ? 'Impulsivo/Postre' : 'Helado'}</td>
-        <td style="text-align:right">${it.tipo_producto === 'impulsivo' ? `${it.cantidad_unidades} u` : `${it.batches} batch${it.batches !== 1 ? 'es' : ''} (${it.litros_total} L)`}</td>
-        <td>${estadoInfo(it.estado).label}</td>
-      </tr>`).join('')
-
-    const mpSecciones = grupo.items
-      .filter(it => it.tipo_producto === 'helado')
-      .map(it => ({ it, mp: computeMateriasPrimas(it, ctx) }))
-      .filter(s => s.mp.length > 0)
-
-    const mpHTML = mpSecciones.map(({ it, mp }) => {
-      const filasMP = mp.map(m => `
-        <tr>
-          <td>${m.nombre}</td>
-          <td style="text-align:right">
-            <strong>${fmtNum(m.necesario)} ${m.unidad}</strong>
-            ${m.batches > 0 ? `<br><span style="font-size:9px;color:#6b7280">(${fmtNum(m.cantidadPorBatch)} ${m.unidad} × ${m.batches} batch${m.batches !== 1 ? 'es' : ''})</span>` : ''}
-          </td>
-          <td style="text-align:right">${m.estado === 'sinlimite' ? '♾️' : `${fmtNum(m.disponible)} ${m.unidad}`}</td>
-          <td>${m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</td>
-          <td style="text-align:center"><div class="checkbox"></div></td>
-        </tr>`).join('')
-      return `
-        <h3 style="font-size:11px;font-weight:700;margin:18px 0 6px;color:#374151;text-transform:uppercase;letter-spacing:.05em">
-          MP — ${it.sabor_nombre} (${it.batches} batch${it.batches !== 1 ? 'es' : ''})
-        </h3>
-        <table>
-          <thead><tr><th>Ingrediente</th><th>Necesario (× batches)</th><th>Stock</th><th>Estado</th><th>Entregado ✓</th></tr></thead>
-          <tbody>${filasMP}</tbody>
-        </table>`
-    }).join('')
-
-    w.document.open()
-    w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-    <title>Orden ${grupo.numero}</title>
-    <style>
-      *{box-sizing:border-box;margin:0;padding:0}
-      body{font-family:Arial,sans-serif;font-size:11px;padding:24px}
-      .header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:20px}
-      .logo-img{height:32px;display:block}
-      .sub{font-size:10px;color:#666}
-      .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
-      .campo{background:#f9fafb;border-radius:8px;padding:10px}
-      .campo-label{font-size:8px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin-bottom:2px}
-      .campo-val{font-size:14px;font-weight:700;color:#111827}
-      table{width:100%;border-collapse:collapse;margin-bottom:20px}
-      th{background:#f3f4f6;font-size:9px;font-weight:700;text-transform:uppercase;padding:6px 8px;text-align:left;border-bottom:2px solid ${colors.brand}}
-      td{padding:6px 8px;border-bottom:1px solid #f3f4f6;font-size:11px}
-      .checkbox{width:14px;height:14px;border:1.5px solid #374151;border-radius:3px;margin:0 auto}
-      .firma-area{display:flex;gap:48px;margin-top:48px}
-      .firma{flex:1;border-top:1px solid #374151;padding-top:8px;font-size:9px;color:#6b7280}
-      @media print{body{padding:0}}
-    </style></head><body>
-    <div class="header">
-      <img src="${logoUrl}" class="logo-img" alt="Del Parque" />
-      <div class="sub">Orden de Producción ${grupo.numero} · Emitida: ${new Date().toLocaleDateString('es-AR')}</div>
-    </div>
-    <div class="grid">
-      <div class="campo"><div class="campo-label">Fecha programada</div><div class="campo-val">${grupo.fecha || '—'}</div></div>
-      <div class="campo"><div class="campo-label">Operario asignado</div><div class="campo-val">${grupo.operario || '—'}</div></div>
-    </div>
-    <table>
-      <thead><tr><th>Producto</th><th>Tipo</th><th>Cantidad</th><th>Estado</th></tr></thead>
-      <tbody>${filas}</tbody>
-    </table>
-    ${obs ? `<div class="campo" style="margin-bottom:20px"><div class="campo-label">Observaciones</div><div style="font-size:11px">${obs}</div></div>` : ''}
-    ${mpHTML}
-    <div class="firma-area">
-      <div class="firma">Supervisor</div>
-      <div class="firma">Operario / Fecha</div>
-      <div class="firma">Control de Calidad</div>
-    </div>
-    </body></html>`)
-    w.document.close()
-    w.onload = () => w.print()
   }
 
   async function imprimirListaMP(grupo, item) {
@@ -977,191 +1074,8 @@ export default function Ordenes() {
 
   async function exportarPDF(grupo) {
     setPdfLoadingGrupo(grupo.numero + '-pdf')
-    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock }
-    if (!saborIngredientes.length || !insumosStock.length) {
-      const [{ data: ings }, { data: ins }, { data: baseIngs }] = await Promise.all([
-        supabase.from('sabor_ingredientes').select('*'),
-        supabase.from('insumos').select('nombre,stock_actual,unidad'),
-        supabase.from('base_ingredientes').select('*'),
-      ])
-      if (ings) { setSaborIngredientes(ings); ctx = { ...ctx, saborIngredientes: ings } }
-      if (ins)  { setInsumosStock(ins);  ctx = { ...ctx, insumosStock: ins } }
-      if (baseIngs) { setBaseIngredientes(baseIngs); ctx = { ...ctx, baseIngredientes: baseIngs } }
-    }
-
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-    const pw  = doc.internal.pageSize.getWidth()
-    const ph  = doc.internal.pageSize.getHeight()
-    const hoy = new Date().toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-
-    const N   = [20, 20, 20]
-    const B   = [255, 255, 255]
-    const G   = [245, 245, 245]
-    const GM  = [210, 210, 210]
-    const VER = [22, 101, 52]
-    const ROJ = [153, 27, 27]
-
-    const HDR_H  = 18
-    const KPI_H  = 12
-    const CNT_Y1 = HDR_H + KPI_H + 4   // primera página (con KPI row)
-    const CNT_Y2 = HDR_H + 4            // páginas siguientes
-
-    const totalHelados  = grupo.items.filter(i => i.tipo_producto !== 'impulsivo').length
-    const totalImpPost  = grupo.items.filter(i => i.tipo_producto === 'impulsivo').length
-    const totalBatches  = grupo.items.reduce((a, i) => a + (i.batches || 0), 0)
-
-    function _header(pg) {
-      doc.setFillColor(...N)
-      doc.rect(0, 0, pw, HDR_H, 'F')
-      try { doc.addImage(LOGO_PDF, 'PNG', 4, 3, 40, 12) } catch {}
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(10.5)
-      doc.setTextColor(...B)
-      doc.text(`ORDEN DE PRODUCCIÓN N° ${grupo.numero}`, pw / 2, HDR_H - 5, { align: 'center' })
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(6.5)
-      doc.text(`Emitido: ${hoy}`, pw - 4, HDR_H - 4, { align: 'right' })
-      doc.setTextColor(110, 110, 110)
-      doc.text(`Pág. ${pg}`, pw - 4, ph - 3, { align: 'right' })
-      doc.text('Del Parque — Confidencial', 4, ph - 3)
-    }
-
-    function _kpiFila() {
-      const kpis = [
-        { label: 'Operario',         val: grupo.operario || '—' },
-        { label: 'Fecha programada', val: grupo.fecha    || '—' },
-        { label: 'Helados',          val: String(totalHelados) },
-        { label: 'Imp./Postres',     val: String(totalImpPost) },
-        { label: 'Batches',          val: String(totalBatches) },
-      ]
-      const kY   = HDR_H
-      const kpiW = pw / kpis.length
-      doc.setFillColor(...G)
-      doc.rect(0, kY, pw, KPI_H, 'F')
-      doc.setFillColor(...N)
-      doc.rect(0, kY, 1.5, KPI_H, 'F')
-      kpis.forEach((k, i) => {
-        const x = i * kpiW + 5
-        if (i > 0) {
-          doc.setDrawColor(...GM)
-          doc.setLineWidth(0.2)
-          doc.line(i * kpiW, kY + 2, i * kpiW, kY + KPI_H - 2)
-        }
-        doc.setFont('helvetica', 'normal')
-        doc.setFontSize(5.5)
-        doc.setTextColor(110, 110, 110)
-        doc.text(k.label.toUpperCase(), x, kY + 4)
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(8)
-        doc.setTextColor(...N)
-        doc.text(k.val, x, kY + 10)
-      })
-    }
-
-    function _firmas() {
-      const y = ph - 26
-      const roles = ['Supervisor', 'Operario / Fecha', 'Control de Calidad']
-      const gap = (pw - 28) / roles.length
-      roles.forEach((rol, i) => {
-        const x = 14 + i * gap
-        doc.setDrawColor(...N)
-        doc.setLineWidth(0.5)
-        doc.line(x, y, x + gap - 6, y)
-        doc.setFont('helvetica', 'normal')
-        doc.setFontSize(7.5)
-        doc.setTextColor(80, 80, 80)
-        doc.text(rol, x, y + 5)
-      })
-    }
-
-    const TS = {
-      headStyles: { fillColor: N, textColor: B, fontStyle: 'bold', fontSize: 7.5, cellPadding: 2.5, lineColor: N, lineWidth: 0.1 },
-      bodyStyles: { fontSize: 7.5, cellPadding: 2.5, textColor: [40, 40, 40], lineColor: GM, lineWidth: 0.1 },
-      alternateRowStyles: { fillColor: G },
-      margin: { left: 14, right: 14, bottom: 18 },
-    }
-
-    // ── Página 1 ──────────────────────────────────────────────────────────────
-    _header(1)
-    _kpiFila()
-    let finalY = CNT_Y1
-
-    finalY = dibujarSeccion(doc, pw, 'Productos de la orden', finalY)
-    autoTable(doc, {
-      ...TS,
-      startY: finalY,
-      head: [['PRODUCTO', 'TIPO', 'CANTIDAD', 'ESTADO']],
-      body: grupo.items.map(it => [
-        it.sabor_nombre,
-        it.tipo_producto === 'impulsivo' ? 'Impulsivo/Postre' : 'Helado',
-        it.tipo_producto === 'impulsivo'
-          ? `${it.cantidad_unidades} u`
-          : `${it.batches} batch${it.batches !== 1 ? 'es' : ''} (${it.litros_total} L)`,
-        estadoInfo(it.estado).label,
-      ]),
-      didDrawPage: () => {
-        const pg = doc.internal.getCurrentPageInfo().pageNumber
-        if (pg > 1) _header(pg)
-      },
-    })
-
-    finalY = (doc.lastAutoTable?.finalY || finalY) + 8
-
-    // Observaciones
-    const obs = grupo.items.find(i => i.observaciones)?.observaciones
-    if (obs) {
-      if (finalY > ph - 55) { doc.addPage(); _header(doc.internal.getCurrentPageInfo().pageNumber); finalY = CNT_Y2 }
-      finalY = dibujarSeccion(doc, pw, 'Observaciones', finalY)
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(8)
-      doc.setTextColor(50, 50, 50)
-      const obsLines = doc.splitTextToSize(obs, pw - 28)
-      doc.text(obsLines, 14, finalY)
-      finalY += obsLines.length * 4.5 + 8
-    }
-
-    // Materias primas por helado
-    const mpSecciones = grupo.items
-      .filter(it => it.tipo_producto === 'helado')
-      .map(it => ({ it, mp: computeMateriasPrimas(it, ctx) }))
-      .filter(s => s.mp.length > 0)
-
-    for (const { it, mp } of mpSecciones) {
-      if (finalY > ph - 55) { doc.addPage(); _header(doc.internal.getCurrentPageInfo().pageNumber); finalY = CNT_Y2 }
-      finalY = dibujarSeccion(doc, pw, `MP — ${it.sabor_nombre} (${it.batches} batch${it.batches !== 1 ? 'es' : ''})`, finalY + 3)
-      autoTable(doc, {
-        ...TS,
-        bodyStyles: { ...TS.bodyStyles, cellPadding: 2 },
-        headStyles: { ...TS.headStyles, cellPadding: 2 },
-        startY: finalY,
-        head: [['INGREDIENTE', 'NECESARIO', 'STOCK', 'ESTADO']],
-        body: mp.map(m => [
-          m.nombre,
-          `${fmtNum(m.necesario)} ${m.unidad}`,
-          m.estado === 'sinlimite' ? '∞' : `${fmtNum(m.disponible)} ${m.unidad}`,
-          m.estado === 'sinlimite' ? 'Sin límite' : m.estado === 'ok' ? 'OK' : 'INSUF.',
-        ]),
-        didParseCell(data) {
-          if (data.section !== 'body' || data.column.index !== 3) return
-          const estado = mp[data.row.index]?.estado
-          if (estado === 'insuficiente') data.cell.styles.textColor = ROJ
-          else if (estado === 'ok') data.cell.styles.textColor = VER
-        },
-        didDrawPage: () => {
-          const pg = doc.internal.getCurrentPageInfo().pageNumber
-          if (pg > 1) _header(pg)
-        },
-      })
-      finalY = (doc.lastAutoTable?.finalY || finalY) + 6
-    }
-
-    // Firmas al pie de la última página (sin hoja separada)
-    if (finalY > ph - 42) {
-      doc.addPage()
-      _header(doc.internal.getCurrentPageInfo().pageNumber)
-    }
-    _firmas()
-
+    const ctx = await _cargarDatosOrden()
+    const doc = _buildPDFOrden(grupo, ctx)
     doc.save(`orden_${grupo.numero}.pdf`)
     setPdfLoadingGrupo(null)
   }

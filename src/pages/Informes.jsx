@@ -23,7 +23,7 @@ import {
   dibujarKpi, dibujarSeccion, dibujarPaginaFirmas,
   PDF_CONTENT_Y,
 } from '../lib/pdfEstilos'
-const logoUrl = '/logo_delparque.png'
+const logoUrl = '/logo-byn.png'
 
 const TABS = ['Producción', 'Mermas', 'Financiero']
 

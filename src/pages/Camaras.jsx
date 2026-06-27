@@ -7,9 +7,8 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import html2canvas from 'html2canvas'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { LOGO_HORIZONTAL } from '../assets/logos'
-const logoUrl = '/logo_delparque.png'
-import { dibujarPortada, dibujarEncabezado, dibujarPie, dibujarKpi, dibujarSeccion, dibujarPaginaFirmas, getEstiloInforme, PDF_CONTENT_Y } from '../lib/pdfEstilos'
+const logoUrl = '/logo-byn.png'
+import { dibujarPortada, dibujarEncabezado, dibujarPie, dibujarKpi, dibujarSeccion, dibujarPaginaFirmas, getEstiloInforme, PDF_CONTENT_Y, LOGO_PDF } from '../lib/pdfEstilos'
 import { colors, shadow, radius } from '../styles/design-system'
 import KpiCard from '../components/ui/KpiCard'
 import Toast from '../components/ui/Toast'
@@ -1129,7 +1128,7 @@ export default function Camaras() {
   async function exportarMovimientosPDF() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const pageWidth = doc.internal.pageSize.getWidth()
-    try { doc.addImage(LOGO_HORIZONTAL, 'PNG', 14, 7, 48, 12) } catch {}
+    try { doc.addImage(LOGO_PDF, 'PNG', 14, 7, 48, 12) } catch {}
     const titulo = `Del Parque — Movimientos de Cámara${filtroMovFecha ? ' ' + filtroMovFecha : ''}`
     doc.setFontSize(12)
     doc.setTextColor(40, 40, 40)
@@ -1258,7 +1257,7 @@ export default function Camaras() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const pw = doc.internal.pageSize.getWidth()
     const fecha = filtroTempFecha || new Date().toISOString().split('T')[0]
-    try { doc.addImage(LOGO_HORIZONTAL, 'PNG', 14, 7, 48, 12) } catch {}
+    try { doc.addImage(LOGO_PDF, 'PNG', 14, 7, 48, 12) } catch {}
     doc.setFontSize(13); doc.setTextColor(40, 40, 40)
     doc.text('Del Parque — Registro de Temperaturas de Cámaras', pw - 14, 14, { align: 'right' })
     doc.setFontSize(8.5); doc.setTextColor(120, 120, 120)

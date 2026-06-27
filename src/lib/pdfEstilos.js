@@ -1,4 +1,6 @@
-import { LOGO_HORIZONTAL } from '../assets/logos'
+const _logo = new Image()
+_logo.src = '/logo-byn.png'
+export const LOGO_PDF = _logo
 
 // ── Constantes globales de diseño ─────────────────────────────────────────────
 export const PDF_NEGRO      = [20, 20, 20]
@@ -64,7 +66,7 @@ function _banda(doc, pw, modulo) {
 // Logo izquierda · Título derecha · Línea negra · Fecha
 export function dibujarEncabezado(doc, pw, modulo, titulo, hoy) {
   _banda(doc, pw, modulo)
-  try { doc.addImage(LOGO_HORIZONTAL, 'PNG', 14, 12, 36, 9) } catch {}
+  try { doc.addImage(_logo, 'PNG', 14, 12, 36, 9) } catch {}
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(10)
   doc.setTextColor(...PDF_NEGRO)
@@ -100,7 +102,7 @@ export function dibujarPortada(doc, pw, ph, modulo, titulo, periodo, hoy) {
   doc.setFillColor(...PDF_NEGRO)
   doc.rect(0, 10, 4, ph - 10, 'F')
   // Logo
-  try { doc.addImage(LOGO_HORIZONTAL, 'PNG', 14, 28, 52, 13) } catch {}
+  try { doc.addImage(_logo, 'PNG', 14, 28, 52, 13) } catch {}
   // Línea divisoria negra
   doc.setDrawColor(...PDF_NEGRO)
   doc.setLineWidth(1)

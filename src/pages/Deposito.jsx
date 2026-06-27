@@ -22,12 +22,11 @@ import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, ClipboardCheck, AlertTriangle, TrendingUp, BarChart2, ChevronRight, Plus, Trash2, Clock } from 'lucide-react'
-const logoUrl = '/logo_delparque.png'
-import { LOGO_HORIZONTAL } from '../assets/logos'
+const logoUrl = '/logo-byn.png'
 import {
   getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
   dibujarKpi, dibujarSeccion, dibujarPaginaFirmas,
-  PDF_CONTENT_Y, PDF_PIE_H, PDF_NEGRO,
+  PDF_CONTENT_Y, PDF_PIE_H, PDF_NEGRO, LOGO_PDF,
 } from '../lib/pdfEstilos'
 
 const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
@@ -1763,7 +1762,7 @@ export default function Deposito() {
 
       // ── P1 PORTADA ───────────────────────────────────────────────────────
       fondoOscuro()
-      try { doc.addImage(LOGO_HORIZONTAL, 'PNG', (W - 64) / 2, 32, 64, 16) } catch {}
+      try { doc.addImage(LOGO_PDF, 'PNG', (W - 64) / 2, 32, 64, 16) } catch {}
       doc.setFillColor(...N); doc.rect(0, H / 2 - 1, W, 2, 'F')
       doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(255, 255, 255)
       doc.text('CONTROL DE STOCK SEMANAL', W / 2, H / 2 - 15, { align: 'center' })

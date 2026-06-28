@@ -26,7 +26,7 @@ const logoUrl = '/logo-byn.png'
 import {
   getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
   dibujarKpi, dibujarSeccion, dibujarPaginaFirmas,
-  PDF_CONTENT_Y, PDF_PIE_H, PDF_NEGRO, LOGO_PDF,
+  PDF_CONTENT_Y, PDF_PIE_H, PDF_NEGRO, PDF_GRIS_OSC, LOGO_PDF,
 } from '../lib/pdfEstilos'
 
 const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }

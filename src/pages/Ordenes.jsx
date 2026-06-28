@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
 import { deduplicarOperarios } from '../lib/operarios'
+import { normalizarNombre } from '../lib/texto'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import {
@@ -126,18 +127,22 @@ function computeMateriasPrimas(item, ctx) {
   const receta = resolverRecetaCtx(item.sabor_nombre, ctx)
   if (!receta) return []
   const insumoPorNombre = {}
-  ctx.insumosStock.forEach(i => { insumoPorNombre[(i.nombre || '').trim().toLowerCase()] = i })
+  ctx.insumosStock.forEach(i => { insumoPorNombre[normalizarNombre(i.nombre)] = i })
   const batches = item.batches || 0
   return receta.ingredientes.map(ing => {
     const cantidadPorBatch = ing.cantidad || 0
     const necesario = cantidadPorBatch * batches
-    if ((ing.insumo_nombre || '').toLowerCase().includes('agua')) {
-      return { nombre: ing.insumo_nombre, cantidadPorBatch, batches, necesario, unidad: ing.unidad, disponible: null, estado: 'sinlimite' }
+    const fila = { nombre: ing.insumo_nombre, cantidadPorBatch, batches, necesario, unidad: ing.unidad }
+    // El agua no se controla (es "sin límite") de forma intencional.
+    if (normalizarNombre(ing.insumo_nombre).includes('agua')) {
+      return { ...fila, disponible: null, estado: 'sinlimite' }
     }
-    const insumo = insumoPorNombre[(ing.insumo_nombre || '').trim().toLowerCase()]
-    if (!insumo) return { nombre: ing.insumo_nombre, cantidadPorBatch, batches, necesario, unidad: ing.unidad, disponible: null, estado: 'sinlimite' }
+    const insumo = insumoPorNombre[normalizarNombre(ing.insumo_nombre)]
+    // Ingrediente que NO matchea ningún insumo del depósito: se marca como
+    // "no vinculado" (visible) en vez de fingir que está disponible.
+    if (!insumo) return { ...fila, disponible: null, estado: 'no_vinculado' }
     const disponible = insumo.stock_actual || 0
-    return { nombre: ing.insumo_nombre, cantidadPorBatch, batches, necesario, unidad: ing.unidad, disponible, estado: disponible >= necesario ? 'ok' : 'insuficiente' }
+    return { ...fila, disponible, estado: disponible >= necesario ? 'ok' : 'insuficiente' }
   })
 }
 
@@ -146,7 +151,7 @@ function calcularProyeccionItem(nombre, ingredientes, insumosMap, litrosBase, ti
   let ingredienteLimitante = null
 
   for (const ing of ingredientes) {
-    const nomIng = (ing.insumo_nombre || ing.nombre || '').toLowerCase().trim()
+    const nomIng = normalizarNombre(ing.insumo_nombre || ing.nombre)
     if (nomIng.includes('agua')) continue
     const cantidad = ing.cantidad || 0
     if (cantidad <= 0) continue
@@ -307,7 +312,7 @@ export default function Ordenes() {
 
     // Mapa de insumos por nombre (lowercase)
     const insumosMap = {}
-    insumosStock.forEach(i => { insumosMap[(i.nombre || '').trim().toLowerCase()] = i })
+    insumosStock.forEach(i => { insumosMap[normalizarNombre(i.nombre)] = i })
 
     const basesProy = bases.map(base => calcularProyeccionItem(
       base.nombre,
@@ -452,12 +457,12 @@ export default function Ordenes() {
 
   function compararConStock(requeridos) {
     const insumoPorNombre = {}
-    insumosStock.forEach(i => { insumoPorNombre[(i.nombre || '').trim().toLowerCase()] = i })
+    insumosStock.forEach(i => { insumoPorNombre[normalizarNombre(i.nombre)] = i })
     return requeridos.map(r => {
       if ((r.nombre || '').toLowerCase().includes('agua')) {
         return { nombre: r.nombre, necesario: r.cantidad, unidad: r.unidad, disponible: Infinity, diferencia: Infinity, estado: 'ok' }
       }
-      const insumo = insumoPorNombre[r.nombre.trim().toLowerCase()]
+      const insumo = insumoPorNombre[normalizarNombre(r.nombre)]
       const disponible = insumo ? (insumo.stock_actual || 0) : 0
       const diferencia = disponible - r.cantidad
       const severo = r.cantidad > 0 && (r.cantidad - disponible) / r.cantidad >= 0.5
@@ -630,13 +635,13 @@ export default function Ordenes() {
 
     const { data: insumos } = await supabase.from('insumos').select('nombre,stock_actual,unidad')
     const insumoPorNombre = {}
-    ;(insumos || []).forEach(i => { insumoPorNombre[i.nombre.trim().toLowerCase()] = i })
+    ;(insumos || []).forEach(i => { insumoPorNombre[normalizarNombre(i.nombre)] = i })
 
     const faltantes = []
     for (const ing of ings) {
-      if ((ing.insumo_nombre || '').toLowerCase().includes('agua')) continue
+      if (normalizarNombre(ing.insumo_nombre).includes('agua')) continue
       const requerido = (ing.cantidad || 0) * ing.factor
-      const insumo = insumoPorNombre[(ing.insumo_nombre || '').trim().toLowerCase()]
+      const insumo = insumoPorNombre[normalizarNombre(ing.insumo_nombre)]
       const disponible = insumo?.stock_actual ?? 0
       if (disponible < requerido) {
         const faltan = requerido - disponible
@@ -952,14 +957,15 @@ export default function Ordenes() {
         body: mp.map(m => [
           m.nombre,
           `${fmtNum(m.necesario)} ${m.unidad}`,
-          m.estado === 'sinlimite' ? '∞' : `${fmtNum(m.disponible)} ${m.unidad}`,
-          m.estado === 'sinlimite' ? 'Sin límite' : m.estado === 'ok' ? 'OK' : 'INSUF.',
+          m.estado === 'sinlimite' ? '∞' : m.estado === 'no_vinculado' ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`,
+          m.estado === 'sinlimite' ? 'Sin límite' : m.estado === 'no_vinculado' ? 'SIN VINCULAR' : m.estado === 'ok' ? 'OK' : 'INSUF.',
         ]),
         didParseCell(data) {
           if (data.section !== 'body' || data.column.index !== 3) return
           const estado = mp[data.row.index]?.estado
           if (estado === 'insuficiente') data.cell.styles.textColor = ROJ
           else if (estado === 'ok') data.cell.styles.textColor = VER
+          else if (estado === 'no_vinculado') data.cell.styles.textColor = [224, 134, 0]
         },
         didDrawPage: () => {
           const pg = doc.internal.getCurrentPageInfo().pageNumber
@@ -1034,8 +1040,8 @@ export default function Ordenes() {
           <strong>${fmtNum(m.necesario)} ${m.unidad}</strong>
           ${m.batches > 0 ? `<br><span style="font-size:9px;color:#6b7280">(${fmtNum(m.cantidadPorBatch)} ${m.unidad} × ${m.batches} batch${m.batches !== 1 ? 'es' : ''})</span>` : ''}
         </td>
-        <td style="text-align:right">${m.estado === 'sinlimite' ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`}</td>
-        <td>${m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</td>
+        <td style="text-align:right">${m.disponible == null ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`}</td>
+        <td>${m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'no_vinculado' ? '⚠️ Sin vincular' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</td>
         <td style="text-align:center"><div class="checkbox"></div></td>
       </tr>`).join('')
     w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
@@ -1351,8 +1357,8 @@ export default function Ordenes() {
                                         <span className="font-semibold">{fmtNum(m.necesario)} {m.unidad}</span>
                                         {m.batches > 0 && <span className="block text-xs" style={{ color: colors.textMuted }}>({fmtNum(m.cantidadPorBatch)} {m.unidad} × {m.batches} batch{m.batches !== 1 ? 'es' : ''})</span>}
                                       </Td>
-                                      <Td className="text-right">{m.estado === 'sinlimite' ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`}</Td>
-                                      <Td>{m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</Td>
+                                      <Td className="text-right">{m.disponible == null ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`}</Td>
+                                      <Td>{m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'no_vinculado' ? '⚠️ Sin vincular' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</Td>
                                     </Tr>
                                   ))}
                                 </Tbody>
@@ -1845,8 +1851,8 @@ export default function Ordenes() {
                             {m.batches > 0 && <span className="block text-xs" style={{ color: colors.textMuted }}>({fmtNum(m.cantidadPorBatch)} × {m.batches} btch)</span>}
                           </Td>
                           <Td>{m.unidad}</Td>
-                          <Td className="text-right">{m.estado === 'sinlimite' ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`}</Td>
-                          <Td>{m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</Td>
+                          <Td className="text-right">{m.disponible == null ? '—' : `${fmtNum(m.disponible)} ${m.unidad}`}</Td>
+                          <Td>{m.estado === 'sinlimite' ? '♾️ Sin límite' : m.estado === 'no_vinculado' ? '⚠️ Sin vincular' : m.estado === 'ok' ? '✅ OK' : '❌ INSUFICIENTE'}</Td>
                         </Tr>
                       ))}
                     </Tbody>

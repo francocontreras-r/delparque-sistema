@@ -42,39 +42,31 @@ export default function Login() {
       <div className="w-full max-w-sm relative">
         {/* Brand lockup */}
         <div className="flex flex-col items-center mb-8">
-          <div className="relative mb-5">
-            {/* Soft halo behind the mark */}
+          <div className="relative">
+            {/* Soft brand halo behind the wordmark */}
             <div
               aria-hidden
-              className="absolute inset-0 m-auto"
+              className="absolute"
               style={{
-                width: '110px',
-                height: '110px',
+                width: '320px',
+                height: '200px',
                 borderRadius: '9999px',
-                background: 'radial-gradient(circle, rgba(212,82,26,0.28) 0%, rgba(212,82,26,0) 72%)',
+                background: 'radial-gradient(ellipse, rgba(212,82,26,0.22) 0%, rgba(212,82,26,0) 70%)',
                 left: '50%',
                 top: '50%',
                 transform: 'translate(-50%, -50%)',
               }}
             />
             <img
-              src="/logo-isotipo-white.png"
-              alt=""
-              width="68"
-              height="68"
+              src="/logo-wordmark-white.png"
+              alt="Del Parque"
+              width="230"
               className="relative block"
-              style={{ objectFit: 'contain' }}
+              style={{ height: 'auto', objectFit: 'contain' }}
             />
           </div>
-          <img
-            src="/logo-wordmark-white.png"
-            alt="Del Parque"
-            width="172"
-            className="block"
-            style={{ height: 'auto', objectFit: 'contain' }}
-          />
           <p
-            className="text-xs mt-3"
+            className="text-xs mt-4"
             style={{ color: '#64748B', letterSpacing: '0.18em', textTransform: 'uppercase' }}
           >
             Sistema de gestión industrial

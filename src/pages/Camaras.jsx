@@ -677,7 +677,7 @@ function generarInforme(stock, showVal) {
 <body style="padding:32px;max-width:900px;margin:0 auto">
 
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-    <img src="${logoUrl}" style="height:48px;filter:brightness(0)" onerror="this.style.display='none'" alt="Del Parque">
+    <img src="${logoUrl}" style="height:48px" onerror="this.style.display='none'" alt="Del Parque">
     <div style="text-align:right">
       <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1px">Informe de Stock — Cámaras</div>
       <div style="font-size:13px;font-weight:600;color:#1e293b">${fecha}</div>
@@ -767,7 +767,7 @@ function generarStockActual(stock) {
 <body style="padding:32px;max-width:900px;margin:0 auto">
 
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-    <img src="${logoUrl}" style="height:48px;filter:brightness(0)" onerror="this.style.display='none'" alt="Del Parque">
+    <img src="${logoUrl}" style="height:48px" onerror="this.style.display='none'" alt="Del Parque">
     <div style="text-align:right">
       <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1px">Reporte de Stock Actual — Cámaras</div>
       <div style="font-size:13px;font-weight:600;color:#1e293b">${fecha}</div>

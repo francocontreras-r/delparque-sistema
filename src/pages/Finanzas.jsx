@@ -2,6 +2,11 @@ import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import {
+  dibujarPortada, dibujarEncabezado, dibujarPie, dibujarSeccion, dibujarPaginaFirmas,
+  getEstiloInforme, PDF_CONTENT_Y, PDF_NEGRO, PDF_BLANCO,
+  PDF_SEM_NEG, PDF_SEM_CRIT, PDF_SEM_LOW, PDF_SEM_OK, PDF_SEM_EXC,
+} from '../lib/pdfEstilos'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
@@ -392,147 +397,174 @@ export default function Finanzas() {
     const pw = doc.internal.pageSize.getWidth()
     const ph = doc.internal.pageSize.getHeight()
     const fecha = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    const MOD = 'Finanzas'
+
     const conPrecio = margenes.filter(p => p.precio_venta > 0)
     const ordenado = [...conPrecio].sort((a, b) => b.margen - a.margen)
 
-    function addBandHeader() {
-      doc.setFillColor(18, 15, 56)
-      doc.rect(0, 0, pw, 15, 'F')
-      doc.setFontSize(7.5)
-      doc.setTextColor(200, 200, 230)
-      doc.text('Del Parque — Análisis de Rentabilidad', 14, 9.5)
-      doc.text(fecha, pw - 14, 9.5, { align: 'right' })
-      doc.setTextColor(0)
-    }
-    function addFooter() {
-      const n = doc.getNumberOfPages()
-      doc.setFontSize(7)
-      doc.setTextColor(150)
-      doc.text(`Pág. ${n}`, pw / 2, ph - 6, { align: 'center' })
-      doc.text('Confidencial — Del Parque', pw - 14, ph - 6, { align: 'right' })
-      doc.setTextColor(0)
-    }
-    function nivelStr(pct) {
-      if (pct < 0)   return 'NEGATIVO'
-      if (pct < 15)  return 'CRÍTICO'
-      if (pct < 30)  return 'BAJO'
-      if (pct <= 50) return 'SALUDABLE'
-      return 'EXCELENTE'
-    }
+    // Color y etiqueta semántica por margen (solo para datos)
+    const semColor = m => m < 0 ? PDF_SEM_NEG : m < 15 ? PDF_SEM_CRIT : m < 30 ? PDF_SEM_LOW : m <= 50 ? PDF_SEM_OK : PDF_SEM_EXC
+    const nivelStr = m => m < 0 ? 'NEGATIVO' : m < 15 ? 'CRÍTICO' : m < 30 ? 'BAJO' : m <= 50 ? 'SALUDABLE' : 'EXCELENTE'
+
+    // Métricas
+    const promM      = conPrecio.length ? conPrecio.reduce((a, p) => a + p.margen, 0) / conPrecio.length : 0
+    const negativos  = conPrecio.filter(p => p.margen < 0)
+    const criticos   = conPrecio.filter(p => p.margen >= 0 && p.margen < 15)
+    const perdidaNeg = negativos.reduce((a, p) => a + Math.abs(p.ganancia), 0)
 
     // ── Pág 1: Portada ──
-    doc.setFillColor(18, 15, 56)
-    doc.rect(0, 0, pw, ph, 'F')
-    doc.setFontSize(30); doc.setFont(undefined, 'bold'); doc.setTextColor(255, 255, 255)
-    doc.text('Del Parque', pw / 2, 62, { align: 'center' })
-    doc.setDrawColor(212, 82, 26); doc.setLineWidth(1.5)
-    doc.line(30, 72, pw - 30, 72)
-    doc.setFontSize(15); doc.setFont(undefined, 'normal')
-    doc.text('ANÁLISIS DE RENTABILIDAD', pw / 2, 83, { align: 'center' })
-    doc.text('POR PRODUCTO', pw / 2, 92, { align: 'center' })
-    doc.setFontSize(10); doc.setTextColor(160, 160, 200)
-    doc.text(`Emisión: ${fecha}`, pw / 2, 112, { align: 'center' })
-    doc.text(`Productos analizados: ${conPrecio.length}`, pw / 2, 120, { align: 'center' })
-    doc.setDrawColor(212, 82, 26); doc.setLineWidth(0.5)
-    doc.line(30, 130, pw - 30, 130)
-    doc.setFontSize(7.5); doc.setTextColor(212, 82, 26)
-    doc.text('CONFIDENCIAL — USO INTERNO', pw / 2, 138, { align: 'center' })
+    dibujarPortada(doc, pw, ph, MOD, 'Análisis de Rentabilidad por Producto',
+      `${conPrecio.length} productos con precio de venta`, fecha)
 
-    // ── Pág 2: Resumen ejecutivo ──
+    // ── Pág 2: Resumen Ejecutivo ──
     doc.addPage()
-    addBandHeader(); addFooter()
-    const promM = conPrecio.length ? conPrecio.reduce((a, p) => a + p.margen, 0) / conPrecio.length : 0
-    const negativosPDF = conPrecio.filter(p => p.margen < 0)
-    const top1 = ordenado[0]
-    const bot1 = ordenado[ordenado.length - 1]
-    const perdiaTotalNeg = negativosPDF.reduce((a, p) => a + Math.abs(p.ganancia), 0)
-    const top3nombres = ordenado.slice(0, 3).map(p => p.nombre).join(', ')
-    const criticosPDF = conPrecio.filter(p => p.margen >= 0 && p.margen < 15)
+    dibujarEncabezado(doc, pw, MOD, 'Resumen Ejecutivo', fecha)
+    dibujarPie(doc, pw, ph, 2)
 
-    doc.setFontSize(13); doc.setFont(undefined, 'bold'); doc.setTextColor(18, 15, 56)
-    doc.text('Resumen Ejecutivo', 14, 26)
-
-    autoTable(doc, {
-      startY: 32,
-      head: [['Indicador', 'Valor']],
-      body: [
-        ['Margen promedio general', `${promM.toFixed(1)}%`],
-        ['Productos analizados', conPrecio.length.toString()],
-        ['Productos margen negativo', negativosPDF.length.toString()],
-        ['Productos margen crítico (0–15%)', criticosPDF.length.toString()],
-        ['Producto más rentable', top1 ? `${top1.nombre} (${top1.margen.toFixed(1)}%)` : '—'],
-        ['Producto menos rentable', bot1 ? `${bot1.nombre} (${bot1.margen.toFixed(1)}%)` : '—'],
-      ],
-      styles: { fontSize: 9, cellPadding: 3 },
-      headStyles: { fillColor: [18, 15, 56], textColor: [255, 255, 255] },
-      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 85 } },
-      margin: { left: 14, right: 14 },
+    // KPI cards con acento semántico superior
+    const cards = [
+      { l: 'Margen promedio',      v: `${promM.toFixed(1)}%`,   s: 'portfolio general',   c: semColor(promM) },
+      { l: 'Productos analizados', v: String(conPrecio.length), s: 'con precio de venta',  c: PDF_NEGRO },
+      { l: 'Margen negativo',      v: String(negativos.length), s: 'operan a pérdida',     c: negativos.length ? PDF_SEM_NEG : PDF_SEM_OK },
+      { l: 'Pérdida estimada',     v: `$${pesos(perdidaNeg)}`,  s: 'por unidad / mes',     c: perdidaNeg > 0 ? PDF_SEM_NEG : PDF_SEM_OK },
+    ]
+    const gap = 4
+    const cardW = (pw - 28 - gap * 3) / 4
+    const cardH = 26
+    const cardY = PDF_CONTENT_Y - 2
+    cards.forEach((c, i) => {
+      const x = 14 + i * (cardW + gap)
+      doc.setDrawColor(...PDF_NEGRO); doc.setLineWidth(0.3); doc.rect(x, cardY, cardW, cardH)
+      doc.setFillColor(...c.c); doc.rect(x, cardY, cardW, 1.4, 'F')
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6); doc.setTextColor(90, 90, 90)
+      doc.text(c.l.toUpperCase(), x + 3, cardY + 7)
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(...PDF_NEGRO)
+      doc.text(c.v, x + 3, cardY + 16)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6); doc.setTextColor(130, 130, 130)
+      doc.text(c.s, x + 3, cardY + 22)
     })
+    let y = cardY + cardH + 8
 
-    const yP = doc.lastAutoTable.finalY + 10
-    doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.setTextColor(18, 15, 56)
-    doc.text('Análisis automático', 14, yP)
+    // Síntesis
+    y = dibujarSeccion(doc, pw, 'Síntesis', y)
+    const sintesis =
+      `El portfolio de ${conPrecio.length} productos presenta un margen promedio de ${promM.toFixed(1)}%. ` +
+      (negativos.length
+        ? `${negativos.length} producto${negativos.length > 1 ? 's' : ''} ${negativos.length > 1 ? 'operan' : 'opera'} con margen negativo, con una pérdida estimada de $${pesos(perdidaNeg)} por unidad al mes. `
+        : 'Ningún producto opera con margen negativo, lo que refleja una estructura de costos saludable. ') +
+      (criticos.length
+        ? `Otros ${criticos.length} se ubican en zona crítica (margen inferior al 15%) y requieren revisión de precios.`
+        : 'No hay productos en zona crítica.')
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(50, 50, 50)
+    const sl = doc.splitTextToSize(sintesis, pw - 28)
+    doc.text(sl, 14, y)
+    y += sl.length * 4.6 + 6
 
-    const parrafo = [
-      `El portfolio actual de ${conPrecio.length} productos tiene un margen promedio de ${promM.toFixed(1)}%.`,
-      negativosPDF.length > 0
-        ? `${negativosPDF.length} producto${negativosPDF.length > 1 ? 's' : ''} opera${negativosPDF.length > 1 ? 'n' : ''} con margen negativo, representando una pérdida estimada de $${pesos(perdiaTotalNeg)} por unidad.`
-        : 'Ningún producto opera con margen negativo, lo que refleja una estructura de costos saludable.',
-      top3nombres ? `Los productos más rentables son: ${top3nombres}.` : '',
-      criticosPDF.length > 0
-        ? `Se recomienda revisar el precio de venta de: ${criticosPDF.slice(0, 3).map(p => p.nombre).join(', ')}${criticosPDF.length > 3 ? ' y otros.' : '.'}`
-        : 'Todos los demás productos superan el umbral de margen crítico del 15%.',
-    ].filter(Boolean).join(' ')
+    // Distribución de márgenes (barra apilada con color semántico)
+    y = dibujarSeccion(doc, pw, 'Distribución de márgenes', y)
+    const bandsDef = [
+      ['Negativo',  p => p.margen < 0,                     PDF_SEM_NEG],
+      ['Crítico',   p => p.margen >= 0 && p.margen < 15,   PDF_SEM_CRIT],
+      ['Bajo',      p => p.margen >= 15 && p.margen < 30,  PDF_SEM_LOW],
+      ['Saludable', p => p.margen >= 30 && p.margen <= 50, PDF_SEM_OK],
+      ['Excelente', p => p.margen > 50,                    PDF_SEM_EXC],
+    ]
+    const bands = bandsDef.map(([label, fn, col]) => ({ label, n: conPrecio.filter(fn).length, col }))
+    const totalB = bands.reduce((a, b) => a + b.n, 0) || 1
+    const barW = pw - 28, barH = 7
+    let bx = 14
+    bands.forEach(b => {
+      const w = (b.n / totalB) * barW
+      if (w <= 0) return
+      doc.setFillColor(...b.col); doc.rect(bx, y, w, barH, 'F')
+      if (w > 6) {
+        const light = b.col === PDF_SEM_LOW || b.col === PDF_SEM_OK
+        doc.setTextColor(...(light ? PDF_NEGRO : PDF_BLANCO))
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5)
+        doc.text(String(b.n), bx + w / 2, y + barH / 2 + 1.4, { align: 'center' })
+      }
+      bx += w
+    })
+    y += barH + 5
+    let lx = 14
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
+    bands.forEach(b => {
+      doc.setFillColor(...b.col); doc.rect(lx, y - 2.6, 3, 3, 'F')
+      doc.setTextColor(70, 70, 70); doc.text(b.label, lx + 4.5, y)
+      lx += 4.5 + doc.getTextWidth(b.label) + 7
+    })
+    y += 9
 
-    doc.setFont(undefined, 'normal'); doc.setFontSize(9); doc.setTextColor(50, 50, 80)
-    const lns = doc.splitTextToSize(parrafo, pw - 28)
-    doc.text(lns, 14, yP + 8)
+    // Rentabilidad por producto — Top y Bottom (barras horizontales)
+    y = dibujarSeccion(doc, pw, 'Rentabilidad por producto — Top y Bottom', y)
+    const top5 = ordenado.slice(0, 5)
+    const bottom3 = ordenado.slice(-3).filter(p => !top5.includes(p))
+    const chartItems = [...top5, ...bottom3]
+    const maxAbs = Math.max(1, ...chartItems.map(p => Math.abs(p.margen)))
+    const labelW = 36
+    const axisX = 14 + labelW
+    const axisRight = pw - 16
+    const axisW = axisRight - axisX
+    const hasNeg = chartItems.some(p => p.margen < 0)
+    const zeroX = hasNeg ? axisX + axisW * 0.42 : axisX
+    const rowH = 5.6
+    chartItems.forEach((p, i) => {
+      const ry = y + i * rowH
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(50, 50, 50)
+      const nm = p.nombre.length > 24 ? p.nombre.slice(0, 22) + '…' : p.nombre
+      doc.text(nm, axisX - 3, ry + 2.4, { align: 'right' })
+      doc.setFillColor(...semColor(p.margen))
+      if (p.margen >= 0) {
+        const w = (p.margen / maxAbs) * (axisRight - zeroX)
+        doc.rect(zeroX, ry, Math.max(w, 0.3), 3, 'F')
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(70, 70, 70)
+        doc.text(`${p.margen.toFixed(1)}%`, zeroX + w + 1.5, ry + 2.3)
+      } else {
+        const w = (Math.abs(p.margen) / maxAbs) * (zeroX - axisX)
+        doc.rect(zeroX - w, ry, Math.max(w, 0.3), 3, 'F')
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.setTextColor(...PDF_SEM_NEG)
+        doc.text(`${p.margen.toFixed(1)}%`, zeroX - w - 1.5, ry + 2.3, { align: 'right' })
+      }
+    })
+    doc.setDrawColor(180, 180, 180); doc.setLineWidth(0.2)
+    doc.line(zeroX, y - 1, zeroX, y + chartItems.length * rowH - 1)
 
-    // ── Pág 3: Tabla completa ──
+    // ── Pág 3: Detalle por producto ──
+    const EST = getEstiloInforme()
     doc.addPage()
-    addBandHeader(); addFooter()
-    doc.setFontSize(13); doc.setFont(undefined, 'bold'); doc.setTextColor(18, 15, 56)
-    doc.text('Detalle por Producto', 14, 26)
-
+    dibujarEncabezado(doc, pw, MOD, 'Detalle por Producto', fecha)
+    dibujarPie(doc, pw, ph, 3)
     autoTable(doc, {
-      startY: 32,
-      head: [['Producto', 'Tipo', 'Costo total', 'Precio venta', 'Ganancia $', 'Margen %', 'Estado']],
+      ...EST,
+      startY: PDF_CONTENT_Y,
+      head: [['Producto', 'Tipo', 'Costo total', 'Precio venta', 'Ganancia', 'Margen', 'Estado']],
       body: ordenado.map(p => [
-        p.nombre,
-        p.tipo,
-        `$${pesos(p.costo_total)}`,
-        `$${pesos(p.precio_venta)}`,
-        `$${pesos(p.ganancia)}`,
-        `${p.margen.toFixed(1)}%`,
-        nivelStr(p.margen),
+        p.nombre, p.tipo || '—',
+        `$${pesos(p.costo_total)}`, `$${pesos(p.precio_venta)}`, `$${pesos(p.ganancia)}`,
+        `${p.margen.toFixed(1)}%`, nivelStr(p.margen),
       ]),
-      styles: { fontSize: 8, cellPadding: 2.5 },
-      headStyles: { fillColor: [18, 15, 56], textColor: [255, 255, 255] },
       columnStyles: {
-        0: { cellWidth: 48 },
-        2: { halign: 'right' },
-        3: { halign: 'right' },
-        4: { halign: 'right' },
-        5: { halign: 'right' },
-        6: { halign: 'center', cellWidth: 22 },
+        0: { cellWidth: 46 },
+        2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' },
+        6: { halign: 'center', cellWidth: 24 },
       },
       didParseCell: d => {
         if (d.section !== 'body') return
-        const pct = ordenado[d.row.index]?.margen ?? 100
-        if (pct < 0)        d.cell.styles.fillColor = [254, 226, 226]
-        else if (pct < 15)  d.cell.styles.fillColor = [255, 237, 213]
-        else if (pct < 30)  d.cell.styles.fillColor = [254, 252, 232]
-        else if (pct > 50)  d.cell.styles.fillColor = [220, 252, 231]
+        if (d.column.index === 5 || d.column.index === 6) {
+          d.cell.styles.textColor = semColor(ordenado[d.row.index]?.margen ?? 0)
+          d.cell.styles.fontStyle = 'bold'
+        }
       },
-      margin: { left: 14, right: 14 },
+      didDrawPage: () => {
+        dibujarEncabezado(doc, pw, MOD, 'Detalle por Producto', fecha)
+        dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+      },
     })
 
-    // ── Pág 4: Recomendaciones ──
+    // ── Pág 4: Acciones sugeridas ──
     doc.addPage()
-    addBandHeader(); addFooter()
-    doc.setFontSize(13); doc.setFont(undefined, 'bold'); doc.setTextColor(18, 15, 56)
-    doc.text('Acciones Sugeridas', 14, 26)
-
+    dibujarEncabezado(doc, pw, MOD, 'Acciones Sugeridas', fecha)
+    dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
     const acciones = conPrecio
       .filter(p => p.margen < 30)
       .sort((a, b) => a.margen - b.margen)
@@ -541,63 +573,50 @@ export default function Finanzas() {
         let situacion, accion, impacto
         if (p.margen < 0) {
           const precioMin = p.costo_total / 0.8
-          situacion = `Margen negativo (${p.margen.toFixed(1)}%)`
-          accion = `Subir precio a $${pesos(precioMin)} (mín. para 20% margen)`
+          situacion = `Negativo (${p.margen.toFixed(1)}%)`
+          accion = `Subir precio a $${pesos(precioMin)} (mín. 20% margen)`
           impacto = `Recuperar $${pesos(precioMin - p.precio_venta)}/u`
         } else if (p.margen < 15) {
           const precioIdeal = p.costo_total / 0.7
-          situacion = `Margen crítico (${p.margen.toFixed(1)}%)`
+          situacion = `Crítico (${p.margen.toFixed(1)}%)`
           accion = `Ajustar precio a $${pesos(precioIdeal)} o reducir costo MP`
           impacto = `+${(30 - p.margen).toFixed(1)}pp de margen`
         } else {
-          situacion = `Margen bajo (${p.margen.toFixed(1)}%)`
+          situacion = `Bajo (${p.margen.toFixed(1)}%)`
           accion = 'Monitorear precios de insumos principales'
           impacto = 'Margen en riesgo ante suba de precios'
         }
-        return [p.nombre, situacion, accion, impacto]
+        return [p.nombre, situacion, accion, impacto, p.margen]
       })
 
     if (acciones.length === 0) {
-      doc.setFont(undefined, 'normal'); doc.setFontSize(10); doc.setTextColor(22, 163, 74)
-      doc.text('¡Excelente! Todos los productos tienen margen superior al 30%.', 14, 38)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...PDF_SEM_EXC)
+      doc.text('Todos los productos superan el 30% de margen. No se requieren acciones.', 14, PDF_CONTENT_Y + 4)
     } else {
       autoTable(doc, {
-        startY: 32,
+        ...EST,
+        startY: PDF_CONTENT_Y,
         head: [['Producto', 'Situación', 'Acción sugerida', 'Impacto estimado']],
-        body: acciones,
-        styles: { fontSize: 7.5, cellPadding: 2.5 },
-        headStyles: { fillColor: [212, 82, 26], textColor: [255, 255, 255] },
-        columnStyles: {
-          0: { cellWidth: 38 },
-          1: { cellWidth: 35 },
-          2: { cellWidth: 68 },
-          3: { cellWidth: 39 },
-        },
+        body: acciones.map(a => a.slice(0, 4)),
+        columnStyles: { 0: { cellWidth: 38 }, 1: { cellWidth: 33 }, 2: { cellWidth: 68 }, 3: { cellWidth: 39 } },
         didParseCell: d => {
           if (d.section !== 'body') return
-          const txt = acciones[d.row.index]?.[1] || ''
-          if (txt.includes('negativo'))  d.cell.styles.fillColor = [254, 226, 226]
-          else if (txt.includes('crítico')) d.cell.styles.fillColor = [255, 237, 213]
+          if (d.column.index === 1) {
+            d.cell.styles.textColor = semColor(acciones[d.row.index]?.[4] ?? 0)
+            d.cell.styles.fontStyle = 'bold'
+          }
         },
-        margin: { left: 14, right: 14 },
+        didDrawPage: () => {
+          dibujarEncabezado(doc, pw, MOD, 'Acciones Sugeridas', fecha)
+          dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+        },
       })
     }
 
     // ── Pág 5: Firmas ──
     doc.addPage()
-    addBandHeader(); addFooter()
-    doc.setFontSize(13); doc.setFont(undefined, 'bold'); doc.setTextColor(18, 15, 56)
-    doc.text('Firmas y Aprobaciones', 14, 30)
-    let yF = 50
-    ;['Gerente General', 'Contador / Responsable Financiero', 'Fecha y aclaración'].forEach(rol => {
-      doc.setDrawColor(150); doc.setLineWidth(0.4)
-      doc.line(14, yF, 95, yF)
-      doc.setFontSize(8); doc.setFont(undefined, 'bold'); doc.setTextColor(80)
-      doc.text(rol, 14, yF + 5)
-      doc.setFont(undefined, 'normal')
-      doc.text('Nombre y apellido: ___________________________', 14, yF + 12)
-      yF += 34
-    })
+    dibujarPaginaFirmas(doc, pw, ph, MOD, fecha,
+      ['Gerente General', 'Responsable Financiero', 'Fecha y aclaración'])
 
     doc.save(`Rentabilidad_DelParque_${fecha.replace(/\//g, '-')}.pdf`)
     setGenerandoPDF(false)

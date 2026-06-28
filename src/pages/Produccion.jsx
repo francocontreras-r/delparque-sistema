@@ -624,7 +624,7 @@ export default function Produccion() {
       .firma{flex:1;border-top:1.5px solid #141414;padding-top:6px;font-size:8px;color:#555}
       @media print{body{padding:0}.banner{margin:0 0 12px}}
     </style></head><body>
-    <div class="banner"><span>PRODUCCIÓN</span><span>DEL PARQUE</span></div>
+    <div class="banner"><span>PRODUCCIÓN</span></div>
     <div class="header">
       <img src="${logoUrl}" class="logo-img" alt="Del Parque" />
       <div style="text-align:right">
@@ -652,7 +652,7 @@ export default function Produccion() {
       <div class="firma">Control de Calidad</div>
     </div>
     <div class="footer-line">
-      <span class="footer-txt">Confidencial — Del Parque</span>
+      <span class="footer-txt">Sistema de Gestión Del Parque — Información de uso confidencial</span>
       <span class="footer-txt">Emitido: ${new Date().toLocaleString('es-AR')}</span>
     </div>
     </body></html>`)

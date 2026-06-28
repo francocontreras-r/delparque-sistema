@@ -806,7 +806,7 @@ export default function Ordenes() {
     const VER = [22, 101, 52]
     const ROJ = [153, 27, 27]
 
-    const HDR_H  = 18
+    const HDR_H  = 30
     const KPI_H  = 12
     const CNT_Y1 = HDR_H + KPI_H + 4
     const CNT_Y2 = HDR_H + 4
@@ -816,19 +816,31 @@ export default function Ordenes() {
     const totalBatches = grupo.items.reduce((a, i) => a + (i.batches || 0), 0)
 
     function _header(pg) {
+      // Banda superior negra delgada
       doc.setFillColor(...N)
-      doc.rect(0, 0, pw, HDR_H, 'F')
-      try { doc.addImage(LOGO_PDF, 'PNG', 4, 3, 40, 12) } catch {}
+      doc.rect(0, 0, pw, 10, 'F')
       doc.setFont('helvetica', 'bold')
-      doc.setFontSize(10.5)
+      doc.setFontSize(6.5)
       doc.setTextColor(...B)
-      doc.text(`ORDEN DE PRODUCCIÓN N° ${grupo.numero}`, pw / 2, HDR_H - 5, { align: 'center' })
+      doc.text('ÓRDENES', 14, 6.8)
+      doc.text(`N° ${grupo.numero}`, pw - 14, 6.8, { align: 'right' })
+      // Logo negro sobre fondo blanco (proporción correcta)
+      try { doc.addImage(LOGO_PDF, 'PNG', 14, 12, 9 * (906 / 521), 9) } catch {}
+      // Título a la derecha + línea
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.setTextColor(...N)
+      doc.text(`ORDEN DE PRODUCCIÓN N° ${grupo.numero}`, pw - 14, 18, { align: 'right' })
+      doc.setDrawColor(...N)
+      doc.setLineWidth(0.5)
+      doc.line(14, 23, pw - 14, 23)
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(6.5)
-      doc.text(`Emitido: ${hoy}`, pw - 4, HDR_H - 4, { align: 'right' })
       doc.setTextColor(110, 110, 110)
-      doc.text(`Pág. ${pg}`, pw - 4, ph - 3, { align: 'right' })
-      doc.text('Del Parque — Confidencial', 4, ph - 3)
+      doc.text(`Emitido: ${hoy}`, pw - 14, 27, { align: 'right' })
+      // Pie
+      doc.text(`Pág. ${pg}`, pw - 14, ph - 3, { align: 'right' })
+      doc.text('Sistema de Gestión Del Parque — Información de uso confidencial', 14, ph - 3)
     }
 
     function _kpiFila() {

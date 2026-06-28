@@ -11,6 +11,17 @@ export const PDF_GRIS_OSC   = [80, 80, 80]
 export const PDF_CONTENT_Y  = 35   // Y donde arranca el contenido tras el encabezado
 export const PDF_PIE_H      = 12   // Altura del pie de página
 
+// Proporción real del logo (archivo 906×521)
+export const PDF_LOGO_RATIO = 906 / 521
+
+// ── Paleta semántica ──────────────────────────────────────────────────────────
+// El documento es monocromo; el color se usa SOLO en datos (gráficos, KPIs, estados)
+export const PDF_SEM_NEG  = [198, 40, 40]    // negativo / pérdida
+export const PDF_SEM_CRIT = [224, 134, 0]    // crítico
+export const PDF_SEM_LOW  = [245, 179, 1]    // bajo
+export const PDF_SEM_OK   = [102, 187, 106]  // saludable
+export const PDF_SEM_EXC  = [46, 125, 50]    // excelente
+
 // ── Estilos reutilizables para autoTable ──────────────────────────────────────
 export function getEstiloInforme() {
   return {
@@ -59,14 +70,13 @@ function _banda(doc, pw, modulo) {
   doc.setFontSize(6.5)
   doc.setTextColor(...PDF_BLANCO)
   doc.text(modulo.toUpperCase(), 14, 6.8)
-  doc.text('DEL PARQUE', pw - 14, 6.8, { align: 'right' })
 }
 
 // ── Encabezado de página interior ─────────────────────────────────────────────
 // Logo izquierda · Título derecha · Línea negra · Fecha
 export function dibujarEncabezado(doc, pw, modulo, titulo, hoy) {
   _banda(doc, pw, modulo)
-  try { doc.addImage(_logo, 'PNG', 14, 12, 36, 9) } catch {}
+  try { doc.addImage(_logo, 'PNG', 14, 12, 9 * PDF_LOGO_RATIO, 9) } catch {}
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(10)
   doc.setTextColor(...PDF_NEGRO)
@@ -90,7 +100,7 @@ export function dibujarPie(doc, pw, ph, pagina) {
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(6.5)
   doc.setTextColor(...PDF_GRIS_OSC)
-  doc.text('Confidencial — Del Parque', 14, y + 4)
+  doc.text('Sistema de Gestión Del Parque  —  Información de uso confidencial', 14, y + 4)
   if (pagina != null) doc.text(`Página ${pagina}`, pw - 14, y + 4, { align: 'right' })
 }
 
@@ -102,7 +112,7 @@ export function dibujarPortada(doc, pw, ph, modulo, titulo, periodo, hoy) {
   doc.setFillColor(...PDF_NEGRO)
   doc.rect(0, 10, 4, ph - 10, 'F')
   // Logo
-  try { doc.addImage(_logo, 'PNG', 14, 28, 52, 13) } catch {}
+  try { doc.addImage(_logo, 'PNG', 14, 26, 18 * PDF_LOGO_RATIO, 18) } catch {}
   // Línea divisoria negra
   doc.setDrawColor(...PDF_NEGRO)
   doc.setLineWidth(1)

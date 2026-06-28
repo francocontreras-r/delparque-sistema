@@ -85,12 +85,14 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, s
   const [ings, setIngs] = useState(() =>
     rawIngs.map((i, idx) => ({
       _key: idx,
-      _id: i.id ?? null,          // id de la DB (null = nuevo)
+      _id: i.id ?? null,             // id de la fila de receta (null = nuevo)
+      insumo_id: i.insumo_id ?? null, // vínculo al insumo del depósito
       nombre: i.insumo_nombre,
       cantidad: i.cantidad,
       unidad: i.unidad || 'kg',
     }))
   )
+  const [vinculandoKey, setVinculandoKey] = useState(null)
   const [deletedIds, setDeletedIds] = useState([])
   const [mano, setMano]     = useState(receta.manoDeObra || 0)
   const [saving, setSaving] = useState(false)
@@ -108,6 +110,12 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, s
     return m
   }, [insumos])
 
+  const insumoPorId = useMemo(() => {
+    const m = {}
+    insumos.forEach(i => { if (i.id != null) m[i.id] = i })
+    return m
+  }, [insumos])
+
   const sugerencias = useMemo(() => {
     if (!busq.trim()) return []
     const q = busq.trim().toLowerCase()
@@ -116,11 +124,13 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, s
 
   const ingsConCosto = useMemo(() =>
     ings.map(i => {
-      const ins = insumoPorNombre[(i.nombre || '').trim().toLowerCase()]
+      // Prioridad: vínculo por ID; si no hay, cae al nombre (compatibilidad)
+      const porId = i.insumo_id != null ? insumoPorId[i.insumo_id] : null
+      const ins = porId || insumoPorNombre[(i.nombre || '').trim().toLowerCase()]
       const cu = ins?.costo_unitario || 0
-      return { ...i, costoUnit: cu, costoTotal: (Number(i.cantidad) || 0) * cu, tienePreco: !!ins }
+      return { ...i, costoUnit: cu, costoTotal: (Number(i.cantidad) || 0) * cu, tienePreco: !!ins, vinculado: !!porId }
     }),
-    [ings, insumoPorNombre]
+    [ings, insumoPorNombre, insumoPorId]
   )
 
   const subtotalMP  = ingsConCosto.reduce((a, i) => a + i.costoTotal, 0)
@@ -136,8 +146,15 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, s
     setIngs(p => p.filter(i => i._key !== key))
   }
   function add(ins) {
-    setIngs(p => [...p, { _key: Date.now(), _id: null, nombre: ins.nombre, cantidad: 1, unidad: ins.unidad || 'kg' }])
+    setIngs(p => [...p, { _key: Date.now(), _id: null, insumo_id: ins.id ?? null, nombre: ins.nombre, cantidad: 1, unidad: ins.unidad || 'kg' }])
     setBusq(''); setShowAC(false)
+  }
+  // Vincular (o re-vincular) una fila existente a un insumo del depósito
+  function vincular(key, ins) {
+    setIngs(p => p.map(i => i._key === key
+      ? { ...i, insumo_id: ins.id ?? null, nombre: ins.nombre, unidad: ins.unidad || i.unidad }
+      : i))
+    setVinculandoKey(null); setBusq(''); setShowAC(false)
   }
 
   async function guardar() {
@@ -162,7 +179,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, s
     // 2. UPDATE modificados (tienen _id)
     for (const ing of ingsConCosto.filter(i => i._id)) {
       const { data, error } = await supabase.from(tablaIng)
-        .update({ cantidad: Number(ing.cantidad) || 0, unidad: ing.unidad, costo_unitario: ing.costoUnit })
+        .update({ cantidad: Number(ing.cantidad) || 0, unidad: ing.unidad, costo_unitario: ing.costoUnit, insumo_id: ing.insumo_id ?? null })
         .eq('id', ing._id)
         .select()
       console.log(`Resultado UPDATE "${ing.nombre}":`, data, error)
@@ -179,6 +196,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, s
       const { data, error } = await supabase.from(tablaIng)
         .insert(nuevos.map(i => ({
           [fk]: receta.id,
+          insumo_id: i.insumo_id ?? null,
           insumo_nombre: i.nombre,
           cantidad: Number(i.cantidad) || 0,
           unidad: i.unidad,
@@ -244,17 +262,21 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, s
             {ingsConCosto.map(ing => (
               <div key={ing._key} className="flex items-center gap-2 p-2.5 rounded-lg"
                 style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
-                {/* Nombre + precio */}
+                {/* Nombre + vínculo + precio */}
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{ing.nombre}</p>
-                  {ing.tienePreco
-                    ? <p className="text-xs" style={{ color: colors.success }}>
-                        Precio actualizado: ${pesos(ing.costoUnit)}/u · Subtotal: ${pesos(ing.costoTotal)}
-                      </p>
-                    : <p className="text-xs flex items-center gap-1" style={{ color: colors.warning }}>
-                        <AlertTriangle size={10} /> Sin precio en depósito
-                      </p>
-                  }
+                  <div className="text-xs flex items-center gap-2 flex-wrap">
+                    {ing.vinculado
+                      ? <span className="flex items-center gap-1" style={{ color: colors.success }}>🔗 Vinculado</span>
+                      : <button type="button"
+                          onMouseDown={() => { setVinculandoKey(ing._key); setBusq(''); setShowAC(true) }}
+                          className="flex items-center gap-1 underline" style={{ color: colors.warning }}>
+                          <AlertTriangle size={10} /> Vincular insumo
+                        </button>}
+                    {ing.tienePreco
+                      ? <span style={{ color: colors.textMuted }}>${pesos(ing.costoUnit)}/u · ${pesos(ing.costoTotal)}</span>
+                      : <span style={{ color: colors.warning }}>sin precio</span>}
+                  </div>
                 </div>
                 {/* Cantidad */}
                 <input type="number" min="0" step="0.001" value={ing.cantidad}
@@ -278,21 +300,29 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, s
           </div>
         </div>
 
-        {/* Autocomplete agregar */}
+        {/* Autocomplete agregar / vincular */}
         <div className="relative">
-          <input type="text" placeholder="Buscar insumo para agregar…"
+          {vinculandoKey != null && (
+            <div className="flex items-center justify-between mb-1 text-xs px-1" style={{ color: colors.warning }}>
+              <span>Vinculando <b>{ings.find(i => i._key === vinculandoKey)?.nombre}</b> — elegí el insumo real del depósito</span>
+              <button type="button" className="underline" onMouseDown={() => { setVinculandoKey(null); setBusq('') }}>cancelar</button>
+            </div>
+          )}
+          <input type="text"
+            placeholder={vinculandoKey != null ? 'Elegí el insumo del depósito…' : 'Buscar insumo para agregar…'}
             value={busq}
             onChange={e => { setBusq(e.target.value); setShowAC(true) }}
             onFocus={() => setShowAC(true)}
             onBlur={() => setTimeout(() => setShowAC(false), 150)}
             className="w-full rounded-md border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-orange-300"
-            style={{ borderColor: colors.border }}
+            style={{ borderColor: vinculandoKey != null ? colors.warning : colors.border }}
           />
           {showAC && sugerencias.length > 0 && (
             <div className="absolute top-full left-0 right-0 z-20 mt-1 rounded-lg border shadow-lg overflow-hidden"
               style={{ backgroundColor: colors.surface, borderColor: colors.border }}>
               {sugerencias.map(ins => (
-                <button key={ins.nombre} onMouseDown={() => add(ins)}
+                <button key={ins.id ?? ins.nombre}
+                  onMouseDown={() => vinculandoKey != null ? vincular(vinculandoKey, ins) : add(ins)}
                   className="w-full flex items-center justify-between px-3 py-2 text-sm text-left hover:bg-slate-50 transition-colors"
                   style={{ borderBottom: `1px solid ${colors.border}` }}>
                   <span style={{ color: colors.textPrimary }}>{ins.nombre}</span>
@@ -382,7 +412,7 @@ export default function Recetas() {
       supabase.from('stock_camaras').select('id,nombre,tipo,tipo_producto'),
       supabase.from('impulsivos').select('*').order('nombre'),
       supabase.from('impulsivo_ingredientes').select('*'),
-      supabase.from('insumos').select('nombre,costo_unitario,unidad'),
+      supabase.from('insumos').select('id,nombre,costo_unitario,unidad'),
       supabase.from('stock_camaras').select('id,nombre,tipo_producto').eq('tipo_producto', 'postre').order('nombre'),
     ])
     setBases(b || [])

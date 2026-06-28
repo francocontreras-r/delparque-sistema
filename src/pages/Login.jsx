@@ -58,7 +58,7 @@ export default function Login() {
               }}
             />
             <img
-              src="/logo-wordmark-white.png"
+              src="/logo-wordmark-white-hd.png"
               alt="Del Parque"
               width="230"
               className="relative block"

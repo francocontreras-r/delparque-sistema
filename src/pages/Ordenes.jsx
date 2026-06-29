@@ -7,7 +7,7 @@ import { normalizarNombre } from '../lib/texto'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import {
-  getEstiloInforme, dibujarSeccion, LOGO_PDF,
+  getEstiloInforme, dibujarSeccion, LOGO_PDF, LOGO_PDF_HORIZONTAL,
 } from '../lib/pdfEstilos'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
@@ -839,39 +839,39 @@ export default function Ordenes() {
     const VER = [22, 101, 52]
     const ROJ = [153, 27, 27]
 
-    const HDR_H  = 30
-    const KPI_H  = 12
-    const CNT_Y1 = HDR_H + KPI_H + 4
+    const HDR_H  = 46   // Y donde arranca la fila de KPIs (membrete arriba)
+    const KPI_H  = 14
+    const CNT_Y1 = HDR_H + KPI_H + 6
     const CNT_Y2 = HDR_H + 4
 
     const totalHelados = grupo.items.filter(i => i.tipo_producto !== 'impulsivo').length
     const totalImpPost = grupo.items.filter(i => i.tipo_producto === 'impulsivo').length
     const totalBatches = grupo.items.reduce((a, i) => a + (i.batches || 0), 0)
+    const estLabel = grupo.items.every(i => i.estado === 'completada') ? 'COMPLETADA'
+      : grupo.items.some(i => i.estado === 'en_proceso') ? 'EN PROCESO' : 'PENDIENTE'
 
     function _header(pg) {
-      // Banda superior negra delgada
-      doc.setFillColor(...N)
-      doc.rect(0, 0, pw, 10, 'F')
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(6.5)
-      doc.setTextColor(...B)
-      doc.text('ÓRDENES', 14, 6.8)
-      doc.text(`N° ${grupo.numero}`, pw - 14, 6.8, { align: 'right' })
-      // Logo negro sobre fondo blanco (proporción correcta)
-      try { doc.addImage(LOGO_PDF, 'PNG', 14, 12, 9 * (906 / 521), 9) } catch {}
-      // Título a la derecha + línea
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(11)
-      doc.setTextColor(...N)
-      doc.text(`ORDEN DE PRODUCCIÓN N° ${grupo.numero}`, pw - 14, 18, { align: 'right' })
-      doc.setDrawColor(...N)
-      doc.setLineWidth(0.5)
-      doc.line(14, 23, pw - 14, 23)
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(6.5)
-      doc.setTextColor(110, 110, 110)
-      doc.text(`Emitido: ${hoy}`, pw - 14, 27, { align: 'right' })
+      // Logo horizontal (izquierda)
+      const lgH = 17, lgW = lgH * (4200 / 1440)
+      try { doc.addImage(LOGO_PDF_HORIZONTAL, 'PNG', 14, 11, lgW, lgH) } catch {}
+      // Bloque de título (derecha)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(120, 120, 120)
+      doc.text('ORDEN DE PRODUCCIÓN', pw - 14, 15, { align: 'right', charSpace: 0.6 })
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.setTextColor(...N)
+      doc.text(`N° ${grupo.numero}`, pw - 14, 25, { align: 'right' })
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(110, 110, 110)
+      doc.text(`Emitido: ${hoy}`, pw - 14, 30, { align: 'right' })
+      // Regla gruesa que cierra el membrete
+      doc.setDrawColor(...N); doc.setLineWidth(1); doc.line(14, 35, pw - 14, 35)
+      // Fila de estado: badge + operario / programada
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5)
+      const badgeW = doc.getTextWidth(estLabel) + 8
+      doc.setFillColor(...N); doc.roundedRect(14, 38.5, badgeW, 6, 1, 1, 'F')
+      doc.setTextColor(...B); doc.text(estLabel, 14 + badgeW / 2, 42.6, { align: 'center' })
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(70, 70, 70)
+      doc.text(`Operario: ${grupo.operario || '—'}     ·     Programada: ${grupo.fecha || '—'}`, 14 + badgeW + 4, 42.8)
       // Pie
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(110, 110, 110)
       doc.text(`Pág. ${pg}`, pw - 14, ph - 3, { align: 'right' })
       doc.text('Sistema de Gestión Del Parque — Información de uso confidencial', 14, ph - 3)
     }
@@ -884,27 +884,18 @@ export default function Ordenes() {
         { label: 'Imp./Postres',     val: String(totalImpPost) },
         { label: 'Batches',          val: String(totalBatches) },
       ]
-      const kY   = HDR_H
-      const kpiW = pw / kpis.length
-      doc.setFillColor(...G)
-      doc.rect(0, kY, pw, KPI_H, 'F')
-      doc.setFillColor(...N)
-      doc.rect(0, kY, 1.5, KPI_H, 'F')
+      const kY = HDR_H
+      const gap = 3
+      const cardW = (pw - 28 - gap * (kpis.length - 1)) / kpis.length
       kpis.forEach((k, i) => {
-        const x = i * kpiW + 5
-        if (i > 0) {
-          doc.setDrawColor(...GM)
-          doc.setLineWidth(0.2)
-          doc.line(i * kpiW, kY + 2, i * kpiW, kY + KPI_H - 2)
-        }
-        doc.setFont('helvetica', 'normal')
-        doc.setFontSize(5.5)
-        doc.setTextColor(110, 110, 110)
-        doc.text(k.label.toUpperCase(), x, kY + 4)
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(8)
-        doc.setTextColor(...N)
-        doc.text(k.val, x, kY + 10)
+        const x = 14 + i * (cardW + gap)
+        doc.setDrawColor(...N); doc.setLineWidth(0.3); doc.rect(x, kY, cardW, KPI_H)
+        doc.setFillColor(...N); doc.rect(x, kY, cardW, 1.2, 'F')
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5); doc.setTextColor(110, 110, 110)
+        doc.text(k.label.toUpperCase(), x + 2.5, kY + 5)
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...N)
+        const val = doc.splitTextToSize(String(k.val), cardW - 5)[0] || ''
+        doc.text(val, x + 2.5, kY + 11)
       })
     }
 

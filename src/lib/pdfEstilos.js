@@ -2,6 +2,11 @@ const _logo = new Image()
 _logo.src = '/logo-byn.png'
 export const LOGO_PDF = _logo
 
+// Logo horizontal (con margen) — ideal para membretes
+const _logoH = new Image()
+_logoH.src = '/logo-horizontal-black-v2.png'
+export const LOGO_PDF_HORIZONTAL = _logoH
+
 // ── Constantes globales de diseño ─────────────────────────────────────────────
 export const PDF_NEGRO      = [20, 20, 20]
 export const PDF_BLANCO     = [255, 255, 255]

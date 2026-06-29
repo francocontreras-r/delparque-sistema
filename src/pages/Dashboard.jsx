@@ -13,6 +13,7 @@ import { clasificarVencimiento, esAlertaVencimiento, labelDias } from '../lib/ve
 import {
   Factory, ClipboardList, Warehouse, Thermometer, Package,
   ArrowUp, ArrowDown, PlayCircle, CheckCircle2, Activity, AlertTriangle,
+  Plus, FileText, TrendingUp, TrendingDown,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -145,6 +146,19 @@ export default function Dashboard() {
   const kgHoy = useMemo(() => (
     producciones.filter(p => p.fecha === hoy).reduce((a, p) => a + (p.peso_kg || 0), 0)
   ), [producciones, hoy])
+
+  const kgAyer = useMemo(() => {
+    const ayer = sumarDias(hoy, -1)
+    return producciones.filter(p => p.fecha === ayer).reduce((a, p) => a + (p.peso_kg || 0), 0)
+  }, [producciones, hoy])
+
+  // Tendencia de producción vs ayer: null si ayer no hubo datos
+  const trendProd = useMemo(() => {
+    if (kgAyer <= 0) return null
+    return ((kgHoy - kgAyer) / kgAyer) * 100
+  }, [kgHoy, kgAyer])
+
+  const registrosHoy = useMemo(() => producciones.filter(p => p.fecha === hoy).length, [producciones, hoy])
 
   const insumosCriticos = useMemo(() => insumos.filter(i => (i.stock_actual || 0) === 0), [insumos])
   const insumosBajos = useMemo(() => (
@@ -279,18 +293,71 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-4">
+      {/* Hero */}
+      <div
+        className="flex items-center justify-between gap-5 flex-wrap"
+        style={{ borderRadius: 18, padding: '20px 22px', border: `1px solid ${colors.border}`, background: `linear-gradient(120deg, ${colors.brand}26, ${colors.surface} 62%)` }}
+      >
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>{saludo()}, {nombre}</h1>
-          <div className="flex items-center gap-3 mt-0.5">
-            <p className="text-sm" style={{ color: colors.textMuted }}>{fechaLarga()}</p>
+          <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>{saludo()}, {nombre} 👋</h1>
+          <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
+            <span className="text-sm" style={{ color: colors.textSecondary }}>{fechaLarga()}</span>
             {(() => { const t = turnoActual(); return (
-              <span style={{ background: t.color + '22', color: t.color, fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '12px', flexShrink: 0 }}>
+              <span style={{ background: t.color + '26', color: t.color, fontSize: '11px', fontWeight: '700', padding: '3px 10px', borderRadius: '12px', flexShrink: 0 }}>
                 {t.emoji} {t.label}
               </span>
             )})()}
           </div>
+          {!loading && (
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <span style={{ background: colors.success + '1f', color: colors.success, fontSize: '12px', fontWeight: '700', padding: '5px 12px', borderRadius: '10px' }}>● Fábrica operativa</span>
+              {totalAlertas > 0 && (() => {
+                const col = peorVariante === 'danger' ? colors.danger : peorVariante === 'warning' ? colors.warning : colors.info
+                return (
+                  <span onClick={() => navigate(alertas[0]?.to || '/deposito')} className="cursor-pointer"
+                    style={{ background: col + '1f', color: col, fontSize: '12px', fontWeight: '700', padding: '5px 12px', borderRadius: '10px' }}>
+                    ⚠ {totalAlertas} alerta{totalAlertas !== 1 ? 's' : ''}
+                  </span>
+                )
+              })()}
+            </div>
+          )}
         </div>
+        {!loading && (
+          <div className="text-right">
+            <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: colors.textSecondary }}>Producción de hoy</div>
+            <div style={{ fontSize: '42px', fontWeight: 900, lineHeight: 1, color: colors.textPrimary, marginTop: 4 }}>
+              {fmtNum(kgHoy)} <span style={{ fontSize: '20px', color: colors.textMuted }}>kg</span>
+            </div>
+            <div className="mt-1.5 text-sm font-bold flex items-center justify-end gap-2 flex-wrap">
+              {trendProd != null ? (
+                <span style={{ color: trendProd >= 0 ? colors.success : colors.danger }} className="inline-flex items-center gap-1">
+                  {trendProd >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}{Math.abs(trendProd).toFixed(0)}% vs ayer
+                </span>
+              ) : <span style={{ color: colors.textMuted }}>sin datos de ayer</span>}
+              <span style={{ color: colors.textMuted, fontWeight: 500 }}>· {registrosHoy} reg.</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Acciones rápidas */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { icon: Plus,         label: 'Nueva orden',          to: '/ordenes' },
+          { icon: Factory,      label: 'Registrar producción', to: '/produccion' },
+          { icon: Warehouse,    label: 'Depósito',             to: '/deposito' },
+          { icon: FileText,     label: 'Informes',             to: '/informes' },
+        ].map(a => (
+          <button key={a.to} onClick={() => navigate(a.to)}
+            className="flex items-center gap-2.5 px-4 py-3 transition-colors hover:bg-[#334155]/40"
+            style={SURFACE}>
+            <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: colors.brand + '1f' }}>
+              <a.icon size={17} style={{ color: colors.brand }} />
+            </span>
+            <span className="text-sm font-semibold text-left" style={{ color: colors.textPrimary }}>{a.label}</span>
+          </button>
+        ))}
       </div>
 
       {loading ? (

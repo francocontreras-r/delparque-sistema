@@ -18,6 +18,8 @@ export const PDF_PIE_H      = 12   // Altura del pie de página
 
 // Proporción real del logo (archivo 906×521)
 export const PDF_LOGO_RATIO = 906 / 521
+// Proporción del logo horizontal (archivo 4200×1440) — para membretes
+export const PDF_LOGO_H_RATIO = 4200 / 1440
 
 // ── Paleta semántica ──────────────────────────────────────────────────────────
 // El documento es monocromo; el color se usa SOLO en datos (gráficos, KPIs, estados)
@@ -67,32 +69,34 @@ export function getEstiloInforme() {
   }
 }
 
-// ── Banda superior negra con nombre del módulo ────────────────────────────────
-function _banda(doc, pw, modulo) {
-  doc.setFillColor(...PDF_NEGRO)
-  doc.rect(0, 0, pw, 10, 'F')
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(6.5)
-  doc.setTextColor(...PDF_BLANCO)
-  doc.text(modulo.toUpperCase(), 14, 6.8)
-}
-
-// ── Encabezado de página interior ─────────────────────────────────────────────
-// Logo izquierda · Título derecha · Línea negra · Fecha
+// ── Encabezado de página interior (membrete profesional) ──────────────────────
+// Logo horizontal izquierda · Módulo + Título derecha · Regla negra gruesa
 export function dibujarEncabezado(doc, pw, modulo, titulo, hoy) {
-  _banda(doc, pw, modulo)
-  try { doc.addImage(_logo, 'PNG', 14, 12, 9 * PDF_LOGO_RATIO, 9) } catch {}
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(10)
-  doc.setTextColor(...PDF_NEGRO)
-  doc.text(titulo.toUpperCase(), pw - 14, 18, { align: 'right' })
-  doc.setDrawColor(...PDF_NEGRO)
-  doc.setLineWidth(0.5)
-  doc.line(14, 23, pw - 14, 23)
+  // Logo horizontal a la izquierda
+  try { doc.addImage(_logoH, 'PNG', 14, 10, 13 * PDF_LOGO_H_RATIO, 13) } catch {}
+  // Etiqueta de módulo (gris, con tracking)
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(6.5)
+  doc.setFontSize(7)
   doc.setTextColor(...PDF_GRIS_OSC)
-  if (hoy) doc.text(`Emitido: ${hoy}`, pw - 14, 27, { align: 'right' })
+  doc.setCharSpace(1.2)
+  doc.text(modulo.toUpperCase(), pw - 14, 13, { align: 'right' })
+  doc.setCharSpace(0)
+  // Título
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(12)
+  doc.setTextColor(...PDF_NEGRO)
+  doc.text(titulo.toUpperCase(), pw - 14, 19.5, { align: 'right' })
+  // Fecha de emisión
+  if (hoy) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(6.5)
+    doc.setTextColor(...PDF_GRIS_OSC)
+    doc.text(`Emitido: ${hoy}`, pw - 14, 24.5, { align: 'right' })
+  }
+  // Regla negra gruesa
+  doc.setDrawColor(...PDF_NEGRO)
+  doc.setLineWidth(0.8)
+  doc.line(14, 28, pw - 14, 28)
 }
 
 // ── Pie de página ─────────────────────────────────────────────────────────────
@@ -109,27 +113,30 @@ export function dibujarPie(doc, pw, ph, pagina) {
   if (pagina != null) doc.text(`Página ${pagina}`, pw - 14, y + 4, { align: 'right' })
 }
 
-// ── Portada estándar ──────────────────────────────────────────────────────────
-// Banda superior · Franja izquierda · Logo · Línea · Título grande · Período
+// ── Portada estándar (membrete profesional limpio) ────────────────────────────
+// Logo horizontal · Módulo · Regla gruesa · Título grande · Período
 export function dibujarPortada(doc, pw, ph, modulo, titulo, periodo, hoy) {
-  _banda(doc, pw, modulo)
-  // Franja vertical izquierda decorativa
-  doc.setFillColor(...PDF_NEGRO)
-  doc.rect(0, 10, 4, ph - 10, 'F')
-  // Logo
-  try { doc.addImage(_logo, 'PNG', 14, 26, 18 * PDF_LOGO_RATIO, 18) } catch {}
-  // Línea divisoria negra
+  // Logo horizontal arriba a la izquierda
+  try { doc.addImage(_logoH, 'PNG', 14, 26, 20 * PDF_LOGO_H_RATIO, 20) } catch {}
+  // Etiqueta de módulo arriba a la derecha
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(...PDF_GRIS_OSC)
+  doc.setCharSpace(1.5)
+  doc.text(modulo.toUpperCase(), pw - 14, 34, { align: 'right' })
+  doc.setCharSpace(0)
+  // Regla divisoria negra gruesa
   doc.setDrawColor(...PDF_NEGRO)
   doc.setLineWidth(1)
-  doc.line(14, 46, pw - 14, 46)
-  // Título principal — grande, bold, alineado a la derecha
+  doc.line(14, 52, pw - 14, 52)
+  // Título principal — grande, bold, alineado a la izquierda
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(20)
+  doc.setFontSize(22)
   doc.setTextColor(...PDF_NEGRO)
   const titleLines = doc.splitTextToSize(titulo.toUpperCase(), pw - 28)
-  doc.text(titleLines, pw - 14, 58, { align: 'right' })
+  doc.text(titleLines, 14, 66)
   // Período y fecha de emisión
-  const yMeta = 58 + titleLines.length * 8
+  const yMeta = 66 + titleLines.length * 9 + 3
   doc.setFont('helvetica', 'normal')
   if (periodo) {
     doc.setFontSize(9)

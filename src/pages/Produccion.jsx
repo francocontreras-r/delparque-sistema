@@ -14,7 +14,7 @@ import { aplicarProduccionAOrden, ESTADO_EN_PROCESO } from '../lib/ordenes'
 import { useUser } from '../context/UserContext'
 import { colors, radius, shadow } from '../styles/design-system'
 import { Package, Users, Scale, Hash, ScanLine, PenLine, FileText, Printer, X, Plus, ClipboardCheck, Settings } from 'lucide-react'
-const logoUrl = '/logo-byn.png'
+const logoUrl = '/logo-horizontal-black-v2.png'
 
 function decodearEAN(code) {
   if (!code || code.length !== 13 || !code.startsWith('200')) return null
@@ -585,7 +585,7 @@ export default function Produccion() {
     const filas = informeData.map((r, i) => `
       <tr class="${i % 2 === 1 ? 'alt' : ''}">
         <td>${new Date(r.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</td>
-        <td>${r.producto_nombre}</td>
+        <td class="b">${r.producto_nombre}</td>
         <td>${r.categoria || '—'}</td>
         <td>${r.operario_nombre || '—'}</td>
         <td class="r">${fmtPeso(r.peso_kg, unidadDe(r))} ${unidadDe(r)}</td>
@@ -594,66 +594,72 @@ export default function Produccion() {
       </tr>`).join('')
     const subfilas = subtotales.map((s, i) => `
       <tr class="${i % 2 === 1 ? 'alt' : ''}">
-        <td>${s.operario}</td>
+        <td class="b">${s.operario}</td>
         <td class="r">${s.registros}</td>
         <td class="r">${fmtNum(s.cantidad)}</td>
       </tr>`).join('')
     w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
     <title>Informe de producción ${fechaHoy}</title>
     <style>
-      *{box-sizing:border-box;margin:0;padding:0}
-      body{font-family:Arial,sans-serif;font-size:10px;padding:20px}
-      .banner{background:#141414;color:#fff;padding:5px 14px;font-size:8px;font-weight:700;letter-spacing:.5px;display:flex;justify-content:space-between;margin:-20px -20px 14px}
-      .header{display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:2px solid #141414;margin-bottom:14px}
-      .logo-img{height:26px;display:block}
-      .title{font-size:13px;font-weight:700;color:#141414}
-      .sub{font-size:8px;color:#555;margin-top:2px}
-      .kpis{display:flex;gap:10px;margin-bottom:14px}
-      .kpi{flex:1;background:#f5f5f5;padding:8px 10px;border-left:3px solid #141414}
-      .kpi-lbl{font-size:7px;color:#666;text-transform:uppercase;letter-spacing:.3px}
-      .kpi-val{font-size:14px;font-weight:700;color:#141414;margin-top:2px}
-      h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 6px;color:#141414;padding-bottom:3px;border-bottom:1px solid #d0d0d0}
-      table{width:100%;border-collapse:collapse;margin-bottom:10px}
-      th{background:#141414;color:#fff;font-size:7.5px;font-weight:700;text-transform:uppercase;padding:5px 6px;text-align:left}
-      td{padding:4px 6px;border-bottom:1px solid #e8e8e8;font-size:9px}
+      *{box-sizing:border-box;margin:0;padding:0;font-family:Helvetica,Arial,sans-serif;color:#141414}
+      body{font-size:10px;padding:14mm 14mm 0;position:relative;min-height:100vh}
+      .membrete{display:flex;justify-content:space-between;align-items:flex-start}
+      .logo-img{height:15mm;object-fit:contain;margin-top:1mm}
+      .mb-r{text-align:right}
+      .mb-mod{font-size:7.5pt;color:#777;letter-spacing:2px;text-transform:uppercase}
+      .mb-tit{font-size:17pt;font-weight:bold;line-height:1.05;margin-top:1mm}
+      .mb-meta{font-size:7.5pt;color:#666;margin-top:1.5mm}
+      .rule-thick{border-top:1mm solid #141414;margin-top:3.5mm}
+      .kpis{display:flex;gap:3mm;margin-top:6mm}
+      .kpi{flex:1;border:.3mm solid #141414;border-top:1.4mm solid #141414;padding:3mm 3.5mm}
+      .kpi.ok{border-top-color:#2E7D32}
+      .kpi-lbl{font-size:6pt;color:#666;letter-spacing:.5px;text-transform:uppercase}
+      .kpi-val{font-size:12pt;font-weight:bold;margin-top:1.5mm}
+      .kpi-val.ok{color:#2E7D32}
+      .sec{font-size:9pt;font-weight:bold;text-transform:uppercase;letter-spacing:.6px;margin-top:8mm;margin-bottom:1mm}
+      .sec-rule{border-top:.2mm solid #c8c8c8;margin-bottom:1mm}
+      table{width:100%;border-collapse:collapse;font-size:8pt;margin-top:2mm}
+      thead td{background:#141414;color:#ffffff;font-weight:bold;font-size:7.5pt;text-transform:uppercase;letter-spacing:.4px;padding:2.6mm 3mm}
+      tbody td{padding:2.3mm 3mm;border-bottom:.2mm solid #e2e2e2}
       tr.alt td{background:#f5f5f5}
-      .r{text-align:right}
-      .footer-line{border-top:1.5px solid #141414;margin-top:36px;padding-top:4px;display:flex;justify-content:space-between}
-      .footer-txt{font-size:7px;color:#666}
-      .firmas{display:flex;gap:24px;margin-top:32px}
-      .firma{flex:1;border-top:1.5px solid #141414;padding-top:6px;font-size:8px;color:#555}
-      @media print{body{padding:0}.banner{margin:0 0 12px}}
+      td.r{text-align:right}
+      td.b{font-weight:600}
+      .firmas{display:flex;gap:10mm;margin-top:18mm}
+      .firma{flex:1;border-top:.4mm solid #141414;padding-top:2mm;font-size:7.5pt;color:#555}
+      .pie{position:fixed;bottom:8mm;left:14mm;right:14mm;border-top:.3mm solid #141414;padding-top:2mm;display:flex;justify-content:space-between;font-size:6.5pt;color:#666}
+      @media print{body{padding:14mm 14mm 0}}
     </style></head><body>
-    <div class="banner"><span>PRODUCCIÓN</span></div>
-    <div class="header">
+    <div class="membrete">
       <img src="${logoUrl}" class="logo-img" alt="Del Parque" />
-      <div style="text-align:right">
-        <div class="title">INFORME DE PRODUCCIÓN DIARIA</div>
-        <div class="sub">${fechaHoy} &nbsp;·&nbsp; Lote ${lote}</div>
+      <div class="mb-r">
+        <div class="mb-mod">Producción</div>
+        <div class="mb-tit">Informe de Producción Diaria</div>
+        <div class="mb-meta">${fechaHoy} &nbsp;·&nbsp; Lote ${lote} &nbsp;·&nbsp; Emitido ${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</div>
       </div>
     </div>
+    <div class="rule-thick"></div>
     <div class="kpis">
       <div class="kpi"><div class="kpi-lbl">Total registros</div><div class="kpi-val">${informeData.length}</div></div>
-      <div class="kpi"><div class="kpi-lbl">Total producido</div><div class="kpi-val">${totalKg.toFixed(2)} kg</div></div>
+      <div class="kpi ok"><div class="kpi-lbl">Total producido</div><div class="kpi-val ok">${totalKg.toFixed(2)} kg</div></div>
       <div class="kpi"><div class="kpi-lbl">Operarios activos</div><div class="kpi-val">${totalOps}</div></div>
     </div>
-    <h2>Detalle de registros</h2>
+    <div class="sec">Detalle de registros</div><div class="sec-rule"></div>
     <table>
-      <thead><tr><th>Hora</th><th>Producto</th><th>Categoría</th><th>Operario</th><th class="r">Cantidad</th><th>Lote</th><th>Observaciones</th></tr></thead>
+      <thead><tr><td>Hora</td><td>Producto</td><td>Categoría</td><td>Operario</td><td class="r">Cantidad</td><td>Lote</td><td>Observaciones</td></tr></thead>
       <tbody>${filas}</tbody>
     </table>
-    <h2>Subtotales por operario</h2>
+    <div class="sec">Subtotales por operario</div><div class="sec-rule"></div>
     <table>
-      <thead><tr><th>Operario</th><th class="r">Registros</th><th class="r">Cantidad total</th></tr></thead>
+      <thead><tr><td>Operario</td><td class="r">Registros</td><td class="r">Cantidad total</td></tr></thead>
       <tbody>${subfilas}</tbody>
     </table>
     <div class="firmas">
       <div class="firma">Supervisor</div>
       <div class="firma">Control de Calidad</div>
     </div>
-    <div class="footer-line">
-      <span class="footer-txt">Sistema de Gestión Del Parque — Información de uso confidencial</span>
-      <span class="footer-txt">Emitido: ${new Date().toLocaleString('es-AR')}</span>
+    <div class="pie">
+      <span>Sistema de Gestión Del Parque — Información de uso confidencial</span>
+      <span>Emitido: ${new Date().toLocaleString('es-AR')}</span>
     </div>
     </body></html>`)
     w.document.close()

@@ -1,5 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import {
+  dibujarPortada, dibujarEncabezado, dibujarPie, dibujarSeccion,
+  getEstiloInforme, PDF_CONTENT_Y, PDF_NEGRO,
+  PDF_SEM_NEG, PDF_SEM_CRIT, PDF_SEM_OK,
+} from '../lib/pdfEstilos'
 import { useUser } from '../context/UserContext'
 import { deduplicarOperarios } from '../lib/operarios'
 import Spinner from '../components/ui/Spinner'
@@ -13,7 +20,7 @@ import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { TrendingDown, Plus, DollarSign, User } from 'lucide-react'
+import { TrendingDown, Plus, DollarSign, User, FileDown } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 const TABS   = ['Por Sabor', 'Por Operario', 'Por Causa', 'Historial']
@@ -89,6 +96,7 @@ export default function Mermas() {
   const [toast, setToast]         = useState(null)
   const [modal, setModal]         = useState(false)
   const [saving, setSaving]       = useState(false)
+  const [generandoPDF, setGenerandoPDF] = useState(false)
   const [form, setForm] = useState({
     fecha: new Date().toISOString().split('T')[0],
     sabor_nombre: '', operario_nombre: '',
@@ -203,6 +211,142 @@ export default function Mermas() {
     return [...porOperario].sort((a, b) => b.dif - a.dif)[0]
   }, [porOperario])
 
+  function generarPDF() {
+    if (mermas.length === 0) { toast2('No hay mermas para exportar', 'error'); return }
+    setGenerandoPDF(true)
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const pw  = doc.internal.pageSize.getWidth()
+      const ph  = doc.internal.pageSize.getHeight()
+      const fecha = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      const MOD = 'Mermas'
+      const EST = getEstiloInforme()
+
+      // Color semántico por % de merma (solo en datos)
+      const semPct = p => p < 3 ? PDF_SEM_OK : p < 8 ? PDF_SEM_CRIT : PDF_SEM_NEG
+
+      // Período a partir del rango de fechas registradas
+      const fechasOrden = mermas.map(m => m.fecha).filter(Boolean).sort()
+      const periodo = fechasOrden.length
+        ? `${fechasOrden[0]} a ${fechasOrden[fechasOrden.length - 1]}`
+        : null
+
+      // ── Pág 1: Portada ──
+      dibujarPortada(doc, pw, ph, MOD, 'Informe de Mermas y Pérdidas',
+        periodo ? `${periodo} · ${mermas.length} registros` : `${mermas.length} registros`, fecha)
+
+      // ── Pág 2: Resumen ──
+      doc.addPage()
+      dibujarEncabezado(doc, pw, MOD, 'Resumen de Mermas', fecha)
+      dibujarPie(doc, pw, ph, 2)
+
+      // KPI cards con acento semántico superior
+      const cards = [
+        { l: 'Registros',     v: String(mermas.length),            c: PDF_NEGRO },
+        { l: 'Kg perdidos',   v: `${totalDif.toFixed(1)} kg`,       c: totalDif > 0 ? PDF_SEM_NEG : PDF_SEM_OK },
+        { l: '% global',      v: `${pctGlobal.toFixed(1)}%`,        c: semPct(pctGlobal) },
+        { l: 'Costo estimado', v: `$${pesos(totalCostoMermas)}`,    c: totalCostoMermas > 0 ? PDF_SEM_NEG : PDF_SEM_OK },
+      ]
+      const gap = 4
+      const cardW = (pw - 28 - gap * 3) / 4
+      const cardH = 24
+      const cardY = PDF_CONTENT_Y - 2
+      cards.forEach((c, i) => {
+        const x = 14 + i * (cardW + gap)
+        doc.setDrawColor(...PDF_NEGRO); doc.setLineWidth(0.3); doc.rect(x, cardY, cardW, cardH)
+        doc.setFillColor(...c.c); doc.rect(x, cardY, cardW, 1.4, 'F')
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(6); doc.setTextColor(90, 90, 90)
+        doc.text(c.l.toUpperCase(), x + 3, cardY + 8)
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...PDF_NEGRO)
+        doc.text(c.v, x + 3, cardY + 17)
+      })
+
+      // Tabla: Mermas por sabor
+      let y = dibujarSeccion(doc, pw, 'Mermas por sabor', cardY + cardH + 8)
+      autoTable(doc, {
+        ...EST,
+        startY: y,
+        head: [['Producto', 'Reg.', 'Kg teórico', 'Kg real', 'Merma', '%']],
+        body: porSabor.map(s => [
+          s.nombre, String(s.cnt),
+          s.teo.toFixed(1), (s.teo - s.dif).toFixed(1),
+          `${s.dif.toFixed(1)} kg`, `${s.pct.toFixed(1)}%`,
+        ]),
+        columnStyles: {
+          0: { cellWidth: 56 },
+          1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' },
+          4: { halign: 'right' }, 5: { halign: 'right' },
+        },
+        didParseCell: d => {
+          if (d.section !== 'body') return
+          if (d.column.index === 4) { d.cell.styles.textColor = PDF_SEM_NEG; d.cell.styles.fontStyle = 'bold' }
+          if (d.column.index === 5) { d.cell.styles.textColor = semPct(porSabor[d.row.index]?.pct ?? 0); d.cell.styles.fontStyle = 'bold' }
+        },
+        didDrawPage: () => {
+          dibujarEncabezado(doc, pw, MOD, 'Resumen de Mermas', fecha)
+          dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+        },
+      })
+
+      // Tabla: Mermas por operario
+      y = dibujarSeccion(doc, pw, 'Mermas por operario', doc.lastAutoTable.finalY + 8)
+      autoTable(doc, {
+        ...EST,
+        startY: y,
+        head: [['Operario', 'Reg.', 'Kg teórico', 'Merma', '%']],
+        body: porOperario.map(o => [
+          o.nombre, String(o.cnt),
+          o.teo.toFixed(1), `${o.dif.toFixed(1)} kg`, `${o.pct.toFixed(1)}%`,
+        ]),
+        columnStyles: {
+          0: { cellWidth: 64 },
+          1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
+        },
+        didParseCell: d => {
+          if (d.section !== 'body') return
+          if (d.column.index === 3) { d.cell.styles.textColor = PDF_SEM_NEG; d.cell.styles.fontStyle = 'bold' }
+          if (d.column.index === 4) { d.cell.styles.textColor = semPct(porOperario[d.row.index]?.pct ?? 0); d.cell.styles.fontStyle = 'bold' }
+        },
+        didDrawPage: () => {
+          dibujarEncabezado(doc, pw, MOD, 'Resumen de Mermas', fecha)
+          dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+        },
+      })
+
+      // Tabla: Mermas por causa
+      y = dibujarSeccion(doc, pw, 'Mermas por causa', doc.lastAutoTable.finalY + 8)
+      autoTable(doc, {
+        ...EST,
+        startY: y,
+        head: [['Causa', 'Reg.', 'Kg perdidos', '% del total', 'Costo']],
+        body: porCausa.map(c => [
+          c.causa, String(c.cnt),
+          `${c.dif.toFixed(1)} kg`,
+          `${totalDif > 0 ? ((c.dif / totalDif) * 100).toFixed(1) : '0.0'}%`,
+          `$${pesos(c.costo)}`,
+        ]),
+        columnStyles: {
+          0: { cellWidth: 60 },
+          1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
+        },
+        didParseCell: d => {
+          if (d.section !== 'body') return
+          if (d.column.index === 2 || d.column.index === 4) { d.cell.styles.textColor = PDF_SEM_NEG; d.cell.styles.fontStyle = 'bold' }
+        },
+        didDrawPage: () => {
+          dibujarEncabezado(doc, pw, MOD, 'Resumen de Mermas', fecha)
+          dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+        },
+      })
+
+      doc.save(`Mermas_${fecha.replace(/\//g, '-')}.pdf`)
+    } catch (e) {
+      toast2(`Error al generar PDF: ${e.message}`, 'error')
+    } finally {
+      setGenerandoPDF(false)
+    }
+  }
+
   return (
     <div className="space-y-5">
       <Toast toast={toast} />
@@ -211,9 +355,14 @@ export default function Mermas() {
           <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Mermas</h1>
           <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Tolerancia: &lt;3% verde · 3-8% amarillo · &gt;8% rojo</p>
         </div>
-        <Button variant="primary" onClick={() => setModal(true)}>
-          <Plus size={15} /> Registrar
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={generarPDF} loading={generandoPDF} disabled={loading || mermas.length === 0}>
+            <FileDown size={15} /> Informe PDF
+          </Button>
+          <Button variant="primary" onClick={() => setModal(true)}>
+            <Plus size={15} /> Registrar
+          </Button>
+        </div>
       </div>
 
       <div className={`grid grid-cols-2 sm:grid-cols-3 ${isAdmin ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3`}>

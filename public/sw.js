@@ -1,9 +1,16 @@
-const CACHE_NAME = 'delparque-' + Date.now();
+// ─────────────────────────────────────────────────────────────────────────────
+// Service Worker — Del Parque
+// IMPORTANTE: subí SW_VERSION en cada release que necesite invalidar caché.
+// El navegador solo reinstala el SW si el BYTE de este archivo cambia; por eso
+// la versión va en una constante (no en Date.now(), que es igual en cada build).
+// ─────────────────────────────────────────────────────────────────────────────
+const SW_VERSION = 'v2-2026-06-29';
+const CACHE_NAME = 'delparque-' + SW_VERSION;
 const STATIC_EXTENSIONS = ['.js', '.css', '.woff2', '.woff', '.ttf'];
 
 self.addEventListener('install', e => {
   self.skipWaiting();
-  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(['/'])));
+  e.waitUntil(caches.open(CACHE_NAME));
 });
 
 self.addEventListener('activate', e => {
@@ -24,23 +31,20 @@ self.addEventListener('fetch', e => {
   if (url.hostname.includes('supabase.co')) return;
   if (e.request.method !== 'GET') return;
 
-  // Solo cachear assets estáticos
+  // Solo gestionar assets estáticos (el HTML siempre va directo a la red)
   const isStatic = STATIC_EXTENSIONS.some(ext => url.pathname.endsWith(ext));
   if (!isStatic) return;
 
+  // NETWORK-FIRST: siempre intentamos traer la versión más nueva del servidor.
+  // La caché es solo un respaldo para uso offline. Así el código nunca queda viejo.
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      if (cached) return cached;
-      return fetch(e.request).then(response => {
-        // Verificar que la response es válida antes de clonar
-        if (!response || response.status !== 200 || response.type === 'opaque') {
-          return response;
-        }
-        const responseClone = response.clone();
-        caches.open(CACHE_NAME).then(c => c.put(e.request, responseClone));
-        return response;
-      }).catch(() => cached);
-    })
+    fetch(e.request).then(response => {
+      if (response && response.status === 200 && response.type !== 'opaque') {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+      }
+      return response;
+    }).catch(() => caches.match(e.request))
   );
 });
 

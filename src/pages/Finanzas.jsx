@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import {
-  dibujarPortada, dibujarEncabezado, dibujarPie, dibujarSeccion, dibujarPaginaFirmas,
+  dibujarPortada, dibujarEncabezado, dibujarPie, dibujarSeccion, dibujarFirmas,
   getEstiloInforme, PDF_CONTENT_Y, PDF_NEGRO, PDF_BLANCO,
   PDF_SEM_NEG, PDF_SEM_OK, PDF_SEM_EXC,
 } from '../lib/pdfEstilos'
@@ -648,9 +648,9 @@ export default function Finanzas() {
       })
     }
 
-    // ── Pág 5: Firmas ──
-    doc.addPage()
-    dibujarPaginaFirmas(doc, pw, ph, MOD, fecha,
+    // ── Firmas (al final del contenido; salta de hoja solo si no entran) ──
+    const firmasY = acciones.length === 0 ? PDF_CONTENT_Y + 10 : doc.lastAutoTable.finalY
+    dibujarFirmas(doc, pw, ph, firmasY, MOD, fecha,
       ['Gerente General', 'Responsable Financiero', 'Fecha y aclaración'])
 
     doc.save(`Rentabilidad_DelParque_${fecha.replace(/\//g, '-')}.pdf`)

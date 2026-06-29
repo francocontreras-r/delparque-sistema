@@ -6,7 +6,7 @@ import html2canvas from 'html2canvas'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import {
   getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
-  dibujarKpi, dibujarSeccion, dibujarPaginaFirmas,
+  dibujarKpi, dibujarSeccion, dibujarFirmas,
   PDF_CONTENT_Y, PDF_NEGRO, PDF_BLANCO,
 } from '../lib/pdfEstilos'
 
@@ -350,9 +350,8 @@ export default function InformeOperarios() {
         }
       }
 
-      // Firmas
-      doc.addPage()
-      dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Supervisor de Producción', 'Gerencia', 'Fecha'])
+      // Firmas (al final del contenido; salta de hoja solo si no entran)
+      dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, MOD, hoy, ['Supervisor de Producción', 'Gerencia', 'Fecha'])
 
       doc.save(`rendimiento_${tipo}_${new Date().toISOString().slice(0, 10)}.pdf`)
     } catch (err) {

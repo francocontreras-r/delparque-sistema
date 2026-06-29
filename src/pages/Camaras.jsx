@@ -8,7 +8,7 @@ import autoTable from 'jspdf-autotable'
 import html2canvas from 'html2canvas'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 const logoUrl = '/logo-horizontal-black-v2.png'
-import { dibujarPortada, dibujarEncabezado, dibujarPie, dibujarKpi, dibujarSeccion, dibujarPaginaFirmas, getEstiloInforme, PDF_CONTENT_Y, LOGO_PDF } from '../lib/pdfEstilos'
+import { dibujarPortada, dibujarEncabezado, dibujarPie, dibujarKpi, dibujarSeccion, dibujarFirmas, getEstiloInforme, PDF_CONTENT_Y, LOGO_PDF } from '../lib/pdfEstilos'
 import { colors, shadow, radius } from '../styles/design-system'
 import KpiCard from '../components/ui/KpiCard'
 import Toast from '../components/ui/Toast'
@@ -1504,8 +1504,8 @@ export default function Camaras() {
       })
     }
 
-    // Página firmas
-    dibujarPaginaFirmas(doc, pw, ph, 'Cámaras', hoy, ['Responsable Cámaras', 'Jefe de Producción'])
+    // Firmas (al final del contenido; salta de hoja solo si no entran)
+    dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, 'Cámaras', hoy, ['Responsable Cámaras', 'Jefe de Producción'])
 
     const totalPag = doc.internal.getNumberOfPages()
     for (let p = 2; p <= totalPag; p++) { doc.setPage(p); dibujarPie(doc, pw, ph, p) }

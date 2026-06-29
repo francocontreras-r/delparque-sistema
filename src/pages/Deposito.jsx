@@ -25,7 +25,7 @@ import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, C
 const logoUrl = '/logo-byn.png'
 import {
   getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
-  dibujarKpi, dibujarSeccion, dibujarPaginaFirmas,
+  dibujarKpi, dibujarSeccion, dibujarFirmas,
   PDF_CONTENT_Y, PDF_PIE_H, PDF_NEGRO, PDF_GRIS_OSC, LOGO_PDF,
 } from '../lib/pdfEstilos'
 
@@ -1726,9 +1726,8 @@ export default function Deposito() {
         14, resY
       )
 
-      // Firmas
-      doc.addPage()
-      dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Responsable de Cámaras', 'Supervisor', 'Gerente'])
+      // Firmas (al final del contenido; salta de hoja solo si no entran)
+      dibujarFirmas(doc, pw, ph, resY, MOD, hoy, ['Responsable de Cámaras', 'Supervisor', 'Gerente'])
 
       doc.save(`stock_camaras_${new Date().toISOString().split('T')[0]}.pdf`)
     } finally {
@@ -2155,9 +2154,8 @@ export default function Deposito() {
         },
       })
 
-      // Firmas
-      doc.addPage()
-      dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Responsable de Depósito', 'Supervisor', 'Gerente'])
+      // Firmas (al final del contenido; salta de hoja solo si no entran)
+      dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, MOD, hoy, ['Responsable de Depósito', 'Supervisor', 'Gerente'])
 
       doc.save(`control_stock_${new Date().toISOString().split('T')[0]}.pdf`)
     } finally {
@@ -2329,9 +2327,8 @@ export default function Deposito() {
       })
     }
 
-    // Firmas
-    doc.addPage()
-    dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Responsable de Compras', 'Gerencia', 'Fecha'])
+    // Firmas (al final del contenido; salta de hoja solo si no entran)
+    dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, MOD, hoy, ['Responsable de Compras', 'Gerencia', 'Fecha'])
     doc.save(`compras_proveedor_${new Date().toISOString().split('T')[0]}.pdf`)
   }
 
@@ -2380,9 +2377,8 @@ export default function Deposito() {
       })
     }
 
-    // Firmas
-    doc.addPage()
-    dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Responsable de Depósito', 'Gerencia', 'Fecha'])
+    // Firmas (al final del contenido; salta de hoja solo si no entran)
+    dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, MOD, hoy, ['Responsable de Depósito', 'Gerencia', 'Fecha'])
     doc.save(`destino_mercaderia_${new Date().toISOString().split('T')[0]}.pdf`)
   }
 
@@ -2440,9 +2436,8 @@ export default function Deposito() {
       })
     }
 
-    // Firmas
-    doc.addPage()
-    dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Responsable de Depósito', 'Gerencia', 'Fecha'])
+    // Firmas (al final del contenido; salta de hoja solo si no entran)
+    dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, MOD, hoy, ['Responsable de Depósito', 'Gerencia', 'Fecha'])
     doc.save(`entregas_operario_${new Date().toISOString().split('T')[0]}.pdf`)
   }
 

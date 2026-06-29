@@ -20,7 +20,7 @@ import {
 } from 'recharts'
 import {
   getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
-  dibujarKpiCard, dibujarSeccion, dibujarPaginaFirmas,
+  dibujarKpiCard, dibujarSeccion, dibujarFirmas,
   PDF_CONTENT_Y, PDF_NEGRO, PDF_SEM_NEG, PDF_SEM_CRIT, PDF_SEM_LOW, PDF_SEM_OK, PDF_SEM_EXC,
 } from '../lib/pdfEstilos'
 const logoUrl = '/logo-byn.png'
@@ -723,9 +723,8 @@ export default function Informes() {
         })
       }
 
-      // Firmas
-      doc.addPage()
-      dibujarPaginaFirmas(doc, pw, ph, MOD, hoy, ['Dirección', 'Responsable de Producción', 'Control de Calidad'])
+      // Firmas (al final del contenido; salta de hoja solo si no entran)
+      dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, MOD, hoy, ['Dirección', 'Responsable de Producción', 'Control de Calidad'])
 
       doc.save(`informe_${tab.toLowerCase()}_${hoyISO()}.pdf`)
     } catch (err) {

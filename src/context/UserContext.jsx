@@ -22,7 +22,7 @@ export const ROLE_PERMISOS = {
 
 export const ROLES = ['operario', 'supervisor', 'admin']
 
-const INACTIVIDAD_MS = 30 * 60 * 1000
+const INACTIVIDAD_MS = 2 * 60 * 60 * 1000
 
 const UserContext = createContext(null)
 

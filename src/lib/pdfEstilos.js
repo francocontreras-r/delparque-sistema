@@ -74,13 +74,17 @@ export function getEstiloInforme() {
 export function dibujarEncabezado(doc, pw, modulo, titulo, hoy) {
   // Logo horizontal a la izquierda
   try { doc.addImage(_logoH, 'PNG', 14, 9.5, 15.5 * PDF_LOGO_H_RATIO, 15.5) } catch {}
-  // Etiqueta de módulo (gris, con tracking)
+  // Etiqueta de módulo (gris, con tracking). Compensamos el anchor por el
+  // char-spacing para que el texto termine exactamente en el margen (sin cortarse).
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7)
   doc.setTextColor(...PDF_GRIS_OSC)
-  doc.setCharSpace(1.2)
-  doc.text(modulo.toUpperCase(), pw - 14, 13, { align: 'right' })
-  doc.setCharSpace(0)
+  {
+    const cs = 0.8, lbl = modulo.toUpperCase()
+    doc.setCharSpace(cs)
+    doc.text(lbl, pw - 14 - (lbl.length - 1) * cs, 13, { align: 'right' })
+    doc.setCharSpace(0)
+  }
   // Título
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(12)
@@ -118,13 +122,17 @@ export function dibujarPie(doc, pw, ph, pagina) {
 export function dibujarPortada(doc, pw, ph, modulo, titulo, periodo, hoy) {
   // Logo horizontal arriba a la izquierda
   try { doc.addImage(_logoH, 'PNG', 14, 24, 24 * PDF_LOGO_H_RATIO, 24) } catch {}
-  // Etiqueta de módulo arriba a la derecha
+  // Etiqueta de módulo arriba a la derecha. Anchor compensado por el tracking
+  // para que no se corte contra el borde de la hoja.
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
   doc.setTextColor(...PDF_GRIS_OSC)
-  doc.setCharSpace(1.5)
-  doc.text(modulo.toUpperCase(), pw - 14, 34, { align: 'right' })
-  doc.setCharSpace(0)
+  {
+    const cs = 1.0, lbl = modulo.toUpperCase()
+    doc.setCharSpace(cs)
+    doc.text(lbl, pw - 14 - (lbl.length - 1) * cs, 34, { align: 'right' })
+    doc.setCharSpace(0)
+  }
   // Regla divisoria negra gruesa
   doc.setDrawColor(...PDF_NEGRO)
   doc.setLineWidth(1)

@@ -4,7 +4,7 @@
 // El navegador solo reinstala el SW si el BYTE de este archivo cambia; por eso
 // la versión va en una constante (no en Date.now(), que es igual en cada build).
 // ─────────────────────────────────────────────────────────────────────────────
-const SW_VERSION = 'v3-2026-06-29';
+const SW_VERSION = 'v4-2026-06-29';
 const CACHE_NAME = 'delparque-' + SW_VERSION;
 const STATIC_EXTENSIONS = ['.js', '.css', '.woff2', '.woff', '.ttf'];
 

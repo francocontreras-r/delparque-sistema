@@ -38,7 +38,6 @@ export default function InformeOperarios() {
   const [periodo, setPeriodo]       = useState('mes')
   const [operarioSel, setOperarioSel] = useState('')
   const [datos, setDatos] = useState({ operarios: [], ordenes: [], ranking: [], comparativas: {} })
-  const chartRef     = useRef(null)
   const chartRefEvol = useRef(null)
 
   useEffect(() => { cargar() }, [periodo]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -158,21 +157,6 @@ export default function InformeOperarios() {
 
       // P1 — Portada
       dibujarPortada(doc, pw, ph, MOD, 'INFORME DE RENDIMIENTO', periodoLabel, hoy)
-
-      // P2 — Gráfico de barras (html2canvas)
-      if (chartRef.current && datos.ranking.length > 0) {
-        try {
-          const canvas = await html2canvas(chartRef.current, { backgroundColor: '#ffffff', scale: 2, logging: false, useCORS: true })
-          const imgData = canvas.toDataURL('image/png')
-          doc.addPage()
-          dibujarEncabezado(doc, pw, MOD, 'RENDIMIENTO DEL EQUIPO', hoy)
-          dibujarPie(doc, pw, ph, 2)
-          // Borde gris alrededor del gráfico
-          doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.3)
-          doc.rect(14, PDF_CONTENT_Y, pw - 28, 85)
-          doc.addImage(imgData, 'PNG', 14, PDF_CONTENT_Y, pw - 28, 85)
-        } catch (chartErr) { console.warn('html2canvas:', chartErr) }
-      }
 
       // Helpers para gráficos nativos (Power BI-style, sin html2canvas)
       const hexRgb = h => { const n = parseInt(h.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255] }
@@ -741,20 +725,6 @@ export default function InformeOperarios() {
           </div>
         </div>
       )}
-
-      {/* Gráfico oculto ranking — captura PDF */}
-      <div ref={chartRef} style={{ position: 'fixed', left: '-9999px', top: '0', width: '760px', height: '280px', background: '#1e293b', padding: '16px 20px', zIndex: -1, borderRadius: '8px' }}>
-        <BarChart width={720} height={248} data={datos.ranking.slice(0, 10).map(r => ({ nombre: r.nombre.split(' ')[0], 'Ef. KG': r.pctProduccion || 0, 'Ef. Tiempo': r.pctTiempo || 0, 'Rendimiento': r.rendimiento || 0 }))}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-          <XAxis dataKey="nombre" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
-          <YAxis domain={[0, 120]} stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
-          <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9' }} />
-          <Legend wrapperStyle={{ color: '#94a3b8', fontSize: 11 }} />
-          <Bar dataKey="Ef. KG" fill="#D4521A" radius={[3, 3, 0, 0]} />
-          <Bar dataKey="Ef. Tiempo" fill="#3b82f6" radius={[3, 3, 0, 0]} />
-          <Bar dataKey="Rendimiento" fill="#10b981" radius={[3, 3, 0, 0]} />
-        </BarChart>
-      </div>
 
       {/* Gráfico oculto evolución operario — captura PDF */}
       <div ref={chartRefEvol} style={{ position: 'fixed', left: '-9999px', top: '0', width: '760px', height: '260px', background: '#1e293b', padding: '16px 20px', zIndex: -1, borderRadius: '8px' }}>

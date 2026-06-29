@@ -59,11 +59,28 @@ function pctVariant(pct) {
   return 'danger'
 }
 
-// Veredicto de tolerancia: <3% aceptable · 3-8% moderada · >8% excesiva
+// Veredicto de tolerancia fija: <3% aceptable · 3-8% moderada · >8% excesiva
 function evalMermaLabel(pct) {
   if (pct < 3)  return 'Aceptable'
   if (pct < 8)  return 'Moderada'
   return 'Excesiva'
+}
+
+// Veredicto contra el estándar de la receta (merma esperada del sabor).
+// Si no hay estándar cargado, cae a la tolerancia fija.
+function evalEstandarLabel(pct, esp) {
+  if (esp == null || esp <= 0) return evalMermaLabel(pct)
+  const r = pct / esp
+  if (r <= 1.05) return 'En estándar'
+  if (r <= 1.5)  return 'Sobre estándar'
+  return 'Excesiva'
+}
+function evalEstandarVariant(pct, esp) {
+  if (esp == null || esp <= 0) return pctVariant(pct)
+  const r = pct / esp
+  if (r <= 1.05) return 'success'
+  if (r <= 1.5)  return 'warning'
+  return 'danger'
 }
 
 function pesos(n) { return Math.round(n || 0).toLocaleString('es-AR') }
@@ -72,6 +89,21 @@ function pesos(n) { return Math.round(n || 0).toLocaleString('es-AR') }
 function ordenNumero(m) {
   const match = (m.observaciones || '').match(/^Orden (.+)$/)
   return match ? match[1] : '—'
+}
+
+function EsperadaInput({ value, onCommit }) {
+  const [val, setVal] = useState(value ?? '')
+  useEffect(() => { setVal(value ?? '') }, [value])
+  return (
+    <div className="flex items-center gap-1">
+      <input type="number" min="0" step="0.1" value={val}
+        onChange={e => setVal(e.target.value)}
+        onBlur={() => onCommit(val)}
+        placeholder="5"
+        className="w-20 rounded-md border border-[#334155] bg-[#0F172A] text-[#F1F5F9] text-sm px-2 py-1.5 outline-none transition-colors focus:border-[#D4521A]" />
+      <span className="text-xs" style={{ color: colors.textMuted }}>%</span>
+    </div>
+  )
 }
 
 function AgrupacionList({ filas }) {
@@ -83,10 +115,15 @@ function AgrupacionList({ filas }) {
           <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: pctColor(f.pct) }} />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold truncate" style={{ color: colors.textPrimary }}>{f.nombre}</p>
-            <p className="text-xs" style={{ color: colors.textMuted }}>{f.cnt} registro{f.cnt !== 1 ? 's' : ''} · {f.teo.toFixed(1)} kg teóricos</p>
+            <p className="text-xs" style={{ color: colors.textMuted }}>
+              {f.cnt} registro{f.cnt !== 1 ? 's' : ''} · {f.teo.toFixed(1)} kg teóricos
+              {f.esperada != null && ` · esperada ${f.esperada}%`}
+            </p>
           </div>
           <span className="text-sm font-bold flex-shrink-0" style={{ color: colors.danger }}>{f.dif.toFixed(2)} kg</span>
-          <Badge variant={pctVariant(f.pct)}>{evalMermaLabel(f.pct)} · {f.pct.toFixed(1)}%</Badge>
+          <Badge variant={f.esperada != null ? evalEstandarVariant(f.pct, f.esperada) : pctVariant(f.pct)}>
+            {f.esperada != null ? evalEstandarLabel(f.pct, f.esperada) : evalMermaLabel(f.pct)} · {f.pct.toFixed(1)}%
+          </Badge>
         </div>
       ))}
     </div>
@@ -116,7 +153,7 @@ export default function Mermas() {
   async function cargar() {
     const [{ data: m }, { data: s }, { data: o }] = await Promise.all([
       supabase.from('mermas').select('*').order('created_at', { ascending: false }).limit(200),
-      supabase.from('stock_camaras').select('id,nombre,tipo,costo_kg').order('nombre'),
+      supabase.from('stock_camaras').select('*').order('nombre'),
       supabase.from('operarios').select('*').order('nombre'),
     ])
     setMermas(m || [])
@@ -160,6 +197,15 @@ export default function Mermas() {
     cargar()
   }
 
+  async function guardarEsperada(saborId, value) {
+    const v = parseFloat(value)
+    const nuevo = (value === '' || isNaN(v)) ? null : v
+    const { error } = await supabase.from('stock_camaras').update({ merma_esperada: nuevo }).eq('id', saborId)
+    if (error) { toast2(error.message, 'error'); return }
+    setSabores(prev => prev.map(s => s.id === saborId ? { ...s, merma_esperada: nuevo } : s))
+    toast2('Estándar actualizado')
+  }
+
   function agrupar(keyFn) {
     const m = {}
     mermas.forEach(r => {
@@ -186,7 +232,19 @@ export default function Mermas() {
     return (m.diferencia || 0) * costoKg
   }
 
-  const porSabor    = useMemo(() => agrupar(r => r.sabor_nombre),    [mermas])
+  const esperadaPorSabor = useMemo(() => {
+    const m = {}
+    sabores.forEach(s => {
+      if (s.merma_esperada != null && s.merma_esperada !== '') {
+        m[(s.nombre || '').trim().toLowerCase()] = Number(s.merma_esperada)
+      }
+    })
+    return m
+  }, [sabores])
+
+  const porSabor    = useMemo(() => agrupar(r => r.sabor_nombre).map(f => ({
+    ...f, esperada: esperadaPorSabor[(f.nombre || '').trim().toLowerCase()] ?? null,
+  })), [mermas, esperadaPorSabor])
   const porOperario = useMemo(() => agrupar(r => r.operario_nombre), [mermas])
   const porCausa    = useMemo(() => {
     const m = {}
@@ -237,8 +295,20 @@ export default function Mermas() {
       // Color semántico y veredicto por % de merma (tolerancia: <3% ok · 3-8% media · >8% alta)
       const semPct = p => p < 3 ? PDF_SEM_OK : p < 8 ? PDF_SEM_CRIT : PDF_SEM_NEG
       const evalInfo = p => p < 3 ? { label: 'ACEPTABLE', col: PDF_SEM_OK } : p < 8 ? { label: 'MODERADA', col: PDF_SEM_CRIT } : { label: 'EXCESIVA', col: PDF_SEM_NEG }
+      // Veredicto contra el estándar de la receta (si hay merma esperada cargada)
+      const evalEstandar = (p, esp) => {
+        if (esp == null || esp <= 0) return evalInfo(p)
+        const r = p / esp
+        if (r <= 1.05) return { label: 'EN ESTÁNDAR', col: PDF_SEM_OK }
+        if (r <= 1.5)  return { label: 'SOBRE ESTÁNDAR', col: PDF_SEM_CRIT }
+        return { label: 'EXCESIVA', col: PDF_SEM_NEG }
+      }
       const tint = (c, fr) => [Math.round(c[0] + (255 - c[0]) * fr), Math.round(c[1] + (255 - c[1]) * fr), Math.round(c[2] + (255 - c[2]) * fr)]
       const esClaro = c => (c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114) > 150
+      // Estándar global ponderado por kg teórico (para el veredicto general)
+      const conEsp = porSabor.filter(s => s.esperada != null)
+      const totEspTeo = conEsp.reduce((a, s) => a + s.teo, 0)
+      const espGlobal = totEspTeo > 0 ? conEsp.reduce((a, s) => a + s.teo * s.esperada, 0) / totEspTeo : null
 
       // Período a partir del rango de fechas registradas
       const fechasOrden = mermas.map(m => m.fecha).filter(Boolean).sort()
@@ -277,38 +347,45 @@ export default function Mermas() {
       })
 
       // Banner de veredicto global (¿la merma es aceptable?)
-      const evG = evalInfo(pctGlobal)
+      const evG = evalEstandar(pctGlobal, espGlobal)
+      const banSub = espGlobal != null
+        ? `Merma global ${pctGlobal.toFixed(1)}%  vs  estándar de receta ${espGlobal.toFixed(1)}%   ·   En estándar / Sobre estándar (hasta 1,5x) / Excesiva`
+        : `Merma global ${pctGlobal.toFixed(1)}%   ·   Tolerancia:  <3% aceptable   ·   3-8% moderada   ·   >8% excesiva`
       const banY = cardY + cardH + 6
       doc.setFillColor(...tint(evG.col, 0.86)); doc.setDrawColor(...evG.col); doc.setLineWidth(0.3)
       doc.rect(14, banY, pw - 28, 9, 'FD')
       doc.setFillColor(...evG.col); doc.rect(14, banY, 2, 9, 'F')
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...evG.col)
       doc.text(`EVALUACIÓN GLOBAL: ${evG.label}`, 18, banY + 5.6)
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.8); doc.setTextColor(70, 70, 70)
-      doc.text(`Merma global ${pctGlobal.toFixed(1)}%   ·   Tolerancia:  <3% aceptable   ·   3-8% moderada   ·   >8% excesiva`, 72, banY + 5.6)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(70, 70, 70)
+      doc.text(banSub, 72, banY + 5.6)
 
       // Tabla: Mermas por sabor
       let y = dibujarSeccion(doc, pw, 'Mermas por sabor', banY + 9 + 6)
       autoTable(doc, {
         ...EST,
         startY: y,
-        head: [['Producto', 'Reg.', 'Kg teórico', 'Kg real', 'Merma', '%', 'Evaluación']],
+        head: [['Producto', 'Reg.', 'Kg teórico', 'Kg real', 'Merma', '%', 'Esperada', 'Evaluación']],
         body: porSabor.map(s => [
           safe(s.nombre), String(s.cnt),
           s.teo.toFixed(1), (s.teo - s.dif).toFixed(1),
-          `${s.dif.toFixed(1)} kg`, `${s.pct.toFixed(1)}%`, evalInfo(s.pct).label,
+          `${s.dif.toFixed(1)} kg`, `${s.pct.toFixed(1)}%`,
+          s.esperada != null ? `${s.esperada}%` : '—', evalEstandar(s.pct, s.esperada).label,
         ]),
         columnStyles: {
-          0: { cellWidth: 48 },
+          0: { cellWidth: 40 },
           1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' },
-          4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'center', cellWidth: 24 },
+          4: { halign: 'right' }, 5: { halign: 'right' },
+          6: { halign: 'right' }, 7: { halign: 'center', cellWidth: 26 },
         },
         didParseCell: d => {
           if (d.section !== 'body') return
-          const pct = porSabor[d.row.index]?.pct ?? 0
+          const s = porSabor[d.row.index]
+          const pct = s?.pct ?? 0
           if (d.column.index === 4) { d.cell.styles.textColor = PDF_SEM_NEG; d.cell.styles.fontStyle = 'bold' }
           if (d.column.index === 5) { d.cell.styles.textColor = semPct(pct); d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = tint(semPct(pct), 0.82) }
-          if (d.column.index === 6) { const e = evalInfo(pct); d.cell.styles.fillColor = e.col; d.cell.styles.textColor = esClaro(e.col) ? PDF_NEGRO : PDF_BLANCO; d.cell.styles.fontStyle = 'bold' }
+          if (d.column.index === 6) { d.cell.styles.textColor = [110, 110, 110] }
+          if (d.column.index === 7) { const e = evalEstandar(pct, s?.esperada); d.cell.styles.fillColor = e.col; d.cell.styles.textColor = esClaro(e.col) ? PDF_NEGRO : PDF_BLANCO; d.cell.styles.fontStyle = 'bold' }
         },
         didDrawPage: () => {
           dibujarEncabezado(doc, pw, MOD, 'Resumen de Mermas', fecha)
@@ -410,7 +487,7 @@ export default function Mermas() {
       </div>
 
       <div className="flex gap-1.5 flex-wrap">
-        {TABS.map(t => (
+        {(isAdmin ? [...TABS, 'Estándares'] : TABS).map(t => (
           <button key={t} onClick={() => setTab(t)}
             className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border"
             style={{
@@ -520,6 +597,32 @@ export default function Mermas() {
                   </Table>
                 </div>
               )
+          )}
+
+          {tab === 'Estándares' && (
+            <div className="space-y-3">
+              <div className="p-4 text-xs" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, color: colors.textSecondary }}>
+                <b style={{ color: colors.textPrimary }}>Merma esperada por sabor.</b> Cada sabor tiene una merma "normal" propia (un sabor liso al agua merma poco; uno con trozos, repostería o dulce de leche merma más).
+                El análisis <i>Por Sabor</i> y el informe PDF evalúan la merma real contra este estándar: <span style={{ color: colors.success }}>En estándar</span> (≤ esperada), <span style={{ color: colors.warning }}>Sobre estándar</span> (hasta 1,5×) o <span style={{ color: colors.danger }}>Excesiva</span> (&gt; 1,5×). Si lo dejás vacío, se usa la tolerancia fija 3% / 8%.
+              </div>
+              <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                <Table>
+                  <Thead>
+                    <Tr><Th>Sabor / Producto</Th><Th>Tipo</Th><Th>Merma esperada</Th></Tr>
+                  </Thead>
+                  <Tbody>
+                    {sabores.map(s => (
+                      <Tr key={s.id}>
+                        <Td className="font-medium">{s.nombre}</Td>
+                        <Td className="text-xs" style={{ color: colors.textMuted }}>{s.tipo || '—'}</Td>
+                        <Td><EsperadaInput value={s.merma_esperada ?? ''} onCommit={v => guardarEsperada(s.id, v)} /></Td>
+                      </Tr>
+                    ))}
+                  </Tbody>
+                </Table>
+                {sabores.length === 0 && <EmptyState icon={TrendingDown} title="Sin sabores" subtitle="No hay productos en cámara para configurar" />}
+              </div>
+            </div>
           )}
         </>
       )}

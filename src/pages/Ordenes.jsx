@@ -136,13 +136,21 @@ function computeMateriasPrimas(item, ctx) {
     // Impulsivo / postre: la cantidad de la receta es POR UNIDAD,
     // se multiplica por las unidades de la orden.
     factor = item.cantidad_unidades || 0
-    // 1) Impulsivo registrado en DB: receta por impulsivo_id (= item.sabor_id)
-    if (item.sabor_id && ctx.impulsivoIngredientes) {
-      ingredientes = ctx.impulsivoIngredientes.filter(i => i.impulsivo_id === item.sabor_id)
+    const nom = normalizarNombre(item.sabor_nombre)
+    // 1) Impulsivo en DB: el sabor_id de la orden viene de stock_camaras y NO
+    //    coincide con impulsivo_ingredientes.impulsivo_id (tabla impulsivos).
+    //    Resolvemos el id correcto por nombre vía la tabla impulsivos.
+    if (ctx.impulsivoIngredientes && ctx.impulsivos) {
+      const imp = ctx.impulsivos.find(i => normalizarNombre(i.nombre) === nom)
+      if (imp) ingredientes = ctx.impulsivoIngredientes.filter(i => i.impulsivo_id === imp.id)
+    }
+    // 1b) Compatibilidad: por si alguna orden guardó directamente el impulsivo_id
+    if ((!ingredientes || ingredientes.length === 0) && item.sabor_id && ctx.impulsivoIngredientes) {
+      const porSaborId = ctx.impulsivoIngredientes.filter(i => i.impulsivo_id === item.sabor_id)
+      if (porSaborId.length) ingredientes = porSaborId
     }
     // 2) Postre del catálogo (lib/postres.js): receta por nombre
     if (!ingredientes || ingredientes.length === 0) {
-      const nom = normalizarNombre(item.sabor_nombre)
       const postre = POSTRES.find(p => normalizarNombre(p.nombre) === nom)
       if (postre) ingredientes = (postre.ingredientes || []).map(i => ({
         insumo_nombre: i.nombre, cantidad: i.cantidad, unidad: i.unidad,
@@ -500,7 +508,7 @@ export default function Ordenes() {
   }
 
   function materiasPrimasDe(item) {
-    return computeMateriasPrimas(item, { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes })
+    return computeMateriasPrimas(item, { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes, impulsivos })
   }
 
   const basesNecesarias = useMemo(() => {
@@ -645,9 +653,11 @@ export default function Ordenes() {
     setCheckingId(item.id)
 
     let ings = []
-    if (item.tipo_producto === 'impulsivo') {
-      const { data } = await supabase.from('impulsivo_ingredientes').select('*').eq('impulsivo_id', item.sabor_id)
-      ings = (data || []).map(i => ({ ...i, factor: item.cantidad_unidades || 1 }))
+    if (item.tipo_producto === 'impulsivo' || item.tipo_producto === 'postre') {
+      // Resuelve la receta del impulsivo (por nombre) o del postre (catálogo)
+      ings = materiasPrimasDe(item)
+        .filter(m => m.estado !== 'sinlimite')
+        .map(m => ({ insumo_nombre: m.nombre, cantidad: m.cantidadPorBatch, unidad: m.unidad, factor: m.batches }))
     } else {
       const receta = resolverReceta(item.sabor_nombre)
       if (receta) {
@@ -933,8 +943,8 @@ export default function Ordenes() {
       head: [['PRODUCTO', 'TIPO', 'CANTIDAD', 'ESTADO']],
       body: grupo.items.map(it => [
         it.sabor_nombre,
-        it.tipo_producto === 'impulsivo' ? 'Impulsivo/Postre' : 'Helado',
-        it.tipo_producto === 'impulsivo'
+        it.tipo_producto === 'impulsivo' ? 'Impulsivo' : it.tipo_producto === 'postre' ? 'Postre' : 'Helado',
+        (it.tipo_producto === 'impulsivo' || it.tipo_producto === 'postre')
           ? `${it.cantidad_unidades} u`
           : `${it.batches} batch${it.batches !== 1 ? 'es' : ''} (${it.litros_total} L)`,
         estadoInfo(it.estado).label,
@@ -960,13 +970,15 @@ export default function Ordenes() {
     }
 
     const mpSecciones = grupo.items
-      .filter(it => it.tipo_producto === 'helado')
       .map(it => ({ it, mp: computeMateriasPrimas(it, ctx) }))
       .filter(s => s.mp.length > 0)
 
     for (const { it, mp } of mpSecciones) {
       if (finalY > ph - 55) { doc.addPage(); _header(doc.internal.getCurrentPageInfo().pageNumber); finalY = CNT_Y2 }
-      finalY = dibujarSeccion(doc, pw, `MP — ${it.sabor_nombre} (${it.batches} batch${it.batches !== 1 ? 'es' : ''})`, finalY + 3)
+      const detalle = it.tipo_producto === 'helado'
+        ? `${it.batches} batch${it.batches !== 1 ? 'es' : ''}`
+        : `${it.cantidad_unidades} u`
+      finalY = dibujarSeccion(doc, pw, `MP — ${it.sabor_nombre} (${detalle})`, finalY + 3)
       autoTable(doc, {
         ...TS,
         bodyStyles: { ...TS.bodyStyles, cellPadding: 2 },
@@ -1004,7 +1016,7 @@ export default function Ordenes() {
   }
 
   async function _cargarDatosOrden() {
-    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes }
+    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes, impulsivos }
     if (!saborIngredientes.length || !insumosStock.length) {
       const [{ data: ings }, { data: ins }, { data: baseIngs }] = await Promise.all([
         supabase.from('sabor_ingredientes').select('*'),
@@ -1030,7 +1042,7 @@ export default function Ordenes() {
   async function imprimirListaMP(grupo, item) {
     const w = window.open('', '_blank')
 
-    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes }
+    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes, impulsivos }
     let mp = computeMateriasPrimas(item, ctx)
 
     if (mp.length === 0) {
@@ -1284,7 +1296,7 @@ export default function Ordenes() {
                           )}
                         </div>
                         <div className="text-right flex-shrink-0">
-                          {item.tipo_producto === 'impulsivo' ? (
+                          {(item.tipo_producto === 'impulsivo' || item.tipo_producto === 'postre') ? (
                             <p className="text-lg font-extrabold" style={{ color: colors.brand }}>{item.cantidad_unidades} u</p>
                           ) : (
                             <>

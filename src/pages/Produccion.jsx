@@ -615,7 +615,7 @@ export default function Produccion() {
       *{box-sizing:border-box;margin:0;padding:0;font-family:Helvetica,Arial,sans-serif;color:#141414}
       body{font-size:10px;padding:14mm 14mm 0;position:relative;min-height:100vh}
       .membrete{display:flex;justify-content:space-between;align-items:flex-start}
-      .logo-img{height:15mm;object-fit:contain;margin-top:1mm}
+      .logo-img{height:18mm;object-fit:contain;margin-top:1mm}
       .mb-r{text-align:right}
       .mb-mod{font-size:7.5pt;color:#777;letter-spacing:2px;text-transform:uppercase}
       .mb-tit{font-size:17pt;font-weight:bold;line-height:1.05;margin-top:1mm}

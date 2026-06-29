@@ -20,8 +20,8 @@ import {
 } from 'recharts'
 import {
   getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
-  dibujarKpi, dibujarSeccion, dibujarPaginaFirmas,
-  PDF_CONTENT_Y,
+  dibujarKpiCard, dibujarSeccion, dibujarPaginaFirmas,
+  PDF_CONTENT_Y, PDF_NEGRO, PDF_SEM_NEG, PDF_SEM_CRIT, PDF_SEM_LOW, PDF_SEM_OK, PDF_SEM_EXC,
 } from '../lib/pdfEstilos'
 const logoUrl = '/logo-byn.png'
 
@@ -508,6 +508,17 @@ export default function Informes() {
       const peri = `${fmtFecha(rango.desde)} – ${fmtFecha(rango.hasta)} (${periodoLabel()})  ·  vs. anterior: ${fmtFecha(rango.antDesde)} – ${fmtFecha(rango.antHasta)}`
       const EST  = getEstiloInforme()
 
+      // Color semántico (solo en datos)
+      const semMargen = m => m < 0 ? PDF_SEM_NEG : m < 20 ? PDF_SEM_CRIT : m < 40 ? PDF_SEM_LOW : m <= 50 ? PDF_SEM_OK : PDF_SEM_EXC
+      const semMerma  = p => p < 3 ? PDF_SEM_OK : p < 8 ? PDF_SEM_CRIT : PDF_SEM_NEG
+
+      // Fila de KPI cards (estilo unificado). Devuelve el nuevo Y.
+      const kpiRow = (items, yTop) => {
+        const gap = 4, n = items.length, cw = (pw - 28 - gap * (n - 1)) / n, ch = 22
+        items.forEach((it, i) => dibujarKpiCard(doc, 14 + i * (cw + gap), yTop, cw, ch, it[0], it[1], it[2] || PDF_NEGRO))
+        return yTop + ch + 8
+      }
+
       // Helper reutilizable para header+footer en didDrawPage
       const didDP = () => {
         dibujarEncabezado(doc, pw, MOD, TIT, hoy)
@@ -532,11 +543,11 @@ export default function Informes() {
       // ── TAB: PRODUCCIÓN ────────────────────────────────────────────────────
       if (tab === 'Producción') {
         const { actual, anterior } = produccionInforme
-        const kpiW = (pw - 28 - 4) / 3
-        dibujarKpi(doc, 14,                  y, kpiW, 18, 'KG helados', `${fmtNum(actual.kgHelados)} kg`)
-        dibujarKpi(doc, 14 + kpiW + 2,       y, kpiW, 18, 'Unid. impulsivos', `${fmtNum(actual.unidadesImpulsivos, 0)} u`)
-        dibujarKpi(doc, 14 + (kpiW + 2) * 2, y, kpiW, 18, 'Operarios activos', actual.porOperario.length)
-        y += 26
+        y = kpiRow([
+          ['KG helados',       `${fmtNum(actual.kgHelados)} kg`,             PDF_SEM_OK],
+          ['Unid. impulsivos', `${fmtNum(actual.unidadesImpulsivos, 0)} u`,  PDF_SEM_LOW],
+          ['Operarios activos', String(actual.porOperario.length),           PDF_NEGRO],
+        ], y)
 
         // Gráfico Top sabores por kg
         if (chartRefProd.current && chartProduccion.length > 0) {
@@ -620,11 +631,11 @@ export default function Informes() {
       // ── TAB: MERMAS ────────────────────────────────────────────────────────
       if (tab === 'Mermas') {
         const { actual, anterior } = mermasInforme
-        const kpiW = (pw - 28 - 4) / 3
-        dibujarKpi(doc, 14,                  y, kpiW, 18, 'Kg merma total',  `${fmtNum(actual.totalDif)} kg`)
-        dibujarKpi(doc, 14 + kpiW + 2,       y, kpiW, 18, '% merma global',  `${fmtNum(actual.pctGlobal)}%`)
-        dibujarKpi(doc, 14 + (kpiW + 2) * 2, y, kpiW, 18, 'Costo total merma', `$${pesos(actual.costoTotal)}`)
-        y += 26
+        y = kpiRow([
+          ['Kg merma total',    `${fmtNum(actual.totalDif)} kg`,    PDF_SEM_NEG],
+          ['% merma global',    `${fmtNum(actual.pctGlobal)}%`,     semMerma(actual.pctGlobal)],
+          ['Costo total merma', `$${pesos(actual.costoTotal)}`,     PDF_SEM_NEG],
+        ], y)
 
         y = dibujarSeccion(doc, pw, 'Resumen general', y)
         autoTable(doc, {
@@ -644,6 +655,10 @@ export default function Informes() {
           ...EST, startY: y,
           head: [['PRODUCTO', 'KG MERMA', '% MERMA']],
           body: actual.porProducto.map(p => [p.nombre, `${fmtNum(p.dif)} kg`, `${fmtNum(p.pct)}%`]),
+          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right', fontStyle: 'bold' } },
+          didParseCell: d => {
+            if (d.section === 'body' && d.column.index === 2) d.cell.styles.textColor = semMerma(actual.porProducto[d.row.index]?.pct ?? 0)
+          },
           didDrawPage: didDP,
         })
         y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
@@ -653,6 +668,10 @@ export default function Informes() {
           ...EST, startY: y,
           head: [['OPERARIO', 'KG MERMA', '% MERMA']],
           body: actual.porOperario.map(o => [o.nombre, `${fmtNum(o.dif)} kg`, `${fmtNum(o.pct)}%`]),
+          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right', fontStyle: 'bold' } },
+          didParseCell: d => {
+            if (d.section === 'body' && d.column.index === 2) d.cell.styles.textColor = semMerma(actual.porOperario[d.row.index]?.pct ?? 0)
+          },
           didDrawPage: didDP,
         })
         y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
@@ -668,12 +687,12 @@ export default function Informes() {
 
       // ── TAB: FINANCIERO ────────────────────────────────────────────────────
       if (tab === 'Financiero') {
-        const kpiW = (pw - 28 - 6) / 4
-        dibujarKpi(doc, 14,                  y, kpiW, 18, 'Stock depósito',  `$${pesos(valorDeposito)}`)
-        dibujarKpi(doc, 14 + kpiW + 2,       y, kpiW, 18, 'Stock cámaras',   `$${pesos(valorCamaras)}`)
-        dibujarKpi(doc, 14 + (kpiW + 2) * 2, y, kpiW, 18, 'Total stock',     `$${pesos(valorDeposito + valorCamaras)}`)
-        dibujarKpi(doc, 14 + (kpiW + 2) * 3, y, kpiW, 18, 'Margen promedio', `${fmtNum(margenPromedio)}%`)
-        y += 26
+        y = kpiRow([
+          ['Stock depósito',  `$${pesos(valorDeposito)}`,                  PDF_NEGRO],
+          ['Stock cámaras',   `$${pesos(valorCamaras)}`,                   PDF_NEGRO],
+          ['Total stock',     `$${pesos(valorDeposito + valorCamaras)}`,   PDF_NEGRO],
+          ['Margen promedio', `${fmtNum(margenPromedio)}%`,                semMargen(margenPromedio)],
+        ], y)
 
         y = dibujarSeccion(doc, pw, 'Indicadores generales', y)
         autoTable(doc, {
@@ -697,6 +716,9 @@ export default function Informes() {
           head: [['PRODUCTO', 'TIPO', 'COSTO', 'PRECIO VENTA', 'GANANCIA', 'MARGEN %']],
           body: masRentables.map(p => [p.nombre, p.tipo, `$${pesos(p.costo_total)}`, `$${pesos(p.precio_venta)}`, `$${pesos(p.ganancia)}`, `${fmtNum(p.margen)}%`]),
           columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' } },
+          didParseCell: d => {
+            if (d.section === 'body' && d.column.index === 5) d.cell.styles.textColor = semMargen(masRentables[d.row.index]?.margen ?? 0)
+          },
           didDrawPage: didDP,
         })
       }

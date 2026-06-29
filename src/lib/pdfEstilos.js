@@ -73,7 +73,7 @@ export function getEstiloInforme() {
 // Logo horizontal izquierda · Módulo + Título derecha · Regla negra gruesa
 export function dibujarEncabezado(doc, pw, modulo, titulo, hoy) {
   // Logo horizontal a la izquierda
-  try { doc.addImage(_logoH, 'PNG', 14, 10, 13 * PDF_LOGO_H_RATIO, 13) } catch {}
+  try { doc.addImage(_logoH, 'PNG', 14, 9.5, 15.5 * PDF_LOGO_H_RATIO, 15.5) } catch {}
   // Etiqueta de módulo (gris, con tracking)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7)
@@ -117,7 +117,7 @@ export function dibujarPie(doc, pw, ph, pagina) {
 // Logo horizontal · Módulo · Regla gruesa · Título grande · Período
 export function dibujarPortada(doc, pw, ph, modulo, titulo, periodo, hoy) {
   // Logo horizontal arriba a la izquierda
-  try { doc.addImage(_logoH, 'PNG', 14, 26, 20 * PDF_LOGO_H_RATIO, 20) } catch {}
+  try { doc.addImage(_logoH, 'PNG', 14, 24, 24 * PDF_LOGO_H_RATIO, 24) } catch {}
   // Etiqueta de módulo arriba a la derecha
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
@@ -168,6 +168,17 @@ export function dibujarKpi(doc, x, y, w, h, label, valor) {
   doc.setFontSize(12)
   doc.setTextColor(...PDF_NEGRO)
   doc.text(String(valor), x + 4, y + 13)
+}
+
+// ── KPI card con borde y acento superior de color ─────────────────────────────
+// Estilo unificado de los informes (Finanzas/Mermas/Rendimiento).
+export function dibujarKpiCard(doc, x, y, w, h, label, valor, accent = PDF_NEGRO) {
+  doc.setDrawColor(...PDF_NEGRO); doc.setLineWidth(0.3); doc.rect(x, y, w, h)
+  doc.setFillColor(...accent); doc.rect(x, y, w, 1.4, 'F')
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(6); doc.setTextColor(90, 90, 90)
+  doc.text(String(label).toUpperCase(), x + 3, y + 7)
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...PDF_NEGRO)
+  doc.text(doc.splitTextToSize(String(valor), w - 5)[0], x + 3, y + 15)
 }
 
 // ── Título de sección (H2 dentro de una página) ───────────────────────────────

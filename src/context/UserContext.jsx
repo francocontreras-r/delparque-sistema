@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 export const ROLE_PERMISOS = {
@@ -30,6 +30,9 @@ export function UserProvider({ children }) {
   const [session, setSession] = useState(undefined)
   const [profile, setProfile] = useState(null)
   const [profileLoading, setProfileLoading] = useState(true)
+  // Usuario cuyo perfil ya cargamos; evita recargas (y parpadeo de "loading")
+  // cuando Supabase refresca el token al volver a la pestaña.
+  const loadedUserId = useRef(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session))
@@ -58,7 +61,11 @@ export function UserProvider({ children }) {
 
   useEffect(() => {
     if (session === undefined) return
-    if (!session) { setProfile(null); setProfileLoading(false); return }
+    if (!session) { setProfile(null); setProfileLoading(false); loadedUserId.current = null; return }
+    // Si ya cargamos el perfil de este usuario, no recargar (token refresh al
+    // volver a la pestaña): evita el parpadeo de "loading" que desmontaba la página.
+    if (loadedUserId.current === session.user.id) return
+    loadedUserId.current = session.user.id
     setProfileLoading(true)
     supabase.from('user_profiles').select('*').eq('id', session.user.id).maybeSingle()
       .then(({ data }) => { setProfile(data); setProfileLoading(false) })

@@ -407,6 +407,8 @@ export default function Finanzas() {
     const hexRgb = h => { const n = parseInt(h.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255] }
     const semColor = m => hexRgb(nivelMargen(m).barColor)
     const nivelStr = m => nivelMargen(m).label
+    const tint = (c, fr) => [Math.round(c[0] + (255 - c[0]) * fr), Math.round(c[1] + (255 - c[1]) * fr), Math.round(c[2] + (255 - c[2]) * fr)]
+    const esClaro = c => (c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114) > 150
 
     // Métricas
     const promM      = conPrecio.length ? conPrecio.reduce((a, p) => a + p.margen, 0) / conPrecio.length : 0
@@ -553,8 +555,16 @@ export default function Finanzas() {
       },
       didParseCell: d => {
         if (d.section !== 'body') return
-        if (d.column.index === 5 || d.column.index === 6) {
-          d.cell.styles.textColor = semColor(ordenado[d.row.index]?.margen ?? 0)
+        const m = ordenado[d.row.index]?.margen ?? 0
+        const col = semColor(m)
+        if (d.column.index === 5) {          // Margen %: texto en color + fondo tenue de la banda
+          d.cell.styles.textColor = col
+          d.cell.styles.fontStyle = 'bold'
+          d.cell.styles.fillColor = tint(col, 0.82)
+        }
+        if (d.column.index === 6) {          // Estado: badge con el color sólido de la banda
+          d.cell.styles.fillColor = col
+          d.cell.styles.textColor = esClaro(col) ? PDF_NEGRO : PDF_BLANCO
           d.cell.styles.fontStyle = 'bold'
         }
       },

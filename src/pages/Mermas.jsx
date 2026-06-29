@@ -4,7 +4,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import {
   dibujarPortada, dibujarEncabezado, dibujarPie, dibujarSeccion,
-  getEstiloInforme, PDF_CONTENT_Y, PDF_NEGRO,
+  getEstiloInforme, PDF_CONTENT_Y, PDF_NEGRO, PDF_BLANCO,
   PDF_SEM_NEG, PDF_SEM_CRIT, PDF_SEM_OK,
 } from '../lib/pdfEstilos'
 import { useUser } from '../context/UserContext'
@@ -59,6 +59,13 @@ function pctVariant(pct) {
   return 'danger'
 }
 
+// Veredicto de tolerancia: <3% aceptable · 3-8% moderada · >8% excesiva
+function evalMermaLabel(pct) {
+  if (pct < 3)  return 'Aceptable'
+  if (pct < 8)  return 'Moderada'
+  return 'Excesiva'
+}
+
 function pesos(n) { return Math.round(n || 0).toLocaleString('es-AR') }
 
 // Las mermas automáticas guardan el número de orden en "observaciones" como "Orden <numero>".
@@ -79,7 +86,7 @@ function AgrupacionList({ filas }) {
             <p className="text-xs" style={{ color: colors.textMuted }}>{f.cnt} registro{f.cnt !== 1 ? 's' : ''} · {f.teo.toFixed(1)} kg teóricos</p>
           </div>
           <span className="text-sm font-bold flex-shrink-0" style={{ color: colors.danger }}>{f.dif.toFixed(2)} kg</span>
-          <Badge variant={pctVariant(f.pct)}>{f.pct.toFixed(1)}%</Badge>
+          <Badge variant={pctVariant(f.pct)}>{evalMermaLabel(f.pct)} · {f.pct.toFixed(1)}%</Badge>
         </div>
       ))}
     </div>
@@ -227,8 +234,11 @@ export default function Mermas() {
       const safe = s => [...String(s ?? '').replace(/[→➜➡]/g, '->').replace(/[←]/g, '<-')]
         .filter(ch => ch.charCodeAt(0) <= 255).join('').trim() || '—'
 
-      // Color semántico por % de merma (solo en datos)
+      // Color semántico y veredicto por % de merma (tolerancia: <3% ok · 3-8% media · >8% alta)
       const semPct = p => p < 3 ? PDF_SEM_OK : p < 8 ? PDF_SEM_CRIT : PDF_SEM_NEG
+      const evalInfo = p => p < 3 ? { label: 'ACEPTABLE', col: PDF_SEM_OK } : p < 8 ? { label: 'MODERADA', col: PDF_SEM_CRIT } : { label: 'EXCESIVA', col: PDF_SEM_NEG }
+      const tint = (c, fr) => [Math.round(c[0] + (255 - c[0]) * fr), Math.round(c[1] + (255 - c[1]) * fr), Math.round(c[2] + (255 - c[2]) * fr)]
+      const esClaro = c => (c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114) > 150
 
       // Período a partir del rango de fechas registradas
       const fechasOrden = mermas.map(m => m.fecha).filter(Boolean).sort()
@@ -266,26 +276,39 @@ export default function Mermas() {
         doc.text(c.v, x + 3, cardY + 17)
       })
 
+      // Banner de veredicto global (¿la merma es aceptable?)
+      const evG = evalInfo(pctGlobal)
+      const banY = cardY + cardH + 6
+      doc.setFillColor(...tint(evG.col, 0.86)); doc.setDrawColor(...evG.col); doc.setLineWidth(0.3)
+      doc.rect(14, banY, pw - 28, 9, 'FD')
+      doc.setFillColor(...evG.col); doc.rect(14, banY, 2, 9, 'F')
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...evG.col)
+      doc.text(`EVALUACIÓN GLOBAL: ${evG.label}`, 18, banY + 5.6)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.8); doc.setTextColor(70, 70, 70)
+      doc.text(`Merma global ${pctGlobal.toFixed(1)}%   ·   Tolerancia:  <3% aceptable   ·   3-8% moderada   ·   >8% excesiva`, 72, banY + 5.6)
+
       // Tabla: Mermas por sabor
-      let y = dibujarSeccion(doc, pw, 'Mermas por sabor', cardY + cardH + 8)
+      let y = dibujarSeccion(doc, pw, 'Mermas por sabor', banY + 9 + 6)
       autoTable(doc, {
         ...EST,
         startY: y,
-        head: [['Producto', 'Reg.', 'Kg teórico', 'Kg real', 'Merma', '%']],
+        head: [['Producto', 'Reg.', 'Kg teórico', 'Kg real', 'Merma', '%', 'Evaluación']],
         body: porSabor.map(s => [
           safe(s.nombre), String(s.cnt),
           s.teo.toFixed(1), (s.teo - s.dif).toFixed(1),
-          `${s.dif.toFixed(1)} kg`, `${s.pct.toFixed(1)}%`,
+          `${s.dif.toFixed(1)} kg`, `${s.pct.toFixed(1)}%`, evalInfo(s.pct).label,
         ]),
         columnStyles: {
-          0: { cellWidth: 56 },
+          0: { cellWidth: 48 },
           1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' },
-          4: { halign: 'right' }, 5: { halign: 'right' },
+          4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'center', cellWidth: 24 },
         },
         didParseCell: d => {
           if (d.section !== 'body') return
+          const pct = porSabor[d.row.index]?.pct ?? 0
           if (d.column.index === 4) { d.cell.styles.textColor = PDF_SEM_NEG; d.cell.styles.fontStyle = 'bold' }
-          if (d.column.index === 5) { d.cell.styles.textColor = semPct(porSabor[d.row.index]?.pct ?? 0); d.cell.styles.fontStyle = 'bold' }
+          if (d.column.index === 5) { d.cell.styles.textColor = semPct(pct); d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = tint(semPct(pct), 0.82) }
+          if (d.column.index === 6) { const e = evalInfo(pct); d.cell.styles.fillColor = e.col; d.cell.styles.textColor = esClaro(e.col) ? PDF_NEGRO : PDF_BLANCO; d.cell.styles.fontStyle = 'bold' }
         },
         didDrawPage: () => {
           dibujarEncabezado(doc, pw, MOD, 'Resumen de Mermas', fecha)
@@ -298,19 +321,22 @@ export default function Mermas() {
       autoTable(doc, {
         ...EST,
         startY: y,
-        head: [['Operario', 'Reg.', 'Kg teórico', 'Merma', '%']],
+        head: [['Operario', 'Reg.', 'Kg teórico', 'Merma', '%', 'Evaluación']],
         body: porOperario.map(o => [
           safe(o.nombre), String(o.cnt),
-          o.teo.toFixed(1), `${o.dif.toFixed(1)} kg`, `${o.pct.toFixed(1)}%`,
+          o.teo.toFixed(1), `${o.dif.toFixed(1)} kg`, `${o.pct.toFixed(1)}%`, evalInfo(o.pct).label,
         ]),
         columnStyles: {
-          0: { cellWidth: 64 },
+          0: { cellWidth: 56 },
           1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
+          5: { halign: 'center', cellWidth: 24 },
         },
         didParseCell: d => {
           if (d.section !== 'body') return
+          const pct = porOperario[d.row.index]?.pct ?? 0
           if (d.column.index === 3) { d.cell.styles.textColor = PDF_SEM_NEG; d.cell.styles.fontStyle = 'bold' }
-          if (d.column.index === 4) { d.cell.styles.textColor = semPct(porOperario[d.row.index]?.pct ?? 0); d.cell.styles.fontStyle = 'bold' }
+          if (d.column.index === 4) { d.cell.styles.textColor = semPct(pct); d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = tint(semPct(pct), 0.82) }
+          if (d.column.index === 5) { const e = evalInfo(pct); d.cell.styles.fillColor = e.col; d.cell.styles.textColor = esClaro(e.col) ? PDF_NEGRO : PDF_BLANCO; d.cell.styles.fontStyle = 'bold' }
         },
         didDrawPage: () => {
           dibujarEncabezado(doc, pw, MOD, 'Resumen de Mermas', fecha)

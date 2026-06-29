@@ -8,6 +8,20 @@ export default function Modal({ open, onClose, title, children, maxWidth = 'max-
     return () => { document.body.style.overflow = '' }
   }, [open])
 
+  // ESC cierra la ventana. Captura + stopPropagation para que NO dispare el
+  // "cerrar sistema" global cuando hay un modal abierto.
+  useEffect(() => {
+    if (!open) return
+    const onKey = e => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose?.()
+      }
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [open, onClose])
+
   if (!open) return null
 
   return (

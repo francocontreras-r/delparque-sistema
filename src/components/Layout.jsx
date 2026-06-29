@@ -6,6 +6,8 @@ import { clasificarVencimiento, esAlertaVencimiento } from '../lib/vencimientos'
 import { LOGO_ISOTIPO } from '../assets/logos'
 
 import { colors } from '../styles/design-system'
+import Modal from './ui/Modal'
+import Button from './ui/Button'
 import {
   LayoutDashboard, Factory, Thermometer, Warehouse, TrendingUp, TrendingDown,
   ClipboardList, BookOpen, LogOut, Menu, X, DollarSign, Users, Download, FileText,
@@ -272,7 +274,8 @@ function UpdateBanner() {
   if (!waitingWorker) return null
 
   function actualizar() {
-    waitingWorker.postMessage('skipWaiting')
+    waitingWorker?.postMessage('skipWaiting')
+    window.location.reload()  // recarga controlada por el usuario, cuando él quiere
   }
 
   return (
@@ -299,8 +302,17 @@ export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [depositoBadge, setDepositoBadge] = useState(0)
   const [camarasBadge, setCamarasBadge] = useState(0)
+  const [confirmCerrar, setConfirmCerrar] = useState(false)
   const { user, profile, rol, tienePermiso } = useUser()
   const location = useLocation()
+
+  // ESC global: si no hay ningún modal abierto (los modales frenan el ESC en
+  // captura), ofrece cerrar el sistema con una confirmación.
+  useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') setConfirmCerrar(true) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   useEffect(() => {
     async function checkVencimientos() {
@@ -419,6 +431,28 @@ export default function Layout() {
 
       <InstallBanner />
       <UpdateBanner />
+
+      {/* Cerrar sistema (ESC) */}
+      <Modal
+        open={confirmCerrar}
+        onClose={() => setConfirmCerrar(false)}
+        title="Cerrar sistema"
+        maxWidth="max-w-sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirmCerrar(false)} className="flex-1">
+              Cancelar
+            </Button>
+            <Button variant="danger" onClick={() => { setConfirmCerrar(false); handleLogout() }} className="flex-1">
+              <LogOut size={15} /> Cerrar sistema
+            </Button>
+          </>
+        }
+      >
+        <p style={{ color: colors.textSecondary }}>
+          ¿Está seguro que desea cerrar el sistema? Se cerrará tu sesión y volverás a la pantalla de inicio.
+        </p>
+      </Modal>
     </div>
   )
 }

@@ -23,9 +23,9 @@ if ('serviceWorker' in navigator) {
         })
       })
 
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        window.location.reload()
-      })
+      // No recargamos automáticamente al cambiar de service worker: eso
+      // interrumpía al usuario y borraba lo que estaba haciendo. La versión
+      // nueva se aplica sola en la próxima recarga (network-first sirve lo último).
 
       setInterval(() => reg.update(), 60000)
 

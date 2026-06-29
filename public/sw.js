@@ -4,7 +4,7 @@
 // El navegador solo reinstala el SW si el BYTE de este archivo cambia; por eso
 // la versión va en una constante (no en Date.now(), que es igual en cada build).
 // ─────────────────────────────────────────────────────────────────────────────
-const SW_VERSION = 'v5-2026-06-29';
+const SW_VERSION = 'v6-2026-06-29';
 const CACHE_NAME = 'delparque-' + SW_VERSION;
 const STATIC_EXTENSIONS = ['.js', '.css', '.woff2', '.woff', '.ttf'];
 
@@ -18,9 +18,8 @@ self.addEventListener('activate', e => {
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
-     .then(() => self.clients.matchAll({ type: 'window' }).then(clients => {
-       clients.forEach(client => client.navigate(client.url));
-     }))
+    // No forzamos navigate/reload: la versión nueva se sirve en la próxima
+    // recarga natural (network-first), sin interrumpir lo que el usuario hace.
   );
 });
 

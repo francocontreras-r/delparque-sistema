@@ -63,9 +63,9 @@ function fmtPeso(n, unidad) {
 }
 
 function unidadDe(r) {
-  if (r.origen !== 'manual') return 'kg'
+  // Solo los impulsivos se miden en unidades; helados y postres en kg.
   const c = (r.categoria || '').toLowerCase()
-  return (c.includes('impulsiv') || c.includes('postre')) ? 'u' : 'kg'
+  return c.includes('impulsiv') ? 'u' : 'kg'
 }
 
 let preCargaSeq = 0
@@ -545,12 +545,21 @@ export default function Produccion() {
     const m = {}
     informeData.forEach(r => {
       const key = r.operario_nombre || '—'
-      if (!m[key]) m[key] = { operario: key, registros: 0, cantidad: 0 }
+      if (!m[key]) m[key] = { operario: key, registros: 0, kg: 0, unidades: 0 }
       m[key].registros += 1
-      m[key].cantidad += r.peso_kg || 0
+      if (unidadDe(r) === 'u') m[key].unidades += Math.round(r.peso_kg || 0)
+      else m[key].kg += r.peso_kg || 0
     })
-    return Object.values(m).sort((a, b) => b.cantidad - a.cantidad)
+    return Object.values(m).sort((a, b) => (b.kg + b.unidades) - (a.kg + a.unidades))
   }, [informeData])
+
+  // Totales del informe separando kg (helados/postres) de unidades (impulsivos)
+  const informeTotalKg = useMemo(
+    () => informeData.filter(r => unidadDe(r) === 'kg').reduce((a, r) => a + (r.peso_kg || 0), 0),
+    [informeData])
+  const informeTotalUnidades = useMemo(
+    () => informeData.filter(r => unidadDe(r) === 'u').reduce((a, r) => a + Math.round(r.peso_kg || 0), 0),
+    [informeData])
 
   const manualTipo = manualProducto.split(':')[0]
   const manualId   = manualProducto.split(':')[1] || ''
@@ -580,7 +589,8 @@ export default function Produccion() {
 
   function imprimirInforme() {
     const w = window.open('', '_blank')
-    const totalKg  = informeData.reduce((a, r) => a + (r.peso_kg || 0), 0)
+    const totalKg  = informeTotalKg
+    const totalUnidades = informeTotalUnidades
     const totalOps = new Set(informeData.map(r => r.operario_nombre).filter(Boolean)).size
     const filas = informeData.map((r, i) => `
       <tr class="${i % 2 === 1 ? 'alt' : ''}">
@@ -596,7 +606,8 @@ export default function Produccion() {
       <tr class="${i % 2 === 1 ? 'alt' : ''}">
         <td class="b">${s.operario}</td>
         <td class="r">${s.registros}</td>
-        <td class="r">${fmtNum(s.cantidad)}</td>
+        <td class="r">${s.kg > 0 ? fmtNum(s.kg) + ' kg' : '—'}</td>
+        <td class="r">${s.unidades > 0 ? s.unidades + ' u' : '—'}</td>
       </tr>`).join('')
     w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
     <title>Informe de producción ${fechaHoy}</title>
@@ -640,7 +651,8 @@ export default function Produccion() {
     <div class="rule-thick"></div>
     <div class="kpis">
       <div class="kpi"><div class="kpi-lbl">Total registros</div><div class="kpi-val">${informeData.length}</div></div>
-      <div class="kpi ok"><div class="kpi-lbl">Total producido</div><div class="kpi-val ok">${totalKg.toFixed(2)} kg</div></div>
+      <div class="kpi ok"><div class="kpi-lbl">KG producidos (helados/postres)</div><div class="kpi-val ok">${totalKg.toFixed(2)} kg</div></div>
+      <div class="kpi"><div class="kpi-lbl">Unidades (impulsivos)</div><div class="kpi-val">${totalUnidades} u</div></div>
       <div class="kpi"><div class="kpi-lbl">Operarios activos</div><div class="kpi-val">${totalOps}</div></div>
     </div>
     <div class="sec">Detalle de registros</div><div class="sec-rule"></div>
@@ -650,7 +662,7 @@ export default function Produccion() {
     </table>
     <div class="sec">Subtotales por operario</div><div class="sec-rule"></div>
     <table>
-      <thead><tr><td>Operario</td><td class="r">Registros</td><td class="r">Cantidad total</td></tr></thead>
+      <thead><tr><td>Operario</td><td class="r">Registros</td><td class="r">KG (helados/postres)</td><td class="r">Unidades (impulsivos)</td></tr></thead>
       <tbody>${subfilas}</tbody>
     </table>
     <div class="firmas">
@@ -1037,14 +1049,15 @@ export default function Produccion() {
               <div className="overflow-hidden" style={{ border: `1px solid ${colors.border}`, borderRadius: radius.md }}>
                 <Table>
                   <Thead>
-                    <Tr><Th>Operario</Th><Th>Registros</Th><Th>Cantidad total</Th></Tr>
+                    <Tr><Th>Operario</Th><Th>Registros</Th><Th>KG (helados/postres)</Th><Th>Unidades (impulsivos)</Th></Tr>
                   </Thead>
                   <Tbody>
                     {subtotales.map(s => (
                       <Tr key={s.operario}>
                         <Td className="font-medium">{s.operario}</Td>
                         <Td>{s.registros}</Td>
-                        <Td className="text-right font-semibold" style={{ color: colors.brand }}>{fmtNum(s.cantidad)}</Td>
+                        <Td className="text-right font-semibold" style={{ color: colors.brand }}>{s.kg > 0 ? `${fmtNum(s.kg)} kg` : '—'}</Td>
+                        <Td className="text-right font-semibold" style={{ color: colors.warning }}>{s.unidades > 0 ? `${s.unidades} u` : '—'}</Td>
                       </Tr>
                     ))}
                   </Tbody>

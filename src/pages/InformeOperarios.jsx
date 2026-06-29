@@ -7,7 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import {
   getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
   dibujarKpi, dibujarSeccion, dibujarPaginaFirmas,
-  PDF_CONTENT_Y, PDF_NEGRO,
+  PDF_CONTENT_Y, PDF_NEGRO, PDF_BLANCO,
 } from '../lib/pdfEstilos'
 
 const ACCENT = '#D4521A'
@@ -174,26 +174,98 @@ export default function InformeOperarios() {
         } catch (chartErr) { console.warn('html2canvas:', chartErr) }
       }
 
-      // P3 — Datos principales
+      // Helpers para gráficos nativos (Power BI-style, sin html2canvas)
+      const hexRgb = h => { const n = parseInt(h.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255] }
+      const nivelRgb = pct => hexRgb(nivel(pct).color)
+      const esClaro = c => (c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114) > 150
+
+      // P3 — Tablero del equipo
       if (tipo === 'equipo') {
         doc.addPage()
-        // KPIs del equipo
-        const totalOps   = datos.ranking.length
-        const conDatos   = datos.ranking.filter(r => r.rendimiento !== null).length
-        const promRend   = conDatos > 0
-          ? Math.round(datos.ranking.filter(r => r.rendimiento !== null).reduce((a, r) => a + r.rendimiento, 0) / conDatos)
-          : null
-        const kpiW = (pw - 28 - 4) / 3
-        dibujarKpi(doc, 14,              PDF_CONTENT_Y, kpiW, 18, 'Operarios', totalOps)
-        dibujarKpi(doc, 14 + kpiW + 2,  PDF_CONTENT_Y, kpiW, 18, 'Con datos', conDatos)
-        dibujarKpi(doc, 14 + (kpiW+2)*2,PDF_CONTENT_Y, kpiW, 18, 'Rendim. promedio', promRend !== null ? `${promRend}%` : '—')
+        const ranking  = datos.ranking
+        const conDatos = ranking.filter(r => r.rendimiento !== null)
+        const promRend = conDatos.length > 0
+          ? Math.round(conDatos.reduce((a, r) => a + r.rendimiento, 0) / conDatos.length) : null
+        const completadasTot = ranking.reduce((a, r) => a + r.completadas, 0)
+        const mejor = conDatos[0] || null
 
-        let y = PDF_CONTENT_Y + 26
-        y = dibujarSeccion(doc, pw, 'Ranking del equipo', y)
+        // KPI cards con acento (consistente con Finanzas/Mermas)
+        const cards = [
+          { l: 'Operarios',        v: String(ranking.length),                       c: PDF_NEGRO },
+          { l: 'Con datos',        v: String(conDatos.length),                      c: PDF_NEGRO },
+          { l: 'Rendim. promedio', v: promRend !== null ? `${promRend}%` : '—',     c: promRend !== null ? nivelRgb(promRend) : PDF_NEGRO },
+          { l: 'Órdenes complet.', v: String(completadasTot),                       c: PDF_NEGRO },
+          { l: 'Mejor operario',   v: mejor ? mejor.nombre.split(' ')[0] : '—',     c: hexRgb('#16a34a') },
+        ]
+        const gap = 4, cardW = (pw - 28 - gap * 4) / 5, cardH = 22, cardY = PDF_CONTENT_Y - 2
+        cards.forEach((c, i) => {
+          const x = 14 + i * (cardW + gap)
+          doc.setDrawColor(...PDF_NEGRO); doc.setLineWidth(0.3); doc.rect(x, cardY, cardW, cardH)
+          doc.setFillColor(...c.c); doc.rect(x, cardY, cardW, 1.4, 'F')
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5); doc.setTextColor(90, 90, 90)
+          doc.text(c.l.toUpperCase(), x + 2.5, cardY + 7)
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...PDF_NEGRO)
+          doc.text(doc.splitTextToSize(String(c.v), cardW - 5)[0], x + 2.5, cardY + 15)
+        })
+        let y = cardY + cardH + 9
+
+        // Distribución del equipo por nivel (barra apilada)
+        y = dibujarSeccion(doc, pw, 'Distribución del equipo por nivel', y)
+        const nivBands = [
+          ['Excelente', r => r.rendimiento !== null && r.rendimiento >= 90, hexRgb('#10b981')],
+          ['Bueno',     r => r.rendimiento !== null && r.rendimiento >= 75 && r.rendimiento < 90, hexRgb('#3b82f6')],
+          ['Regular',   r => r.rendimiento !== null && r.rendimiento >= 60 && r.rendimiento < 75, hexRgb('#f59e0b')],
+          ['Bajo',      r => r.rendimiento !== null && r.rendimiento < 60, hexRgb('#ef4444')],
+          ['Sin datos', r => r.rendimiento === null, [120, 120, 120]],
+        ]
+        const nb = nivBands.map(([label, fn, col]) => ({ label, n: ranking.filter(fn).length, col }))
+        const totB = nb.reduce((a, b) => a + b.n, 0) || 1
+        const bW = pw - 28, bH = 7; let bx = 14
+        nb.forEach(b => {
+          const w = (b.n / totB) * bW; if (w <= 0) return
+          doc.setFillColor(...b.col); doc.rect(bx, y, w, bH, 'F')
+          if (w > 6) {
+            doc.setTextColor(...(esClaro(b.col) ? PDF_NEGRO : PDF_BLANCO))
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5)
+            doc.text(String(b.n), bx + w / 2, y + bH / 2 + 1.4, { align: 'center' })
+          }
+          bx += w
+        })
+        y += bH + 5
+        let lx = 14; doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
+        nb.forEach(b => {
+          const txt = `${b.label} (${b.n})`
+          doc.setFillColor(...b.col); doc.rect(lx, y - 2.6, 3, 3, 'F')
+          doc.setTextColor(70, 70, 70); doc.text(txt, lx + 4.5, y)
+          lx += 4.5 + doc.getTextWidth(txt) + 6
+        })
+        y += 10
+
+        // Ranking por rendimiento (barras horizontales, color por nivel)
+        if (conDatos.length > 0) {
+          y = dibujarSeccion(doc, pw, 'Ranking por rendimiento', y)
+          const top = conDatos.slice(0, 10)
+          const labelW = 38, axisX = 14 + labelW, axisRight = pw - 18, axisW = axisRight - axisX, rowH = 5.8
+          top.forEach((r, i) => {
+            const ry = y + i * rowH
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(50, 50, 50)
+            const nm = r.nombre.length > 22 ? r.nombre.slice(0, 20) + '…' : r.nombre
+            doc.text(nm, axisX - 3, ry + 2.4, { align: 'right' })
+            const w = (Math.min(r.rendimiento, 100) / 100) * axisW
+            doc.setFillColor(...nivelRgb(r.rendimiento)); doc.rect(axisX, ry, Math.max(w, 0.4), 3, 'F')
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.setTextColor(...nivelRgb(r.rendimiento))
+            doc.text(`${r.rendimiento}%`, axisX + w + 1.5, ry + 2.3)
+          })
+          y += top.length * rowH + 6
+        }
+
+        // Detalle del ranking (tabla)
+        if (y > ph - 50) { doc.addPage(); y = PDF_CONTENT_Y }
+        y = dibujarSeccion(doc, pw, 'Detalle del ranking', y)
         autoTable(doc, {
           ...EST, startY: y,
           head: [['POS', 'OPERARIO', 'ÓRDENES', 'COMPLET.', '% PROD.', '% TIEMPO', 'RENDIM.', 'NIVEL']],
-          body: datos.ranking.map((r, i) => [
+          body: ranking.map((r, i) => [
             `${i + 1}°`,
             r.nombre,
             String(r.misOrdenes),
@@ -203,13 +275,19 @@ export default function InformeOperarios() {
             r.rendimiento   !== null ? r.rendimiento   + '%' : '—',
             nivel(r.rendimiento).label,
           ]),
+          columnStyles: {
+            0: { halign: 'center', cellWidth: 12 },
+            2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
+            5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'center' },
+          },
           didParseCell(data) {
-            if (data.section !== 'body' || data.column.index !== 7) return
-            const r = datos.ranking[data.row.index]
+            if (data.section !== 'body') return
+            const r = ranking[data.row.index]
             if (!r) return
-            const n = nivel(r.rendimiento)
-            if (n.label === 'EXCELENTE') data.cell.styles.textColor = [30, 120, 60]
-            else if (n.label === 'BAJO') data.cell.styles.textColor = [180, 40, 40]
+            if (data.column.index === 6 || data.column.index === 7) {
+              data.cell.styles.textColor = nivelRgb(r.rendimiento)
+              data.cell.styles.fontStyle = 'bold'
+            }
           },
           didDrawPage: didDP('RANKING DEL EQUIPO'),
         })

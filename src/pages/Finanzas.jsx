@@ -5,7 +5,7 @@ import autoTable from 'jspdf-autotable'
 import {
   dibujarPortada, dibujarEncabezado, dibujarPie, dibujarSeccion, dibujarPaginaFirmas,
   getEstiloInforme, PDF_CONTENT_Y, PDF_NEGRO, PDF_BLANCO,
-  PDF_SEM_NEG, PDF_SEM_CRIT, PDF_SEM_LOW, PDF_SEM_OK, PDF_SEM_EXC,
+  PDF_SEM_NEG, PDF_SEM_OK, PDF_SEM_EXC,
 } from '../lib/pdfEstilos'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
@@ -402,9 +402,11 @@ export default function Finanzas() {
     const conPrecio = margenes.filter(p => p.precio_venta > 0)
     const ordenado = [...conPrecio].sort((a, b) => b.margen - a.margen)
 
-    // Color y etiqueta semántica por margen (solo para datos)
-    const semColor = m => m < 0 ? PDF_SEM_NEG : m < 15 ? PDF_SEM_CRIT : m < 30 ? PDF_SEM_LOW : m <= 50 ? PDF_SEM_OK : PDF_SEM_EXC
-    const nivelStr = m => m < 0 ? 'NEGATIVO' : m < 15 ? 'CRÍTICO' : m < 30 ? 'BAJO' : m <= 50 ? 'SALUDABLE' : 'EXCELENTE'
+    // Color y etiqueta semántica por margen — usa la MISMA escala que la pantalla
+    // (nivelMargen) para que Estado coincida exactamente entre app y PDF.
+    const hexRgb = h => { const n = parseInt(h.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255] }
+    const semColor = m => hexRgb(nivelMargen(m).barColor)
+    const nivelStr = m => nivelMargen(m).label
 
     // Métricas
     const promM      = conPrecio.length ? conPrecio.reduce((a, p) => a + p.margen, 0) / conPrecio.length : 0
@@ -463,11 +465,12 @@ export default function Finanzas() {
     // Distribución de márgenes (barra apilada con color semántico)
     y = dibujarSeccion(doc, pw, 'Distribución de márgenes', y)
     const bandsDef = [
-      ['Negativo',  p => p.margen < 0,                     PDF_SEM_NEG],
-      ['Crítico',   p => p.margen >= 0 && p.margen < 15,   PDF_SEM_CRIT],
-      ['Bajo',      p => p.margen >= 15 && p.margen < 30,  PDF_SEM_LOW],
-      ['Saludable', p => p.margen >= 30 && p.margen <= 50, PDF_SEM_OK],
-      ['Excelente', p => p.margen > 50,                    PDF_SEM_EXC],
+      ['Negativo',  p => p.margen < 0,                     semColor(-1)],
+      ['Crítico',   p => p.margen >= 0 && p.margen < 15,   semColor(10)],
+      ['Bajo',      p => p.margen >= 15 && p.margen < 30,  semColor(20)],
+      ['Aceptable', p => p.margen >= 30 && p.margen < 45,  semColor(40)],
+      ['Bueno',     p => p.margen >= 45 && p.margen < 55,  semColor(50)],
+      ['Excelente', p => p.margen >= 55,                   semColor(60)],
     ]
     const bands = bandsDef.map(([label, fn, col]) => ({ label, n: conPrecio.filter(fn).length, col }))
     const totalB = bands.reduce((a, b) => a + b.n, 0) || 1
@@ -478,7 +481,7 @@ export default function Finanzas() {
       if (w <= 0) return
       doc.setFillColor(...b.col); doc.rect(bx, y, w, barH, 'F')
       if (w > 6) {
-        const light = b.col === PDF_SEM_LOW || b.col === PDF_SEM_OK
+        const light = (b.col[0] * 0.299 + b.col[1] * 0.587 + b.col[2] * 0.114) > 150
         doc.setTextColor(...(light ? PDF_NEGRO : PDF_BLANCO))
         doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5)
         doc.text(String(b.n), bx + w / 2, y + barH / 2 + 1.4, { align: 'center' })
@@ -559,6 +562,28 @@ export default function Finanzas() {
         dibujarEncabezado(doc, pw, MOD, 'Detalle por Producto', fecha)
         dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
       },
+    })
+
+    // Leyenda: qué significa la columna "Estado" (según el margen %)
+    let yLeg = doc.lastAutoTable.finalY + 7
+    if (yLeg > ph - 32) { doc.addPage(); dibujarEncabezado(doc, pw, MOD, 'Detalle por Producto', fecha); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber); yLeg = PDF_CONTENT_Y }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...PDF_NEGRO)
+    doc.text('CÓMO LEER EL ESTADO  (rentabilidad según el margen sobre el precio de venta)', 14, yLeg)
+    yLeg += 4.5
+    const leyenda = [
+      ['NEGATIVO',  'margen menor a 0%  ·  el producto se vende a pérdida', semColor(-1)],
+      ['CRÍTICO',   'margen 0% a 15%  ·  apenas cubre costos, revisar precio', semColor(10)],
+      ['BAJO',      'margen 15% a 30%  ·  rentabilidad floja', semColor(20)],
+      ['ACEPTABLE', 'margen 30% a 45%  ·  pasable', semColor(40)],
+      ['BUENO',     'margen 45% a 55%  ·  rango objetivo', semColor(50)],
+      ['EXCELENTE', 'margen mayor a 55%  ·  muy rentable', semColor(60)],
+    ]
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
+    leyenda.forEach(([etq, desc, col]) => {
+      doc.setFillColor(...col); doc.rect(14, yLeg - 2.4, 3, 3, 'F')
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(...col); doc.text(etq, 19, yLeg)
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(70, 70, 70); doc.text(desc, 45, yLeg)
+      yLeg += 4.6
     })
 
     // ── Pág 4: Acciones sugeridas ──
@@ -975,6 +1000,16 @@ export default function Finanzas() {
                       })}
                     </Tbody>
                   </Table>
+                </div>
+                <div className="px-4 py-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px]" style={{ borderTop: `1px solid ${colors.border}`, color: colors.textMuted }}>
+                  <span className="font-semibold" style={{ color: colors.textSecondary }}>Alerta (margen sobre precio de venta):</span>
+                  <span>🔴 <b style={{ color: '#EF4444' }}>NEGATIVO</b> &lt;0% (pérdida)</span>
+                  <span>🔴 <b style={{ color: '#f97316' }}>CRÍTICO</b> 0–15%</span>
+                  <span>🟠 <b style={{ color: '#f59e0b' }}>BAJO</b> 15–30%</span>
+                  <span>🟡 <b style={{ color: '#eab308' }}>ACEPTABLE</b> 30–45%</span>
+                  <span>🟢 <b style={{ color: '#22C55E' }}>BUENO</b> 45–55%</span>
+                  <span>💚 <b style={{ color: '#16a34a' }}>EXCELENTE</b> &gt;55%</span>
+                  <span className="w-full" style={{ color: colors.textMuted }}>El valor junto al margen (ej. <b>↓2,3pp</b>) indica cuántos puntos porcentuales cambió respecto al último recálculo guardado.</span>
                 </div>
               </div>
 

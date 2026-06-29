@@ -222,6 +222,11 @@ export default function Mermas() {
       const MOD = 'Mermas'
       const EST = getEstiloInforme()
 
+      // jsPDF (Helvetica) solo soporta Latin-1: reemplaza flechas y descarta
+      // caracteres fuera de rango que se verían como "códigos raros".
+      const safe = s => [...String(s ?? '').replace(/[→➜➡]/g, '->').replace(/[←]/g, '<-')]
+        .filter(ch => ch.charCodeAt(0) <= 255).join('').trim() || '—'
+
       // Color semántico por % de merma (solo en datos)
       const semPct = p => p < 3 ? PDF_SEM_OK : p < 8 ? PDF_SEM_CRIT : PDF_SEM_NEG
 
@@ -268,7 +273,7 @@ export default function Mermas() {
         startY: y,
         head: [['Producto', 'Reg.', 'Kg teórico', 'Kg real', 'Merma', '%']],
         body: porSabor.map(s => [
-          s.nombre, String(s.cnt),
+          safe(s.nombre), String(s.cnt),
           s.teo.toFixed(1), (s.teo - s.dif).toFixed(1),
           `${s.dif.toFixed(1)} kg`, `${s.pct.toFixed(1)}%`,
         ]),
@@ -295,7 +300,7 @@ export default function Mermas() {
         startY: y,
         head: [['Operario', 'Reg.', 'Kg teórico', 'Merma', '%']],
         body: porOperario.map(o => [
-          o.nombre, String(o.cnt),
+          safe(o.nombre), String(o.cnt),
           o.teo.toFixed(1), `${o.dif.toFixed(1)} kg`, `${o.pct.toFixed(1)}%`,
         ]),
         columnStyles: {
@@ -320,7 +325,7 @@ export default function Mermas() {
         startY: y,
         head: [['Causa', 'Reg.', 'Kg perdidos', '% del total', 'Costo']],
         body: porCausa.map(c => [
-          c.causa, String(c.cnt),
+          safe(c.causa), String(c.cnt),
           `${c.dif.toFixed(1)} kg`,
           `${totalDif > 0 ? ((c.dif / totalDif) * 100).toFixed(1) : '0.0'}%`,
           `$${pesos(c.costo)}`,

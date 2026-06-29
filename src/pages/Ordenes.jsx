@@ -123,16 +123,41 @@ function resolverRecetaCtx(nombre, ctx) {
 }
 
 function computeMateriasPrimas(item, ctx) {
-  if (item.tipo_producto !== 'helado') return []
-  const receta = resolverRecetaCtx(item.sabor_nombre, ctx)
-  if (!receta) return []
+  // Determinar los ingredientes de la receta y el factor (multiplicador)
+  let ingredientes = null
+  let factor = 0
+
+  if (item.tipo_producto === 'helado') {
+    const receta = resolverRecetaCtx(item.sabor_nombre, ctx)
+    if (!receta) return []
+    ingredientes = receta.ingredientes
+    factor = item.batches || 0
+  } else {
+    // Impulsivo / postre: la cantidad de la receta es POR UNIDAD,
+    // se multiplica por las unidades de la orden.
+    factor = item.cantidad_unidades || 0
+    // 1) Impulsivo registrado en DB: receta por impulsivo_id (= item.sabor_id)
+    if (item.sabor_id && ctx.impulsivoIngredientes) {
+      ingredientes = ctx.impulsivoIngredientes.filter(i => i.impulsivo_id === item.sabor_id)
+    }
+    // 2) Postre del catálogo (lib/postres.js): receta por nombre
+    if (!ingredientes || ingredientes.length === 0) {
+      const nom = normalizarNombre(item.sabor_nombre)
+      const postre = POSTRES.find(p => normalizarNombre(p.nombre) === nom)
+      if (postre) ingredientes = (postre.ingredientes || []).map(i => ({
+        insumo_nombre: i.nombre, cantidad: i.cantidad, unidad: i.unidad,
+      }))
+    }
+    if (!ingredientes || ingredientes.length === 0) return []
+  }
+
   const insumoPorNombre = {}
   ctx.insumosStock.forEach(i => { insumoPorNombre[normalizarNombre(i.nombre)] = i })
-  const batches = item.batches || 0
-  return receta.ingredientes.map(ing => {
+
+  return ingredientes.map(ing => {
     const cantidadPorBatch = ing.cantidad || 0
-    const necesario = cantidadPorBatch * batches
-    const fila = { nombre: ing.insumo_nombre, cantidadPorBatch, batches, necesario, unidad: ing.unidad }
+    const necesario = cantidadPorBatch * factor
+    const fila = { nombre: ing.insumo_nombre, cantidadPorBatch, batches: factor, necesario, unidad: ing.unidad }
     // El agua no se controla (es "sin límite") de forma intencional.
     if (normalizarNombre(ing.insumo_nombre).includes('agua')) {
       return { ...fila, disponible: null, estado: 'sinlimite' }
@@ -254,6 +279,7 @@ export default function Ordenes() {
       { data: ord }, { data: sab }, { data: imp }, { data: ops },
       { data: recetas }, { data: ingredientes }, { data: insumosData },
       { data: basesData }, { data: baseIngs }, { data: stockBasesData },
+      { data: impIngsData },
     ] = await Promise.all([
       supabase.from('ordenes_produccion').select('*').order('id', { ascending: false }).limit(300),
       supabase.from('stock_camaras').select('id,nombre,tipo,tipo_producto,baldes').order('nombre'),
@@ -265,6 +291,7 @@ export default function Ordenes() {
       supabase.from('bases').select('id,nombre,litros_batch').order('nombre'),
       supabase.from('base_ingredientes').select('*'),
       supabase.from('stock_bases').select('*').gt('kg_disponible', 0).order('fecha', { ascending: false }),
+      supabase.from('impulsivo_ingredientes').select('*'),
     ])
     const operariosDedup = deduplicarOperarios(ops)
     setOrdenes(ord || [])
@@ -277,6 +304,7 @@ export default function Ordenes() {
     setBases(basesData || [])
     setBaseIngredientes(baseIngs || [])
     setStockBases(stockBasesData || [])
+    setImpulsivoIngredientes(impIngsData || [])
 
     const opciones = [
       ...(basesData || []).map(b => ({ _key: `base-${b.id}`, _grupo: 'BASES' })),
@@ -472,7 +500,7 @@ export default function Ordenes() {
   }
 
   function materiasPrimasDe(item) {
-    return computeMateriasPrimas(item, { sabores, bases, saborIngredientes, baseIngredientes, insumosStock })
+    return computeMateriasPrimas(item, { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes })
   }
 
   const basesNecesarias = useMemo(() => {
@@ -985,7 +1013,7 @@ export default function Ordenes() {
   }
 
   async function _cargarDatosOrden() {
-    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock }
+    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes }
     if (!saborIngredientes.length || !insumosStock.length) {
       const [{ data: ings }, { data: ins }, { data: baseIngs }] = await Promise.all([
         supabase.from('sabor_ingredientes').select('*'),
@@ -1011,7 +1039,7 @@ export default function Ordenes() {
   async function imprimirListaMP(grupo, item) {
     const w = window.open('', '_blank')
 
-    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock }
+    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes }
     let mp = computeMateriasPrimas(item, ctx)
 
     if (mp.length === 0) {

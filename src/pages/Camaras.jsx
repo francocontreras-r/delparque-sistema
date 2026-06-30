@@ -8,7 +8,7 @@ import autoTable from 'jspdf-autotable'
 import html2canvas from 'html2canvas'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 const logoUrl = '/logo-horizontal-black-v2.png'
-import { dibujarPortada, dibujarEncabezado, dibujarPie, dibujarKpi, dibujarSeccion, dibujarFirmas, getEstiloInforme, PDF_CONTENT_Y, LOGO_PDF } from '../lib/pdfEstilos'
+import { dibujarPortada, dibujarEncabezado, dibujarPie, dibujarKpi, dibujarKpiCard, dibujarSeccion, dibujarFirmas, getEstiloInforme, PDF_CONTENT_Y, PDF_NEGRO, PDF_SEM_NEG, PDF_SEM_OK, LOGO_PDF } from '../lib/pdfEstilos'
 import { colors, shadow, radius } from '../styles/design-system'
 import KpiCard from '../components/ui/KpiCard'
 import Toast from '../components/ui/Toast'
@@ -40,6 +40,32 @@ const TIPOS_PRODUCTO = [
 ]
 const MOTIVOS_INGRESO_CAMARA = ['Producción', 'Ajuste de inventario', 'Transferencia', 'Devolución']
 const MOTIVOS_EGRESO_CAMARA  = ['Venta', 'Ajuste de inventario', 'Merma', 'Transferencia', 'Baja', 'Producción']
+
+// Categoriza el motivo (que puede venir como "Producción → Cubanito") en un grupo.
+function categoriaMotivo(m) {
+  const s = m || ''
+  if (s.startsWith('Producción')) return 'Producción'
+  if (s.startsWith('Venta'))      return 'Venta'
+  if (s.startsWith('Baja'))       return 'Baja'
+  if (s.startsWith('Merma'))      return 'Merma'
+  if (s.startsWith('Transferencia')) return 'Transferencia'
+  if (s.startsWith('Ajuste'))     return 'Ajuste'
+  return 'Otros'
+}
+// Producto elaborado embebido en el motivo ("Producción → Cubanito" → "Cubanito")
+function productoElaboradoDe(m) {
+  const i = (m || '').indexOf('→')
+  return i >= 0 ? m.slice(i + 1).trim() : null
+}
+// Config visual de cada categoría de egreso para los chips/resumen
+const CAT_EGRESO = [
+  { key: 'Venta',         emoji: '🛒', color: '#22C55E' },
+  { key: 'Producción',    emoji: '🏭', color: '#D4521A' },
+  { key: 'Baja',          emoji: '🗑️', color: '#EF4444' },
+  { key: 'Merma',         emoji: '⚠️', color: '#f59e0b' },
+  { key: 'Transferencia', emoji: '🔁', color: '#3b82f6' },
+  { key: 'Ajuste',        emoji: '⚙️', color: '#94a3b8' },
+]
 const ROLES = ['operario', 'admin']
 const CAMARAS_NOMBRES = ['Cámara 1', 'Cámara 2', 'Cámara 3', 'Antecámara', 'Túnel de frío']
 
@@ -288,6 +314,7 @@ function ModalMovimiento({ item, onClose, onApply, operariosDisponibles = [], st
   const [operarioSolicita, setOperarioSolicita] = useState('')
   const [operarioElabora, setOperarioElabora]   = useState('')
   const [productoElaborado, setProductoElaborado] = useState('')
+  const [rindio, setRindio] = useState('')
 
   const esImp  = (item?.tipo_producto || '') === 'impulsivo'
   const esPost = (item?.tipo_producto || '') === 'postre'
@@ -327,6 +354,7 @@ function ModalMovimiento({ item, onClose, onApply, operariosDisponibles = [], st
       motivo: motivoFinal, lote: lote.trim(),
       operarioNombre: tipoMov === 'ingreso' ? (operarioElabora || null) : (operarioSolicita || null),
       productoElaborado: productoElaborado || null,
+      rindio: (tipoMov === 'egreso' && motivo === 'Producción' && rindio !== '') ? parseFloat(rindio) : null,
     })
     if (err) { setErrorMsg(err); setSaving(false) }
   }
@@ -426,6 +454,13 @@ function ModalMovimiento({ item, onClose, onApply, operariosDisponibles = [], st
               <option value="">— Seleccionar —</option>
               {operariosDisponibles.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
             </Select>
+            <Input label="¿Cuánto rindió? (unid./kg producidas)" type="number" min="0" step="0.01"
+              value={rindio} onChange={ev => setRindio(ev.target.value)} placeholder="Opcional — podés cargarlo al terminar" disabled={saving} />
+            {rindio && parseFloat(rindio) > 0 && parseInt(cantBaldes) > 0 && (
+              <p className="text-xs font-semibold" style={{ color: colors.brand }}>
+                Rendimiento: {(parseFloat(rindio) / parseInt(cantBaldes)).toFixed(1)} por balde entregado
+              </p>
+            )}
           </div>
         )}
 
@@ -1063,6 +1098,7 @@ export default function Camaras() {
   const [loadingMovs, setLoadingMovs]   = useState(false)
   const [filtroMovFecha, setFiltroMovFecha] = useState(new Date().toISOString().split('T')[0])
   const [filtroMovTipo, setFiltroMovTipo]   = useState('')
+  const [filtroMovMotivo, setFiltroMovMotivo] = useState('')  // '' = todos
 
   const [operarios, setOperarios]           = useState([])
   const [temperaturas, setTemperaturas]     = useState([])
@@ -1116,7 +1152,7 @@ export default function Camaras() {
   async function cargarMovimientos() {
     setLoadingMovs(true)
     let q = supabase.from('movimientos_camara')
-      .select('id, sabor_nombre, producto_nombre, tipo, kg, baldes, lote, operario_nombre, tipo_producto, motivo, created_at, fecha')
+      .select('*')
       .order('created_at', { ascending: false }).limit(500)
     if (filtroMovFecha) q = q.eq('fecha', filtroMovFecha)
     if (filtroMovTipo) q = q.eq('tipo_producto', filtroMovTipo)
@@ -1125,40 +1161,100 @@ export default function Camaras() {
     setLoadingMovs(false)
   }
 
-  async function exportarMovimientosPDF() {
+  function exportarMovimientosPDF() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-    const pageWidth = doc.internal.pageSize.getWidth()
-    try { doc.addImage(LOGO_PDF, 'PNG', 14, 7, 12 * 906 / 521, 12) } catch {}
-    const titulo = `Del Parque — Movimientos de Cámara${filtroMovFecha ? ' ' + filtroMovFecha : ''}`
-    doc.setFontSize(12)
-    doc.setTextColor(40, 40, 40)
-    doc.text(titulo, pageWidth - 14, 14, { align: 'right' })
-    const kgIng = movimientos.filter(m => m.tipo === 'ingreso').reduce((a, m) => a + (m.kg || 0), 0)
-    const kgEgr = movimientos.filter(m => m.tipo === 'egreso').reduce((a, m) => a + (m.kg || 0), 0)
+    const pw = doc.internal.pageSize.getWidth()
+    const ph = doc.internal.pageSize.getHeight()
+    const hoy = new Date().toLocaleString('es-AR')
+    const MOD = 'Cámaras'
+    const TIT = 'Movimientos de Cámara'
+    const periodo = filtroMovFecha ? `Fecha ${filtroMovFecha.split('-').reverse().join('/')}` : 'Todos los registros'
+    const EST = getEstiloInforme()
+    const didDP = () => { dibujarEncabezado(doc, pw, MOD, TIT, hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber) }
+
+    const ingresos = movimientos.filter(m => m.tipo === 'ingreso')
+    const egresos  = movimientos.filter(m => m.tipo === 'egreso')
+    const kgIng = ingresos.reduce((a, m) => a + (m.kg || 0), 0)
+    const kgEgr = egresos.reduce((a, m) => a + (m.kg || 0), 0)
+
+    // ── Portada ──
+    dibujarPortada(doc, pw, ph, MOD, TIT, periodo, hoy)
+
+    // ── Pág 2: Resumen ──
+    doc.addPage(); didDP()
+    const cards = [
+      ['Movimientos',   String(movimientos.length),   PDF_NEGRO],
+      ['KG ingresados', `${kgIng.toFixed(1)} kg`,      PDF_SEM_OK],
+      ['KG egresados',  `${kgEgr.toFixed(1)} kg`,      PDF_SEM_NEG],
+      ['Balance',       `${(kgIng - kgEgr).toFixed(1)} kg`, (kgIng - kgEgr) >= 0 ? PDF_SEM_OK : PDF_SEM_NEG],
+    ]
+    const gap = 4, cw = (pw - 28 - gap * 3) / 4, ch = 22, cy = PDF_CONTENT_Y - 2
+    cards.forEach((c, i) => dibujarKpiCard(doc, 14 + i * (cw + gap), cy, cw, ch, c[0], c[1], c[2]))
+    let y = cy + ch + 9
+
+    // Egresos por destino (motivo)
+    const cats = CAT_EGRESO.map(c => {
+      const ms = egresos.filter(m => categoriaMotivo(m.motivo) === c.key)
+      return { key: c.key, n: ms.length, baldes: ms.reduce((a, m) => a + (m.baldes || 0), 0), kg: ms.reduce((a, m) => a + (m.kg || 0), 0) }
+    }).filter(c => c.n > 0)
+    if (cats.length) {
+      y = dibujarSeccion(doc, pw, 'Egresos por destino', y)
+      autoTable(doc, {
+        ...EST, startY: y,
+        head: [['Destino', 'Movimientos', 'Cantidad', 'KG']],
+        body: cats.map(c => [c.key, String(c.n), String(c.baldes), c.kg.toFixed(1)]),
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+        didDrawPage: didDP,
+      })
+      y = doc.lastAutoTable.finalY + 8
+    }
+
+    // Rendimiento de baldes entregados a producción
+    const prod = egresos.filter(m => categoriaMotivo(m.motivo) === 'Producción')
+    if (prod.length) {
+      if (y > ph - 50) { doc.addPage(); didDP(); y = PDF_CONTENT_Y }
+      y = dibujarSeccion(doc, pw, 'Rendimiento de baldes entregados a producción', y)
+      autoTable(doc, {
+        ...EST, startY: y,
+        head: [['Producto', 'Entregado', 'Elaborado', 'Rindió', 'Rend./balde']],
+        body: prod.map(m => {
+          const rb = (m.rindio != null && (m.baldes || 0) > 0) ? (m.rindio / m.baldes).toFixed(1) : '—'
+          return [
+            m.sabor_nombre || m.producto_nombre || '—',
+            String(m.baldes || 0),
+            productoElaboradoDe(m.motivo) || '—',
+            m.rindio != null ? Number(m.rindio).toFixed(1) : 's/registrar',
+            rb,
+          ]
+        }),
+        columnStyles: { 1: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' } },
+        didDrawPage: didDP,
+      })
+      y = doc.lastAutoTable.finalY + 8
+    }
+
+    // ── Pág: Detalle completo ──
+    doc.addPage(); didDP()
     autoTable(doc, {
-      startY: 20,
-      head: [['Hora', 'Producto', 'Tipo', 'KG', 'Baldes', 'Lote', 'Operario', 'Motivo']],
+      ...EST, startY: PDF_CONTENT_Y,
+      head: [['Hora', 'Producto', 'Tipo', 'KG', 'Cant.', 'Lote', 'Operario', 'Motivo']],
       body: movimientos.map(m => [
         m.created_at ? new Date(m.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '—',
         m.sabor_nombre || m.producto_nombre || '—',
-        m.tipo === 'ingreso' ? '↑ Ingreso' : '↓ Egreso',
+        m.tipo === 'ingreso' ? 'Ingreso' : 'Egreso',
         (m.kg || 0).toFixed(1),
-        m.baldes || 0,
+        String(m.baldes || 0),
         m.lote || '—',
         m.operario_nombre || '—',
-        m.motivo || '—',
+        categoriaMotivo(m.motivo),
       ]),
-      styles: { fontSize: 8, cellPadding: 1.5 },
-      headStyles: { fillColor: [212, 82, 26], textColor: 255 },
-      alternateRowStyles: { fillColor: [249, 250, 251] },
+      columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' } },
+      didDrawPage: didDP,
     })
-    const finalY = (doc.lastAutoTable?.finalY || 20) + 8
-    doc.setFontSize(9)
-    doc.setTextColor(80, 80, 80)
-    doc.text(
-      `KG ingresados: ${kgIng.toFixed(1)}  |  KG egresados: ${kgEgr.toFixed(1)}  |  Balance: ${(kgIng - kgEgr).toFixed(1)}`,
-      14, finalY
-    )
+
+    // Firmas al final (sin hoja extra si hay lugar)
+    dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, MOD, hoy, ['Responsable Cámaras', 'Supervisor'])
+
     doc.save(`movimientos_camara_${filtroMovFecha || new Date().toISOString().split('T')[0]}.pdf`)
   }
 
@@ -1352,7 +1448,7 @@ export default function Camaras() {
       .filter(g => g.items.length > 0)
   }, [filtrado, filtroTipoProducto])
 
-  async function aplicarMovimiento({ id, tipo, baldes, kg, lote, motivo, operarioNombre, productoElaborado }) {
+  async function aplicarMovimiento({ id, tipo, baldes, kg, lote, motivo, operarioNombre, productoElaborado, rindio }) {
     const sabor = stock.find(s => s.id === id)
     if (!sabor) return 'Sabor no encontrado'
 
@@ -1399,6 +1495,9 @@ export default function Camaras() {
       motivo: motivo || null,
       fecha:  new Date().toISOString().split('T')[0],
       created_at: new Date().toISOString(),
+      // Solo se incluye cuando hay rendimiento cargado (egreso a producción),
+      // así los demás movimientos siguen funcionando aunque la columna no exista.
+      ...(rindio != null ? { rindio } : {}),
     })
     const updated = { ...sabor, baldes: nuevoBaldes, kg: nuevosKg, lote: nuevoLote }
     setStock(prev => prev.map(s => s.id === id ? updated : s))
@@ -1583,7 +1682,16 @@ export default function Camaras() {
       )}
 
       {/* Tab Movimientos */}
-      {tabCamara === 'movimientos' && (
+      {tabCamara === 'movimientos' && (() => {
+        const egresos = movimientos.filter(m => m.tipo === 'egreso')
+        const resumen = CAT_EGRESO.map(c => {
+          const ms = egresos.filter(m => categoriaMotivo(m.motivo) === c.key)
+          return { ...c, n: ms.length, baldes: ms.reduce((a, m) => a + (m.baldes || 0), 0), kg: ms.reduce((a, m) => a + (m.kg || 0), 0) }
+        }).filter(c => c.n > 0)
+        const movsFiltrados = filtroMovMotivo
+          ? movimientos.filter(m => m.tipo === 'egreso' && categoriaMotivo(m.motivo) === filtroMovMotivo)
+          : movimientos
+        return (
         <div className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex gap-2 flex-wrap items-center">
@@ -1608,6 +1716,31 @@ export default function Camaras() {
               <FileDown size={14} /> Exportar PDF
             </button>
           </div>
+
+          {/* Resumen interactivo por destino del egreso (clic para filtrar) */}
+          {resumen.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+              {resumen.map(c => {
+                const active = filtroMovMotivo === c.key
+                const unidad = filtroMovTipo === 'impulsivo' || filtroMovTipo === 'postre' ? 'u' : 'bal'
+                return (
+                  <button key={c.key} onClick={() => setFiltroMovMotivo(active ? '' : c.key)}
+                    className="text-left transition-all"
+                    style={{ backgroundColor: colors.surface, border: `1px solid ${active ? c.color : colors.border}`, borderTop: `2px solid ${c.color}`, borderRadius: radius.md, padding: '10px 12px', boxShadow: active ? `0 0 0 1px ${c.color}` : 'none' }}>
+                    <div className="text-xs font-semibold" style={{ color: colors.textSecondary }}>{c.emoji} {c.key}</div>
+                    <div className="text-lg font-extrabold" style={{ color: c.color }}>{c.baldes} <span className="text-xs font-medium" style={{ color: colors.textMuted }}>{unidad}</span></div>
+                    {c.kg > 0 && <div className="text-[11px]" style={{ color: colors.textMuted }}>{c.kg.toFixed(1)} kg · {c.n} mov.</div>}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          {filtroMovMotivo && (
+            <button onClick={() => setFiltroMovMotivo('')} className="text-xs font-semibold px-3 py-1 rounded-full" style={{ backgroundColor: colors.brand + '22', color: colors.brand }}>
+              Mostrando solo: {filtroMovMotivo} · ✕ quitar filtro
+            </button>
+          )}
+
           {loadingMovs ? (
             <div className="flex justify-center py-12"><span className="text-sm" style={{ color: colors.textMuted }}>Cargando…</span></div>
           ) : movimientos.length === 0 ? (
@@ -1615,17 +1748,22 @@ export default function Camaras() {
           ) : (
             <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[680px]">
+                <table className="w-full min-w-[760px]">
                   <thead>
                     <tr style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                      {['Hora', 'Producto', 'Tipo', 'KG', 'Baldes', 'Lote', 'Operario', 'Motivo'].map(h => (
+                      {['Hora', 'Producto', 'Tipo', 'KG', 'Cant.', 'Lote', 'Operario', 'Motivo', 'Destino / Rendimiento'].map(h => (
                         <th key={h} className="py-2.5 px-4 text-left font-semibold uppercase"
                           style={{ fontSize: 10, color: colors.textMuted, letterSpacing: '0.07em' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {movimientos.map(m => (
+                    {movsFiltrados.map(m => {
+                      const cat = categoriaMotivo(m.motivo)
+                      const esProd = m.tipo === 'egreso' && cat === 'Producción'
+                      const elaborado = productoElaboradoDe(m.motivo)
+                      const rendBalde = (m.rindio != null && (m.baldes || 0) > 0) ? m.rindio / m.baldes : null
+                      return (
                       <tr key={m.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
                         <td className="py-2.5 px-4 text-xs whitespace-nowrap" style={{ color: colors.textMuted }}>
                           {m.created_at ? new Date(m.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '—'}
@@ -1643,16 +1781,27 @@ export default function Camaras() {
                         <td className="py-2.5 px-4 text-sm text-right font-semibold" style={{ color: colors.brand }}>
                           {(m.kg || 0).toFixed(1)}
                         </td>
-                        <td className="py-2.5 px-4 text-sm text-right">{m.baldes || 0}</td>
+                        <td className="py-2.5 px-4 text-sm text-right">{m.baldes || 0}{m.tipo_producto && m.tipo_producto !== 'helado' ? ' u' : ''}</td>
                         <td className="py-2.5 px-4 text-xs font-mono" style={{ color: colors.textMuted }}>{m.lote || '—'}</td>
                         <td className="py-2.5 px-4 text-xs" style={{ color: colors.textSecondary }}>{m.operario_nombre || '—'}</td>
-                        <td className="py-2.5 px-4 text-xs" style={{ color: colors.textMuted }}>{m.motivo || '—'}</td>
+                        <td className="py-2.5 px-4 text-xs" style={{ color: colors.textMuted }}>{cat}</td>
+                        <td className="py-2.5 px-4 text-xs" style={{ color: colors.textMuted }}>
+                          {esProd ? (
+                            <span>
+                              <span style={{ color: colors.textSecondary }}>{elaborado || '—'}</span>
+                              {m.rindio != null
+                                ? <> · {Number(m.rindio).toFixed(1)} · <b style={{ color: colors.brand }}>{rendBalde != null ? rendBalde.toFixed(1) : '—'}/balde</b></>
+                                : <span style={{ color: colors.warning }}> · rinde s/registrar</span>}
+                            </span>
+                          ) : '—'}
+                        </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
-              <div className="px-4 py-2.5 flex gap-6 text-xs font-semibold" style={{ borderTop: `1px solid ${colors.border}`, backgroundColor: colors.bg }}>
+              <div className="px-4 py-2.5 flex gap-6 text-xs font-semibold flex-wrap" style={{ borderTop: `1px solid ${colors.border}`, backgroundColor: colors.bg }}>
                 <span style={{ color: colors.success }}>
                   KG ingresados: {movimientos.filter(m => m.tipo === 'ingreso').reduce((a, m) => a + (m.kg || 0), 0).toFixed(1)}
                 </span>
@@ -1666,7 +1815,8 @@ export default function Camaras() {
             </div>
           )}
         </div>
-      )}
+        )
+      })()}
 
       {/* KPIs */}
       {tabCamara === 'stock' && !errorCarga && (

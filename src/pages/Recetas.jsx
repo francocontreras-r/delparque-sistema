@@ -11,6 +11,16 @@ import Toast from '../components/ui/Toast'
 import { colors, radius, shadow } from '../styles/design-system'
 import { BookOpen, Search, Edit2, RefreshCw, X, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
 import { POSTRES } from '../lib/postres'
+import { normalizarNombre } from '../lib/texto'
+
+// Un ingrediente de receta puede ser materia prima cruda (depósito), un
+// intermedio (base/sabor, del proceso anterior) o agua (no se almacena, gratis).
+const esAgua = nombre => normalizarNombre(nombre).includes('agua')
+function tipoIngrediente(nombre, intermedios) {
+  if (esAgua(nombre)) return 'agua'
+  if (intermedios && intermedios.has(normalizarNombre(nombre))) return 'intermedio'
+  return 'insumo'
+}
 
 
 const TABS = ['Bases', 'Sabores', 'Impulsivos', 'Postres']
@@ -81,7 +91,7 @@ function ModalConfEliminar({ receta, onClose, onConfirm, saving }) {
 }
 
 // ── Modal de edición ──────────────────────────────────────────────────────────
-function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, showToast }) {
+function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, intermedios, showToast }) {
   const [ings, setIngs] = useState(() =>
     rawIngs.map((i, idx) => ({
       _key: idx,
@@ -124,18 +134,21 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, s
 
   const ingsConCosto = useMemo(() =>
     ings.map(i => {
+      const tIng = tipoIngrediente(i.nombre, intermedios) // 'agua' | 'intermedio' | 'insumo'
       // Prioridad: vínculo por ID; si no hay, cae al nombre (compatibilidad)
       const porId = i.insumo_id != null ? insumoPorId[i.insumo_id] : null
       const ins = porId || insumoPorNombre[(i.nombre || '').trim().toLowerCase()]
       const cu = ins?.costo_unitario || 0
-      return { ...i, costoUnit: cu, costoTotal: (Number(i.cantidad) || 0) * cu, tienePreco: !!ins, vinculado: !!porId }
+      return { ...i, tIng, costoUnit: cu, costoTotal: (Number(i.cantidad) || 0) * cu, tienePreco: !!ins, vinculado: !!porId }
     }),
-    [ings, insumoPorNombre, insumoPorId]
+    [ings, insumoPorNombre, insumoPorId, intermedios]
   )
 
   const subtotalMP  = ingsConCosto.reduce((a, i) => a + i.costoTotal, 0)
   const costoFinal  = subtotalMP + (Number(mano) || 0)
-  const sinPrecio   = ingsConCosto.some(i => !i.tienePreco && (i.cantidad || 0) > 0)
+  // "Sin precio" solo aplica a materia prima cruda: agua e intermedios (base/sabor)
+  // no se vinculan al depósito a propósito.
+  const sinPrecio   = ingsConCosto.some(i => i.tIng === 'insumo' && !i.tienePreco && (i.cantidad || 0) > 0)
 
   function upd(key, field, val) {
     setIngs(p => p.map(i => i._key === key ? { ...i, [field]: val } : i))
@@ -266,16 +279,24 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, s
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{ing.nombre}</p>
                   <div className="text-xs flex items-center gap-2 flex-wrap">
-                    {ing.vinculado
-                      ? <span className="flex items-center gap-1" style={{ color: colors.success }}>🔗 Vinculado</span>
-                      : <button type="button"
-                          onMouseDown={() => { setVinculandoKey(ing._key); setBusq(''); setShowAC(true) }}
-                          className="flex items-center gap-1 underline" style={{ color: colors.warning }}>
-                          <AlertTriangle size={10} /> Vincular insumo
-                        </button>}
-                    {ing.tienePreco
-                      ? <span style={{ color: colors.textMuted }}>${pesos(ing.costoUnit)}/u · ${pesos(ing.costoTotal)}</span>
-                      : <span style={{ color: colors.warning }}>sin precio</span>}
+                    {ing.tIng === 'agua' ? (
+                      <span style={{ color: colors.info }}>💧 Sin costo (no se almacena)</span>
+                    ) : ing.tIng === 'intermedio' ? (
+                      <span style={{ color: colors.info }}>🧩 Intermedio · se costea por su propia receta</span>
+                    ) : (
+                      <>
+                        {ing.vinculado
+                          ? <span className="flex items-center gap-1" style={{ color: colors.success }}>🔗 Vinculado</span>
+                          : <button type="button"
+                              onMouseDown={() => { setVinculandoKey(ing._key); setBusq(''); setShowAC(true) }}
+                              className="flex items-center gap-1 underline" style={{ color: colors.warning }}>
+                              <AlertTriangle size={10} /> Vincular insumo
+                            </button>}
+                        {ing.tienePreco
+                          ? <span style={{ color: colors.textMuted }}>${pesos(ing.costoUnit)}/{ing.unidad || 'u'} · ${pesos(ing.costoTotal)}</span>
+                          : <span style={{ color: colors.warning }}>sin precio</span>}
+                      </>
+                    )}
                   </div>
                 </div>
                 {/* Cantidad */}
@@ -534,6 +555,15 @@ export default function Recetas() {
     if (!busqueda) return lista
     return lista.filter(r => r.nombre.toLowerCase().includes(busqueda.toLowerCase()))
   }, [tab, busqueda, datosActivos])
+
+  // Nombres de productos intermedios (bases + sabores): no son insumos del
+  // depósito, son del proceso anterior. Se usan para clasificar ingredientes.
+  const nombresIntermedios = useMemo(() => {
+    const s = new Set()
+    bases.forEach(b => s.add(normalizarNombre(b.nombre)))
+    sabores.forEach(sa => s.add(normalizarNombre(sa.nombre)))
+    return s
+  }, [bases, sabores])
 
   async function recalcularCostos() {
     setRecalculando(true)
@@ -878,6 +908,7 @@ export default function Recetas() {
           tipo={editando.tipo}
           rawIngs={editando.rawIngs}
           insumos={insumos}
+          intermedios={nombresIntermedios}
           onClose={() => setEditando(null)}
           onSaved={() => cargar()}
           showToast={showToast}

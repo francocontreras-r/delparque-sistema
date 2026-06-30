@@ -29,6 +29,9 @@ export function costearProduccion(movsIngreso, ctx) {
 
   const saborPorNombre = {}; sabores.forEach(s => { saborPorNombre[norm(s.nombre)] = s })
   const basePorNombre  = {}; bases.forEach(b => { basePorNombre[norm(b.nombre)] = b })
+  const esAgua = nombre => norm(nombre).includes('agua')
+  // Un ingrediente es intermedio si es una base o un sabor (no es MP del depósito).
+  const esIntermedio = nombre => !!basePorNombre[norm(nombre)] || !!saborPorNombre[norm(nombre)]
   const impPorNombre   = {}; impulsivos.forEach(i => { impPorNombre[norm(i.nombre)] = i })
   const postrePorNombre = {}; POSTRES.forEach(p => { postrePorNombre[norm(p.nombre)] = p })
 
@@ -54,8 +57,12 @@ export function costearProduccion(movsIngreso, ctx) {
     const litrosBase = Number(sabor.litros_base) || LITROS_BATCH
     const rinde = litrosBase + extraKg
     if (rinde <= 0) return
-    // Saborizantes propios: cantidad por batch / rinde = por kg de sabor
-    ings.forEach(i => addInsumo(i.insumo_nombre, (Number(i.cantidad) || 0) / rinde * kg))
+    // Saborizantes propios (MP cruda): se omite el agua (gratis) y los
+    // intermedios (la base se costea aparte vía base_nombre).
+    ings.forEach(i => {
+      if (esAgua(i.insumo_nombre) || esIntermedio(i.insumo_nombre)) return
+      addInsumo(i.insumo_nombre, (Number(i.cantidad) || 0) / rinde * kg)
+    })
     // Base: kg de base por kg de sabor = litros_base / rinde
     const base = basePorNombre[norm(sabor.base_nombre || '')]
     if (base) {
@@ -74,6 +81,7 @@ export function costearProduccion(movsIngreso, ctx) {
     if (!(unidades > 0)) return
     ings.forEach(i => {
       const nombre = i.insumo_nombre || i.nombre
+      if (esAgua(nombre)) return // gratis, no se almacena
       if (esInsumo(nombre)) addInsumo(nombre, (Number(i.cantidad) || 0) * unidades)
       else intermedios.add(nombre) // sabor/base ya contado en su propio ingreso a cámara
     })

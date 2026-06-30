@@ -338,11 +338,11 @@ function ModalMovimiento({ item, onClose, onApply, operariosDisponibles = [], st
     if (tipoMov === 'ingreso' && motivo === 'Producción' && !operarioElabora) {
       setErrorMsg('Seleccioná el operario que elaboró'); return
     }
+    if (tipoMov === 'egreso' && !operarioSolicita) {
+      setErrorMsg('Seleccioná el operario que retira'); return
+    }
     if (tipoMov === 'egreso' && motivo === 'Producción' && !productoElaborado) {
       setErrorMsg('Seleccioná el producto elaborado'); return
-    }
-    if (tipoMov === 'egreso' && motivo === 'Producción' && !operarioSolicita) {
-      setErrorMsg('Seleccioná el operario que solicita'); return
     }
     setSaving(true)
     setErrorMsg(null)
@@ -444,18 +444,22 @@ function ModalMovimiento({ item, onClose, onApply, operariosDisponibles = [], st
           </div>
         )}
 
+        {/* Operario obligatorio para CUALQUIER egreso (trazabilidad de quién retira) */}
+        {tipoMov === 'egreso' && (
+          <Select label="Operario que retira *" value={operarioSolicita} onChange={ev => setOperarioSolicita(ev.target.value)} disabled={saving}>
+            <option value="">— Seleccionar —</option>
+            {operariosDisponibles.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+          </Select>
+        )}
+
         {tipoMov === 'egreso' && motivo === 'Producción' && (
           <div className="space-y-2 p-3 rounded-lg" style={{ backgroundColor: 'rgba(212,82,26,0.06)', border: '1px solid rgba(212,82,26,0.2)' }}>
             <Select label="Producto elaborado *" value={productoElaborado} onChange={ev => setProductoElaborado(ev.target.value)} disabled={saving}>
               <option value="">— Seleccionar —</option>
               {stockImpPost.map(s => <option key={s.id} value={s.nombre}>{s.nombre}</option>)}
             </Select>
-            <Select label="Operario que solicita *" value={operarioSolicita} onChange={ev => setOperarioSolicita(ev.target.value)} disabled={saving}>
-              <option value="">— Seleccionar —</option>
-              {operariosDisponibles.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
-            </Select>
             <Input label="¿Cuánto rindió? (unid./kg producidas)" type="number" min="0" step="0.01"
-              value={rindio} onChange={ev => setRindio(ev.target.value)} placeholder="Opcional — podés cargarlo al terminar" disabled={saving} />
+              value={rindio} onChange={ev => setRindio(ev.target.value)} placeholder="Si ya lo sabés; si no, lo cargás después desde Movimientos" disabled={saving} />
             {rindio && parseFloat(rindio) > 0 && parseInt(cantBaldes) > 0 && (
               <p className="text-xs font-semibold" style={{ color: colors.brand }}>
                 Rendimiento: {(parseFloat(rindio) / parseInt(cantBaldes)).toFixed(1)} por balde entregado
@@ -1110,7 +1114,7 @@ export default function Camaras() {
   const [filtroTempFecha, setFiltroTempFecha]   = useState(new Date().toISOString().split('T')[0])
   const [tempForm, setTempForm]             = useState({ camara: 'Cámara 1', grados: '', responsable: '', observaciones: '' })
 
-  const { isAdmin } = useUser()
+  const { isAdmin, user } = useUser()
   const showVal = userRole === 'admin'
   const [modalAgregar, setModalAgregar] = useState(false)
   const [savingAgregar, setSavingAgregar] = useState(false)
@@ -1514,6 +1518,24 @@ export default function Camaras() {
       // así los demás movimientos siguen funcionando aunque la columna no exista.
       ...(rindio != null ? { rindio } : {}),
     })
+
+    // Pérdidas de cámara (Merma/Baja) → también se registran en el módulo Mermas,
+    // para que se vean y se costeen como pérdida (antes quedaban invisibles).
+    if (tipo === 'egreso' && (motivo === 'Merma' || motivo === 'Baja')) {
+      const kgPerdido = tipoCam === 'impulsivo' ? 0 : (kg || 0)
+      await supabase.from('mermas').insert({
+        fecha: new Date().toISOString().split('T')[0],
+        sabor_nombre: sabor.nombre,
+        operario_nombre: operarioNombre || null,
+        kg_teoricos: kgPerdido,
+        kg_reales: 0,
+        diferencia: kgPerdido,
+        porcentaje: kgPerdido > 0 ? 100 : 0,
+        causa: `${motivo} de cámara`,
+        observaciones: `${baldes} ${tipoCam === 'helado' ? 'baldes' : 'unidades'} dados de ${motivo.toLowerCase()} en cámara`,
+        usuario_email: user?.email || null,
+      })
+    }
     const updated = { ...sabor, baldes: nuevoBaldes, kg: nuevosKg, lote: nuevoLote }
     setStock(prev => prev.map(s => s.id === id ? updated : s))
     setModalDetalle(prev => prev?.id === id ? updated : prev)
@@ -1706,6 +1728,7 @@ export default function Camaras() {
         const movsFiltrados = filtroMovMotivo
           ? movimientos.filter(m => m.tipo === 'egreso' && categoriaMotivo(m.motivo) === filtroMovMotivo)
           : movimientos
+        const pendientesRind = egresos.filter(m => categoriaMotivo(m.motivo) === 'Producción' && m.rindio == null).length
         return (
         <div className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
@@ -1754,6 +1777,25 @@ export default function Camaras() {
             <button onClick={() => setFiltroMovMotivo('')} className="text-xs font-semibold px-3 py-1 rounded-full" style={{ backgroundColor: colors.brand + '22', color: colors.brand }}>
               Mostrando solo: {filtroMovMotivo} · ✕ quitar filtro
             </button>
+          )}
+
+          {/* Recordatorio: entregas a producción sin rendimiento cargado */}
+          {pendientesRind > 0 && (
+            <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
+              style={{ backgroundColor: colors.warning + '14', border: `1px solid ${colors.warning}40` }}>
+              <span className="text-lg">⚠️</span>
+              <span className="text-sm flex-1" style={{ color: colors.textPrimary }}>
+                <b>{pendientesRind}</b> entrega{pendientesRind !== 1 ? 's' : ''} a producción sin cargar cuánto rindió.
+                Completalas en la columna <b>Destino / Rendimiento</b> para no perder la trazabilidad.
+              </span>
+              {filtroMovMotivo !== 'Producción' && (
+                <button onClick={() => setFiltroMovMotivo('Producción')}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg flex-shrink-0"
+                  style={{ backgroundColor: colors.warning, color: '#1a1a1a' }}>
+                  Ver pendientes
+                </button>
+              )}
+            </div>
           )}
 
           {loadingMovs ? (

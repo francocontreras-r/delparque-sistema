@@ -25,8 +25,9 @@ import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, C
 const logoUrl = '/logo-byn.png'
 import {
   getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
-  dibujarKpi, dibujarSeccion, dibujarFirmas,
-  PDF_CONTENT_Y, PDF_PIE_H, PDF_NEGRO, PDF_GRIS_OSC, LOGO_PDF,
+  dibujarKpi, dibujarKpiCard, dibujarSeccion, dibujarFirmas,
+  PDF_CONTENT_Y, PDF_PIE_H, PDF_NEGRO, PDF_GRIS_OSC, PDF_BLANCO,
+  PDF_SEM_NEG, PDF_SEM_CRIT, PDF_SEM_OK, LOGO_PDF,
 } from '../lib/pdfEstilos'
 
 const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
@@ -949,7 +950,7 @@ export default function Deposito() {
   const [filtroMes, setFiltroMes]       = useState(0)
   const [filtroAnio, setFiltroAnio]     = useState(0)
   const [filtroDestino, setFiltroDestino] = useState('Todos')
-  const [informeVista, setInformeVista] = useState('proveedores')
+  const [informeVista, setInformeVista] = useState('egresos')
   const [informeMes, setInformeMes]     = useState(0)
   const [informeAnio, setInformeAnio]   = useState(0)
   const [editInsumo, setEditInsumo]     = useState(null)
@@ -1525,6 +1526,51 @@ export default function Deposito() {
     })
     return Object.values(grupos).sort((a, b) => b.total - a.total)
   }, [movsInforme])
+
+  // ── Informe ejecutivo de egresos (valorizado en $) ────────────────────────
+  const egresosEjecutivo = useMemo(() => {
+    const costo = {}
+    insumos.forEach(i => { costo[(i.nombre || '').trim().toLowerCase()] = i.costo_unitario || 0 })
+    const valorDe = m => (Number(m.cantidad) || 0) * (costo[(m.producto_nombre || '').trim().toLowerCase()] || 0)
+    const sinCosto = m => !(costo[(m.producto_nombre || '').trim().toLowerCase()] > 0)
+    const egr = movsInforme.filter(m => m.tipo === 'egreso')
+    const totalVal = egr.reduce((a, m) => a + valorDe(m), 0)
+
+    const PROD = new Set(['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones', 'Panadería'])
+    const bucketDe = m => PROD.has(m.destino) ? 'Producción' : (m.destino === 'Venta' ? 'Venta' : (m.destino === 'Uso interno' ? 'Uso interno' : 'Otro'))
+    const BUCKETS = [
+      { k: 'Producción', color: colors.success }, { k: 'Venta', color: colors.info },
+      { k: 'Uso interno', color: colors.warning }, { k: 'Otro', color: colors.danger },
+    ]
+    const bd = {}
+    egr.forEach(m => { const b = bucketDe(m); if (!bd[b]) bd[b] = { n: 0, val: 0 }; bd[b].n++; bd[b].val += valorDe(m) })
+    const prodVal = bd['Producción']?.val || 0
+    const pctProd = totalVal > 0 ? Math.round(prodVal / totalVal * 100) : 0
+    const noProdVal = (bd['Uso interno']?.val || 0) + (bd['Otro']?.val || 0)
+    const destinos = BUCKETS.filter(b => bd[b.k]).map(b => ({ ...b, ...bd[b.k], pct: totalVal > 0 ? Math.round(bd[b.k].val / totalVal * 100) : 0 }))
+
+    const pp = {}
+    egr.forEach(m => { const k = m.producto_nombre || '—'; if (!pp[k]) pp[k] = { nombre: k, cant: 0, val: 0, dest: {} }; pp[k].cant += Number(m.cantidad) || 0; pp[k].val += valorDe(m); pp[k].dest[m.destino || '—'] = (pp[k].dest[m.destino || '—'] || 0) + 1 })
+    const topProd = Object.values(pp).sort((a, b) => b.val - a.val).slice(0, 8)
+      .map(p => ({ ...p, destPpal: Object.entries(p.dest).sort((a, b) => b[1] - a[1])[0]?.[0] || '—' }))
+
+    const pr = {}
+    egr.forEach(m => { const k = m.operario_recibe || 'Sin asignar'; if (!pr[k]) pr[k] = { k, n: 0, val: 0 }; pr[k].n++; pr[k].val += valorDe(m) })
+    const topRet = Object.values(pr).sort((a, b) => b.val - a.val)
+
+    const aOtro = egr.filter(m => m.destino === 'Otro')
+    const aAjuste = egr.filter(m => /ajuste de inventario/i.test(m.motivo || '') || /ajuste de inventario/i.test(m.observaciones || ''))
+    const aSinCosto = egr.filter(sinCosto)
+
+    return {
+      egr, totalVal, pctProd, noProdVal, destinos, topProd, topRet,
+      alertas: {
+        otro: { n: aOtro.length, val: aOtro.reduce((a, m) => a + valorDe(m), 0), items: aOtro },
+        ajuste: { n: aAjuste.length, val: aAjuste.reduce((a, m) => a + valorDe(m), 0), items: aAjuste },
+        sinCosto: { n: aSinCosto.length, items: aSinCosto },
+      },
+    }
+  }, [movsInforme, insumos])
 
   // ── Control Semanal — cálculos ────────────────────────────────────────────
   const rangoCS = useMemo(() => {
@@ -2226,15 +2272,21 @@ export default function Deposito() {
     const TIT = 'TRAZABILIDAD — EGRESOS'
     const EST = getEstiloInforme()
 
+    // Costo por producto para valorizar el egreso en $
+    const costo = {}
+    insumos.forEach(i => { costo[(i.nombre || '').trim().toLowerCase()] = i.costo_unitario || 0 })
+    const valorDe = e => (Number(e.cantidad) || 0) * (costo[(e.producto_nombre || '').trim().toLowerCase()] || 0)
+
     autoTable(doc, {
       ...EST, styles: { ...EST.styles, fontSize: 7 },
       startY: PDF_CONTENT_Y,
-      head: [['Fecha', 'Producto', 'Marca', 'Presentación', 'Cant.', 'Lote', 'Venc.', 'Controló', 'Observ.', 'Destino']],
+      head: [['Fecha', 'Producto', 'Marca', 'Cant.', 'Lote', 'Retira', 'Controló', 'Observ.', 'Destino', 'Valor $']],
       body: egresos.map(e => [
-        formatFechaMov(e), e.producto_nombre || '', e.marca || '', e.presentacion || '',
-        `${e.cantidad ?? ''} ${e.unidad || ''}`.trim(), e.lote || '', e.fecha_vencimiento || '',
-        e.controlo || '', e.observaciones || '', e.destino || '',
+        formatFechaMov(e), e.producto_nombre || '', e.marca || '',
+        `${e.cantidad ?? ''} ${e.unidad || ''}`.trim(), e.lote || '', e.operario_recibe || '',
+        e.controlo || '', e.observaciones || '', e.destino || '', `$${pesos(valorDe(e))}`,
       ]),
+      columnStyles: { 9: { halign: 'right' } },
       didDrawPage: () => {
         dibujarEncabezado(doc, pw, MOD, TIT, hoy)
         dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
@@ -2269,6 +2321,7 @@ export default function Deposito() {
     try {
       if (informeVista === 'proveedores') await _pdfProveedores()
       else if (informeVista === 'destinos') await _pdfDestinos()
+      else if (informeVista === 'egresos') await _pdfEgresosEjecutivo()
       else await _pdfOperarios()
     } finally {
       setGenerandoPDFInforme(false)
@@ -2380,6 +2433,110 @@ export default function Deposito() {
     // Firmas (al final del contenido; salta de hoja solo si no entran)
     dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, MOD, hoy, ['Responsable de Depósito', 'Gerencia', 'Fecha'])
     doc.save(`destino_mercaderia_${new Date().toISOString().split('T')[0]}.pdf`)
+  }
+
+  // ── Informe Ejecutivo de Egresos (para presentar a los dueños) ──────────────
+  async function _pdfEgresosEjecutivo() {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    const pw = doc.internal.pageSize.getWidth()
+    const ph = doc.internal.pageSize.getHeight()
+    const hoy = new Date().toLocaleString('es-AR')
+    const periodo = _periodoLabel()
+    const MOD = 'DEPÓSITO'
+    const EST = getEstiloInforme()
+    const didDP = tit => () => { dibujarEncabezado(doc, pw, MOD, tit, hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber) }
+
+    // Costo por producto (para valorizar en $)
+    const costo = {}
+    insumos.forEach(i => { costo[(i.nombre || '').trim().toLowerCase()] = i.costo_unitario || 0 })
+    const valorDe = m => (Number(m.cantidad) || 0) * (costo[(m.producto_nombre || '').trim().toLowerCase()] || 0)
+    const sinCosto = m => !(costo[(m.producto_nombre || '').trim().toLowerCase()] > 0)
+
+    const egr = movsInforme.filter(m => m.tipo === 'egreso')
+    const totalVal = egr.reduce((a, m) => a + valorDe(m), 0)
+
+    const PROD = new Set(['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones', 'Panadería'])
+    const bucketDe = m => PROD.has(m.destino) ? 'Producción' : (m.destino === 'Venta' ? 'Venta' : (m.destino === 'Uso interno' ? 'Uso interno' : 'Otro'))
+    const BUCKETS = [
+      { k: 'Producción', col: PDF_SEM_OK }, { k: 'Venta', col: [59, 130, 246] },
+      { k: 'Uso interno', col: PDF_SEM_CRIT }, { k: 'Otro', col: PDF_SEM_NEG },
+    ]
+    const bd = {}
+    egr.forEach(m => { const b = bucketDe(m); if (!bd[b]) bd[b] = { n: 0, val: 0 }; bd[b].n++; bd[b].val += valorDe(m) })
+    const prodVal = bd['Producción']?.val || 0
+    const pctProd = totalVal > 0 ? Math.round(prodVal / totalVal * 100) : 0
+    const noProdVal = (bd['Uso interno']?.val || 0) + (bd['Otro']?.val || 0)
+
+    const pp = {}
+    egr.forEach(m => { const k = m.producto_nombre || '—'; if (!pp[k]) pp[k] = { nombre: k, cant: 0, val: 0, dest: {} }; pp[k].cant += Number(m.cantidad) || 0; pp[k].val += valorDe(m); pp[k].dest[m.destino || '—'] = (pp[k].dest[m.destino || '—'] || 0) + 1 })
+    const topProd = Object.values(pp).sort((a, b) => b.val - a.val).slice(0, 10)
+
+    const pr = {}
+    egr.forEach(m => { const k = m.operario_recibe || 'Sin asignar'; if (!pr[k]) pr[k] = { k, n: 0, val: 0 }; pr[k].n++; pr[k].val += valorDe(m) })
+    const topRet = Object.values(pr).sort((a, b) => b.val - a.val)
+
+    const aOtro = egr.filter(m => m.destino === 'Otro')
+    const aAjuste = egr.filter(m => /ajuste de inventario/i.test(m.motivo || '') || /ajuste de inventario/i.test(m.observaciones || ''))
+    const aSinCosto = egr.filter(sinCosto)
+
+    // Portada
+    dibujarPortada(doc, pw, ph, MOD, 'Informe Ejecutivo de Egresos', periodo, hoy)
+
+    // Resumen
+    doc.addPage(); didDP('Resumen Ejecutivo')()
+    const cards = [
+      ['Total egresado', `$${pesos(totalVal)}`, PDF_SEM_NEG],
+      ['Movimientos', String(egr.length), PDF_NEGRO],
+      ['% Productivo', `${pctProd}%`, PDF_SEM_OK],
+      ['No productivo', `$${pesos(noProdVal)}`, PDF_SEM_CRIT],
+    ]
+    const gap = 4, cw = (pw - 28 - gap * 3) / 4, ch = 22, cy = PDF_CONTENT_Y - 2
+    cards.forEach((c, i) => dibujarKpiCard(doc, 14 + i * (cw + gap), cy, cw, ch, c[0], c[1], c[2]))
+    let y = cy + ch + 9
+
+    y = dibujarSeccion(doc, pw, 'Egresos por destino (a dónde se fue la plata)', y)
+    const totB = BUCKETS.reduce((a, b) => a + (bd[b.k]?.val || 0), 0) || 1
+    let bx = 14; const bw = pw - 28, bh = 7
+    BUCKETS.forEach(b => { const v = bd[b.k]?.val || 0; const w = v / totB * bw; if (w <= 0) return; doc.setFillColor(...b.col); doc.rect(bx, y, w, bh, 'F'); if (w > 8) { doc.setTextColor(...PDF_BLANCO); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.text(`${Math.round(v / totB * 100)}%`, bx + w / 2, y + bh / 2 + 1.4, { align: 'center' }) } bx += w })
+    y += bh + 5
+    autoTable(doc, { ...EST, startY: y, head: [['Destino', 'Movimientos', 'Valor $', '% del total']], body: BUCKETS.filter(b => bd[b.k]).map(b => [b.k, String(bd[b.k].n), `$${pesos(bd[b.k].val)}`, `${Math.round((bd[b.k].val / totB) * 100)}%`]), columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } }, didDrawPage: didDP('Resumen Ejecutivo') })
+    y = doc.lastAutoTable.finalY + 8
+
+    if (y > ph - 60) { doc.addPage(); didDP('Resumen Ejecutivo')(); y = PDF_CONTENT_Y }
+    y = dibujarSeccion(doc, pw, 'Top productos por valor egresado', y)
+    autoTable(doc, { ...EST, startY: y, head: [['Producto', 'Cantidad', 'Destino principal', 'Valor $']], body: topProd.map(p => { const dp = Object.entries(p.dest).sort((a, b) => b[1] - a[1])[0]?.[0] || '—'; return [p.nombre, p.cant.toLocaleString('es-AR', { maximumFractionDigits: 1 }), dp, `$${pesos(p.val)}`] }), columnStyles: { 1: { halign: 'right' }, 3: { halign: 'right' } }, didDrawPage: didDP('Resumen Ejecutivo') })
+    y = doc.lastAutoTable.finalY + 8
+
+    if (y > ph - 50) { doc.addPage(); didDP('Resumen Ejecutivo')(); y = PDF_CONTENT_Y }
+    y = dibujarSeccion(doc, pw, 'Quién retira (responsable del egreso)', y)
+    autoTable(doc, { ...EST, startY: y, head: [['Retira / Solicita', 'Movimientos', 'Valor $']], body: topRet.map(r => [r.k, String(r.n), `$${pesos(r.val)}`]), columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } }, didDrawPage: didDP('Resumen Ejecutivo') })
+
+    // Alertas
+    doc.addPage(); didDP('Alertas de Control')()
+    y = dibujarSeccion(doc, pw, 'Alertas de control', PDF_CONTENT_Y)
+    const tint = c => [Math.round(c[0] + (255 - c[0]) * 0.86), Math.round(c[1] + (255 - c[1]) * 0.86), Math.round(c[2] + (255 - c[2]) * 0.86)]
+    const alerta = (col, titulo, detalle) => {
+      if (y > ph - 24) { doc.addPage(); didDP('Alertas de Control')(); y = PDF_CONTENT_Y }
+      doc.setFillColor(...tint(col)); doc.setDrawColor(...col); doc.setLineWidth(0.3); doc.rect(14, y, pw - 28, 11, 'FD')
+      doc.setFillColor(...col); doc.rect(14, y, 1.6, 11, 'F')
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...col); doc.text(titulo, 18, y + 4.6)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(70, 70, 70); doc.text(doc.splitTextToSize(detalle, pw - 36)[0] || '', 18, y + 8.6)
+      y += 14
+    }
+    if (aOtro.length) alerta(PDF_SEM_NEG, `${aOtro.length} egreso(s) a destino "Otro"  —  $${pesos(aOtro.reduce((a, m) => a + valorDe(m), 0))}`, aOtro.slice(0, 4).map(m => `${m.producto_nombre} (${m.operario_recibe || 's/retira'})`).join(' · ') || 'Revisar justificación')
+    if (aAjuste.length) alerta(PDF_SEM_CRIT, `${aAjuste.length} ajuste(s) de inventario  —  $${pesos(aAjuste.reduce((a, m) => a + valorDe(m), 0))}`, 'Los ajustes pueden ocultar faltantes: conviene revisar producto y responsable de cada uno.')
+    if (aSinCosto.length) alerta(PDF_SEM_CRIT, `${aSinCosto.length} egreso(s) SIN costo cargado`, 'Esos productos no tienen costo en Depósito, su valor se cuenta como $0. Cargá el costo unitario para valorizar bien.')
+    if (!aOtro.length && !aAjuste.length && !aSinCosto.length) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...PDF_SEM_OK)
+      doc.text('Sin alertas en el período: todos los egresos tienen destino productivo y costo cargado.', 14, y + 4)
+    }
+
+    // Detalle
+    doc.addPage(); didDP('Detalle de Egresos')()
+    autoTable(doc, { ...EST, styles: { ...EST.styles, fontSize: 7 }, startY: PDF_CONTENT_Y, head: [['Fecha', 'Producto', 'Cant.', 'Retira', 'Destino', 'Valor $']], body: egr.map(m => [formatFechaMov(m), m.producto_nombre || '—', `${m.cantidad ?? ''} ${m.unidad || ''}`.trim(), m.operario_recibe || '—', m.destino || '—', `$${pesos(valorDe(m))}`]), columnStyles: { 2: { halign: 'right' }, 5: { halign: 'right' } }, didDrawPage: didDP('Detalle de Egresos') })
+
+    dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, MOD, hoy, ['Responsable de Depósito', 'Gerencia'])
+    doc.save(`egresos_ejecutivo_${new Date().toISOString().split('T')[0]}.pdf`)
   }
 
   async function _pdfOperarios() {
@@ -2832,6 +2989,7 @@ export default function Deposito() {
               <div className="flex gap-2 flex-wrap items-center">
                 <div className="flex gap-1.5 flex-wrap">
                   {[
+                    { key: 'egresos', label: 'Egresos (ejecutivo)' },
                     { key: 'proveedores', label: 'Compras por proveedor' },
                     { key: 'destinos', label: 'Destino de mercadería' },
                     { key: 'operarios', label: 'Entregas por operario' },
@@ -2865,6 +3023,115 @@ export default function Deposito() {
                   </div>
                 </div>
               </div>
+
+              {informeVista === 'egresos' && (
+                egresosEjecutivo.egr.length === 0 ? (
+                  <EmptyState icon={Warehouse} title="Sin egresos en este período" />
+                ) : (
+                  <div className="space-y-4">
+                    {/* KPIs */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                      <KpiCard label="Total egresado" value={`$${pesos(egresosEjecutivo.totalVal)}`} icon={DollarSign} color={colors.danger} sub="valorizado a costo" />
+                      <KpiCard label="Movimientos" value={egresosEjecutivo.egr.length} icon={ArrowDown} color={colors.textSecondary} />
+                      <KpiCard label="% Productivo" value={`${egresosEjecutivo.pctProd}%`} icon={TrendingUp} color={colors.success} sub="a producción" />
+                      <KpiCard label="No productivo" value={`$${pesos(egresosEjecutivo.noProdVal)}`} icon={AlertTriangle} color={colors.warning} sub="uso interno + otro" />
+                    </div>
+
+                    {/* Egresos por destino */}
+                    <div className="p-4" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                      <div className="text-xs font-bold uppercase tracking-wide mb-3" style={{ color: colors.textSecondary }}>Egresos por destino (a dónde se fue la plata)</div>
+                      <div className="flex w-full h-6 rounded overflow-hidden mb-3">
+                        {egresosEjecutivo.destinos.map(d => (
+                          d.pct > 0 ? <div key={d.k} title={`${d.k}: $${pesos(d.val)}`} className="flex items-center justify-center text-[10px] font-bold text-white" style={{ width: `${d.pct}%`, backgroundColor: d.color }}>{d.pct >= 7 ? `${d.pct}%` : ''}</div> : null
+                        ))}
+                      </div>
+                      <div className="space-y-1.5">
+                        {egresosEjecutivo.destinos.map(d => (
+                          <div key={d.k} className="flex items-center text-sm">
+                            <span className="inline-block w-3 h-3 rounded-sm mr-2 flex-shrink-0" style={{ backgroundColor: d.color }} />
+                            <span className="flex-1" style={{ color: colors.text }}>{d.k}</span>
+                            <span className="text-xs mr-4" style={{ color: colors.textMuted }}>{d.n} mov.</span>
+                            <span className="font-bold" style={{ color: colors.text }}>${pesos(d.val)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Alertas de control */}
+                    {(egresosEjecutivo.alertas.otro.n > 0 || egresosEjecutivo.alertas.ajuste.n > 0 || egresosEjecutivo.alertas.sinCosto.n > 0) && (
+                      <div className="space-y-2">
+                        {egresosEjecutivo.alertas.otro.n > 0 && (
+                          <div className="flex items-start gap-2 p-3 rounded-lg" style={{ backgroundColor: `${colors.danger}1A`, border: `1px solid ${colors.danger}` }}>
+                            <AlertTriangle size={16} style={{ color: colors.danger }} className="mt-0.5 flex-shrink-0" />
+                            <div className="text-sm" style={{ color: colors.text }}>
+                              <b style={{ color: colors.danger }}>{egresosEjecutivo.alertas.otro.n} egreso(s) a destino "Otro" — ${pesos(egresosEjecutivo.alertas.otro.val)}.</b>{' '}
+                              <span style={{ color: colors.textSecondary }}>{egresosEjecutivo.alertas.otro.items.slice(0, 4).map(m => `${m.producto_nombre} (${m.operario_recibe || 's/retira'})`).join(' · ')}</span>
+                            </div>
+                          </div>
+                        )}
+                        {egresosEjecutivo.alertas.ajuste.n > 0 && (
+                          <div className="flex items-start gap-2 p-3 rounded-lg" style={{ backgroundColor: `${colors.warning}1A`, border: `1px solid ${colors.warning}` }}>
+                            <AlertTriangle size={16} style={{ color: colors.warning }} className="mt-0.5 flex-shrink-0" />
+                            <div className="text-sm" style={{ color: colors.text }}>
+                              <b style={{ color: colors.warning }}>{egresosEjecutivo.alertas.ajuste.n} ajuste(s) de inventario — ${pesos(egresosEjecutivo.alertas.ajuste.val)}.</b>{' '}
+                              <span style={{ color: colors.textSecondary }}>Los ajustes pueden ocultar faltantes: conviene revisar producto y responsable de cada uno.</span>
+                            </div>
+                          </div>
+                        )}
+                        {egresosEjecutivo.alertas.sinCosto.n > 0 && (
+                          <div className="flex items-start gap-2 p-3 rounded-lg" style={{ backgroundColor: `${colors.warning}1A`, border: `1px solid ${colors.warning}` }}>
+                            <AlertTriangle size={16} style={{ color: colors.warning }} className="mt-0.5 flex-shrink-0" />
+                            <div className="text-sm" style={{ color: colors.text }}>
+                              <b style={{ color: colors.warning }}>{egresosEjecutivo.alertas.sinCosto.n} egreso(s) sin costo cargado.</b>{' '}
+                              <span style={{ color: colors.textSecondary }}>Su valor se cuenta como $0. Cargá el costo unitario para valorizar bien.</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="grid lg:grid-cols-2 gap-4">
+                      {/* Top productos */}
+                      <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                        <div className="px-4 py-2.5" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                          <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Top productos por valor egresado</span>
+                        </div>
+                        <Table>
+                          <Thead><Tr><Th>Producto</Th><Th>Destino</Th><Th>Valor $</Th></Tr></Thead>
+                          <Tbody>
+                            {egresosEjecutivo.topProd.map(p => (
+                              <Tr key={p.nombre}>
+                                <Td className="font-medium">{p.nombre}</Td>
+                                <Td><Badge variant="info">{p.destPpal}</Badge></Td>
+                                <Td className="font-bold text-right">${pesos(p.val)}</Td>
+                              </Tr>
+                            ))}
+                          </Tbody>
+                        </Table>
+                      </div>
+
+                      {/* Quién retira */}
+                      <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                        <div className="px-4 py-2.5" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                          <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Quién retira (responsable del egreso)</span>
+                        </div>
+                        <Table>
+                          <Thead><Tr><Th>Retira / Solicita</Th><Th>Mov.</Th><Th>Valor $</Th></Tr></Thead>
+                          <Tbody>
+                            {egresosEjecutivo.topRet.map(r => (
+                              <Tr key={r.k}>
+                                <Td className="font-medium">{r.k}</Td>
+                                <Td className="text-right">{r.n}</Td>
+                                <Td className="font-bold text-right">${pesos(r.val)}</Td>
+                              </Tr>
+                            ))}
+                          </Tbody>
+                        </Table>
+                      </div>
+                    </div>
+                  </div>
+                )
+              )}
 
               {informeVista === 'proveedores' && (
                 comprasPorProveedor.length === 0 ? (

@@ -4,12 +4,12 @@
 // vacíos simplemente no se muestran (no rompen el diseño).
 // ─────────────────────────────────────────────────────────────────────────────
 export const DATOS_EMPRESA = {
-  nombre:       'Del Parque',   // nombre de fantasía
-  razonSocial:  '',             // ej: 'Heladería Del Parque S.R.L.'
-  cuit:         '',             // ej: '30-12345678-9'
-  domicilio:    '',             // ej: 'Av. San Martín 123'
-  localidad:    '',             // ej: 'Mendoza, Argentina'
-  condicionIva: '',             // ej: 'Responsable Inscripto'
-  telefono:     '',             // ej: '+54 261 555-5555'
-  email:        '',             // ej: 'ventas@delparque.com'
+  nombre:       'Del Parque',                         // nombre de fantasía
+  razonSocial:  'Helados del Parque S.A.S.',
+  cuit:         '30-71845028-0',
+  domicilio:    'Av. Ignacio de la Roza Oeste 1294',
+  localidad:    'San Juan (5400), Argentina',
+  condicionIva: 'Responsable Inscripto',
+  telefono:     '',                                   // completar si querés que aparezca
+  email:        '',                                   // completar si querés que aparezca
 }

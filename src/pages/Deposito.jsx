@@ -1613,6 +1613,27 @@ export default function Deposito() {
     return { ...costearProduccion(movs, { ...recetasCosteo, insumos }), nMovs: movs.length }
   }, [recetasCosteo, insumos, informeMes, informeAnio]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Distribución REAL: producción = MP calculada por receta (no lo registrado) ─
+  // El consumo de producción se toma del backflush (real); el resto son egresos
+  // registrados no productivos. Los ajustes y el egreso registrado a producción
+  // se omiten acá porque ya están contenidos en el cálculo por receta.
+  const egresosReal = useMemo(() => {
+    const get = k => egresosEjecutivo.destinos.find(d => d.k === k)?.val || 0
+    const buckets = [
+      { k: 'Producción (calculada)', val: costeoProd.total, color: colors.success },
+      { k: 'Venta', val: get('Venta'), color: colors.info },
+      { k: 'Uso interno', val: get('Uso interno'), color: colors.warning },
+      { k: 'Otro', val: get('Otro'), color: colors.danger },
+    ].filter(b => b.val > 0)
+    const total = buckets.reduce((a, b) => a + b.val, 0)
+    const noProd = get('Venta') * 0 + (get('Uso interno') + get('Otro'))
+    return {
+      buckets: buckets.map(b => ({ ...b, pct: total > 0 ? Math.round(b.val / total * 100) : 0 })),
+      total, noProd, pctProd: total > 0 ? Math.round(costeoProd.total / total * 100) : 0,
+      incompleto: (costeoProd.sinReceta.length > 0 || costeoProd.sinCosto.length > 0),
+    }
+  }, [egresosEjecutivo, costeoProd])
+
   // ── Control Semanal — cálculos ────────────────────────────────────────────
   const rangoCS = useMemo(() => {
     const hoy = new Date()
@@ -2495,19 +2516,11 @@ export default function Deposito() {
     const esAjuste = m => /ajuste de inventario/i.test(m.motivo || '') || /ajuste de inventario/i.test(m.observaciones || '')
 
     const egr = movsInforme.filter(m => m.tipo === 'egreso')
-    const totalVal = egr.reduce((a, m) => a + valorDe(m), 0)
 
     const PROD = new Set(['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones', 'Panadería'])
     const bucketDe = m => esAjuste(m) ? 'Ajuste' : PROD.has(m.destino) ? 'Producción' : (m.destino === 'Venta' ? 'Venta' : (m.destino === 'Uso interno' ? 'Uso interno' : 'Otro'))
-    const BUCKETS = [
-      { k: 'Producción', col: PDF_SEM_OK }, { k: 'Venta', col: [59, 130, 246] },
-      { k: 'Ajuste', col: [167, 139, 250] }, { k: 'Uso interno', col: PDF_SEM_CRIT }, { k: 'Otro', col: PDF_SEM_NEG },
-    ]
     const bd = {}
     egr.forEach(m => { const b = bucketDe(m); if (!bd[b]) bd[b] = { n: 0, val: 0 }; bd[b].n++; bd[b].val += valorDe(m) })
-    const prodVal = bd['Producción']?.val || 0
-    const pctProd = totalVal > 0 ? Math.round(prodVal / totalVal * 100) : 0
-    const noProdVal = (bd['Uso interno']?.val || 0) + (bd['Otro']?.val || 0)
 
     const pp = {}
     egr.forEach(m => { const k = m.producto_nombre || '—'; if (!pp[k]) pp[k] = { nombre: k, cant: 0, val: 0, dest: {} }; pp[k].cant += Number(m.cantidad) || 0; pp[k].val += valorDe(m); pp[k].dest[m.destino || '—'] = (pp[k].dest[m.destino || '—'] || 0) + 1 })
@@ -2525,24 +2538,42 @@ export default function Deposito() {
     // Portada
     dibujarPortada(doc, pw, ph, MOD, 'Informe Ejecutivo de Egresos', periodo, hoy)
 
+    // Distribución REAL: producción = MP calculada por receta (no lo registrado)
+    const regGet = k => bd[k]?.val || 0
+    const realBuckets = [
+      { k: 'Producción (calculada por receta)', val: costeoProd.total, col: PDF_SEM_OK },
+      { k: 'Venta', val: regGet('Venta'), col: [59, 130, 246] },
+      { k: 'Uso interno', val: regGet('Uso interno'), col: PDF_SEM_CRIT },
+      { k: 'Otro', val: regGet('Otro'), col: PDF_SEM_NEG },
+    ].filter(b => b.val > 0)
+    const realTotal = realBuckets.reduce((a, b) => a + b.val, 0)
+    const realPctProd = realTotal > 0 ? Math.round(costeoProd.total / realTotal * 100) : 0
+    const realNoProd = regGet('Uso interno') + regGet('Otro')
+
     // Resumen
     doc.addPage(); didDP('Resumen Ejecutivo')()
     const cards = [
-      ['Total egresado', `$${pesos(totalVal)}`, PDF_SEM_NEG],
-      ['Movimientos', String(egr.length), PDF_NEGRO],
-      ['% Productivo', `${pctProd}%`, PDF_SEM_OK],
-      ['No productivo', `$${pesos(noProdVal)}`, PDF_SEM_CRIT],
+      ['Total a costo (real)', `$${pesos(realTotal)}`, PDF_SEM_NEG],
+      ['Producción (receta)', `$${pesos(costeoProd.total)}`, PDF_SEM_OK],
+      ['% Productivo', `${realPctProd}%`, PDF_SEM_OK],
+      ['No productivo', `$${pesos(realNoProd)}`, PDF_SEM_CRIT],
     ]
     const gap = 4, cw = (pw - 28 - gap * 3) / 4, ch = 22, cy = PDF_CONTENT_Y - 2
     cards.forEach((c, i) => dibujarKpiCard(doc, 14 + i * (cw + gap), cy, cw, ch, c[0], c[1], c[2]))
     let y = cy + ch + 9
 
-    y = dibujarSeccion(doc, pw, 'Egresos por destino (a dónde se fue la plata)', y)
-    const totB = BUCKETS.reduce((a, b) => a + (bd[b.k]?.val || 0), 0) || 1
+    if (costeoProd.sinReceta.length || costeoProd.sinCosto.length) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...PDF_SEM_CRIT)
+      doc.text('La produccion esta INCOMPLETA: hay productos sin receta / insumos sin costo (ver pagina de MP). El costo real es mayor.', 14, y)
+      y += 6
+    }
+
+    y = dibujarSeccion(doc, pw, 'A dónde se fue la plata (producción por receta + egresos registrados)', y)
+    const totB = realTotal || 1
     let bx = 14; const bw = pw - 28, bh = 7
-    BUCKETS.forEach(b => { const v = bd[b.k]?.val || 0; const w = v / totB * bw; if (w <= 0) return; doc.setFillColor(...b.col); doc.rect(bx, y, w, bh, 'F'); if (w > 8) { doc.setTextColor(...PDF_BLANCO); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.text(`${Math.round(v / totB * 100)}%`, bx + w / 2, y + bh / 2 + 1.4, { align: 'center' }) } bx += w })
+    realBuckets.forEach(b => { const w = b.val / totB * bw; if (w <= 0) return; doc.setFillColor(...b.col); doc.rect(bx, y, w, bh, 'F'); if (w > 8) { doc.setTextColor(...PDF_BLANCO); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.text(`${Math.round(b.val / totB * 100)}%`, bx + w / 2, y + bh / 2 + 1.4, { align: 'center' }) } bx += w })
     y += bh + 5
-    autoTable(doc, { ...EST, startY: y, head: [['Destino', 'Movimientos', 'Valor $', '% del total']], body: BUCKETS.filter(b => bd[b.k]).map(b => [b.k, String(bd[b.k].n), `$${pesos(bd[b.k].val)}`, `${Math.round((bd[b.k].val / totB) * 100)}%`]), columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } }, didDrawPage: didDP('Resumen Ejecutivo') })
+    autoTable(doc, { ...EST, startY: y, head: [['Categoría', 'Valor $', '% del total']], body: realBuckets.map(b => [b.k, `$${pesos(b.val)}`, `${Math.round((b.val / totB) * 100)}%`]), columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } }, didDrawPage: didDP('Resumen Ejecutivo') })
     y = doc.lastAutoTable.finalY + 8
 
     if (y > ph - 60) { doc.addPage(); didDP('Resumen Ejecutivo')(); y = PDF_CONTENT_Y }
@@ -3125,13 +3156,19 @@ export default function Deposito() {
                   <EmptyState icon={Warehouse} title="Sin egresos en este período" />
                 ) : (
                   <div className="space-y-4">
-                    {/* KPIs */}
+                    {/* KPIs — producción tomada del cálculo por receta (real) */}
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                      <KpiCard label="Total egresado" value={`$${pesos(egresosEjecutivo.totalVal)}`} icon={DollarSign} color={colors.danger} sub="valorizado a costo" />
-                      <KpiCard label="Movimientos" value={egresosEjecutivo.egr.length} icon={ArrowDown} color={colors.textSecondary} />
-                      <KpiCard label="% Productivo" value={`${egresosEjecutivo.pctProd}%`} icon={TrendingUp} color={colors.success} sub="a producción" />
-                      <KpiCard label="No productivo" value={`$${pesos(egresosEjecutivo.noProdVal)}`} icon={AlertTriangle} color={colors.warning} sub="uso interno + otro" />
+                      <KpiCard label="Total a costo (real)" value={`$${pesos(egresosReal.total)}`} icon={DollarSign} color={colors.danger} sub="producción + otros egresos" />
+                      <KpiCard label="Producción (por receta)" value={`$${pesos(costeoProd.total)}`} icon={TrendingUp} color={colors.success} sub={egresosReal.incompleto ? '⚠ faltan recetas' : 'MP real consumida'} />
+                      <KpiCard label="% Productivo" value={`${egresosReal.pctProd}%`} icon={BarChart2} color={colors.success} sub="sobre el total real" />
+                      <KpiCard label="No productivo" value={`$${pesos(egresosReal.noProd)}`} icon={AlertTriangle} color={colors.warning} sub="uso interno + otro" />
                     </div>
+
+                    {egresosReal.incompleto && (
+                      <div className="p-3 rounded-lg text-sm" style={{ background: `${colors.warning}1A`, border: `1px solid ${colors.warning}`, color: colors.text }}>
+                        <b style={{ color: colors.warning }}>⚠ El monto de producción está incompleto.</b> Hay productos sin receta o insumos sin costo (ver detalle abajo). El costo real de producción es <b>mayor</b> al mostrado — cargá esas recetas/costos antes de presentarlo.
+                      </div>
+                    )}
 
                     {/* MP a producción calculada por receta (backflush) */}
                     <div className="p-4 rounded-lg" style={{ background: `${colors.success}12`, border: `1px solid ${colors.success}` }}>
@@ -3179,18 +3216,17 @@ export default function Deposito() {
 
                     {/* Egresos por destino */}
                     <div className="p-4" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
-                      <div className="text-xs font-bold uppercase tracking-wide mb-3" style={{ color: colors.textSecondary }}>Egresos por destino (a dónde se fue la plata)</div>
+                      <div className="text-xs font-bold uppercase tracking-wide mb-3" style={{ color: colors.textSecondary }}>A dónde se fue la plata (producción por receta + egresos registrados)</div>
                       <div className="flex w-full h-6 rounded overflow-hidden mb-3">
-                        {egresosEjecutivo.destinos.map(d => (
+                        {egresosReal.buckets.map(d => (
                           d.pct > 0 ? <div key={d.k} title={`${d.k}: $${pesos(d.val)}`} className="flex items-center justify-center text-[10px] font-bold text-white" style={{ width: `${d.pct}%`, backgroundColor: d.color }}>{d.pct >= 7 ? `${d.pct}%` : ''}</div> : null
                         ))}
                       </div>
                       <div className="space-y-1.5">
-                        {egresosEjecutivo.destinos.map(d => (
+                        {egresosReal.buckets.map(d => (
                           <div key={d.k} className="flex items-center text-sm">
                             <span className="inline-block w-3 h-3 rounded-sm mr-2 flex-shrink-0" style={{ backgroundColor: d.color }} />
                             <span className="flex-1" style={{ color: colors.text }}>{d.k}</span>
-                            <span className="text-xs mr-4" style={{ color: colors.textMuted }}>{d.n} mov.</span>
                             <span className="font-bold" style={{ color: colors.text }}>${pesos(d.val)}</span>
                           </div>
                         ))}

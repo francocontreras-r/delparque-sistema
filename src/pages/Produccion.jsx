@@ -77,7 +77,7 @@ function guardarPreCargaLS(lista) {
 }
 
 export default function Produccion() {
-  const { user } = useUser()
+  const { user, isAdmin } = useUser()
   const [operarios, setOperarios]     = useState([])
   const [productos, setProductos]     = useState([])
   const [registros, setRegistros]     = useState([])
@@ -686,9 +686,11 @@ export default function Produccion() {
           <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Producción</h1>
           <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Escaneo EAN-13 y carga manual · Lote {lote}</p>
         </div>
-        <Button variant="secondary" onClick={abrirInforme}>
-          <FileText size={15} /> Ver informe del día
-        </Button>
+        {isAdmin && (
+          <Button variant="secondary" onClick={abrirInforme}>
+            <FileText size={15} /> Ver informe del día
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

@@ -82,7 +82,7 @@ function fechaLarga() {
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const { profile, user } = useUser()
+  const { profile, user, tienePermiso } = useUser()
   const [loading, setLoading] = useState(true)
   const [producciones, setProducciones] = useState([])
   const [ordenesActivas, setOrdenesActivas] = useState([])
@@ -344,11 +344,11 @@ export default function Dashboard() {
       {/* Acciones rápidas */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { icon: Plus,         label: 'Nueva orden',          to: '/ordenes' },
-          { icon: Factory,      label: 'Registrar producción', to: '/produccion' },
-          { icon: Warehouse,    label: 'Depósito',             to: '/deposito' },
-          { icon: FileText,     label: 'Informes',             to: '/informes' },
-        ].map(a => (
+          { icon: Plus,         label: 'Nueva orden',          to: '/ordenes',    modulo: 'ordenes' },
+          { icon: Factory,      label: 'Registrar producción', to: '/produccion', modulo: 'produccion' },
+          { icon: Warehouse,    label: 'Depósito',             to: '/deposito',   modulo: 'deposito' },
+          { icon: FileText,     label: 'Informes',             to: '/informes',   modulo: 'informes' },
+        ].filter(a => tienePermiso(a.modulo)).map(a => (
           <button key={a.to} onClick={() => navigate(a.to)}
             className="flex items-center gap-2.5 px-4 py-3 transition-colors hover:bg-[#334155]/40"
             style={SURFACE}>

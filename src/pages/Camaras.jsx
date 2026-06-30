@@ -1830,10 +1830,12 @@ export default function Camaras() {
           <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Stock de producto elaborado · tiempo real</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={imprimir} disabled={loading || !!errorCarga}>
-            <Printer size={15} /> Imprimir
-          </Button>
-          {userRole === 'admin' && (
+          {isAdmin && (
+            <Button variant="secondary" onClick={imprimir} disabled={loading || !!errorCarga}>
+              <Printer size={15} /> Imprimir
+            </Button>
+          )}
+          {isAdmin && (
             <Button variant="secondary" onClick={generarPDFStockActual} disabled={loading || !!errorCarga}>
               <FileDown size={15} /> Stock Actual
             </Button>
@@ -1913,6 +1915,7 @@ export default function Camaras() {
                 <option value="postre">Postres</option>
               </select>
             </div>
+            {isAdmin && (
             <div className="flex gap-2">
               <button
                 onClick={exportarMovimientosCSV}
@@ -1931,6 +1934,7 @@ export default function Camaras() {
                 <FileDown size={14} /> PDF
               </button>
             </div>
+            )}
           </div>
 
           {/* Resumen interactivo por destino del egreso (clic para filtrar) */}
@@ -2316,9 +2320,11 @@ export default function Camaras() {
                   style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.surface }}
                 />
               </div>
-              <Button variant="secondary" size="sm" onClick={exportarTemperaturasPDF} disabled={temperaturas.length === 0}>
-                <FileDown size={14} /> Exportar PDF (Salud Pública)
-              </Button>
+              {isAdmin && (
+                <Button variant="secondary" size="sm" onClick={exportarTemperaturasPDF} disabled={temperaturas.length === 0}>
+                  <FileDown size={14} /> Exportar PDF (Salud Pública)
+                </Button>
+              )}
             </div>
 
             {/* Historial */}

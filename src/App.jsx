@@ -62,6 +62,14 @@ function AdminRoute({ children }) {
   return isAdmin ? children : <Navigate to="/produccion" replace />
 }
 
+// Guarda genérica por módulo: cierra el acceso por URL a quien no tiene el
+// permiso (el menú ya los oculta, pero la ruta quedaba abierta).
+function ModuloRoute({ modulo, children }) {
+  const { tienePermiso, loading } = useUser()
+  if (loading) return <PageSpinner />
+  return tienePermiso(modulo) ? children : <Navigate to="/produccion" replace />
+}
+
 function InformesRoute({ children }) {
   const { tienePermiso, loading } = useUser()
   if (loading) return <PageSpinner />
@@ -84,11 +92,11 @@ function AppRoutes() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="produccion"   element={<Produccion />} />
-          <Route path="camaras"      element={<Suspense fallback={<PageSpinner />}><Camaras /></Suspense>} />
-          <Route path="deposito"     element={<Suspense fallback={<PageSpinner />}><Deposito /></Suspense>} />
-          <Route path="mermas"       element={<Suspense fallback={<PageSpinner />}><Mermas /></Suspense>} />
-          <Route path="ordenes"      element={<Suspense fallback={<PageSpinner />}><Ordenes /></Suspense>} />
-          <Route path="recetas"      element={<Suspense fallback={<PageSpinner />}><Recetas /></Suspense>} />
+          <Route path="camaras"      element={<ModuloRoute modulo="camaras"><Suspense fallback={<PageSpinner />}><Camaras /></Suspense></ModuloRoute>} />
+          <Route path="deposito"     element={<ModuloRoute modulo="deposito"><Suspense fallback={<PageSpinner />}><Deposito /></Suspense></ModuloRoute>} />
+          <Route path="mermas"       element={<ModuloRoute modulo="mermas"><Suspense fallback={<PageSpinner />}><Mermas /></Suspense></ModuloRoute>} />
+          <Route path="ordenes"      element={<ModuloRoute modulo="ordenes"><Suspense fallback={<PageSpinner />}><Ordenes /></Suspense></ModuloRoute>} />
+          <Route path="recetas"      element={<ModuloRoute modulo="recetas"><Suspense fallback={<PageSpinner />}><Recetas /></Suspense></ModuloRoute>} />
           <Route path="finanzas"     element={<AdminRoute><Suspense fallback={<PageSpinner />}><Finanzas /></Suspense></AdminRoute>} />
           <Route path="informes"     element={<InformesRoute><Suspense fallback={<PageSpinner />}><Informes /></Suspense></InformesRoute>} />
           <Route path="rendimiento-operarios" element={<RendimientoOperariosRoute><Suspense fallback={<PageSpinner />}><InformeOperarios /></Suspense></RendimientoOperariosRoute>} />

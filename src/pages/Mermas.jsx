@@ -10,6 +10,7 @@ import {
 import { useUser } from '../context/UserContext'
 import { deduplicarOperarios } from '../lib/operarios'
 import { POSTRES } from '../lib/postres'
+import { exportarCSV } from '../lib/exportar'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
@@ -482,6 +483,21 @@ export default function Mermas() {
           <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Tolerancia: &lt;3% verde · 3-8% amarillo · &gt;8% rojo</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => exportarCSV('mermas', [
+            { header: 'Fecha', get: m => m.fecha || '' },
+            { header: 'Orden', get: m => ordenNumero(m) },
+            { header: 'Producto', get: m => m.sabor_nombre || '' },
+            { header: 'Operario', get: m => m.operario_nombre || '' },
+            { header: 'Kg teórico', get: m => m.kg_teoricos ?? '' },
+            { header: 'Kg real', get: m => m.kg_reales ?? '' },
+            { header: 'Diferencia kg', get: m => (m.diferencia || 0).toFixed(2) },
+            { header: 'Unidades', get: m => m.unidades ?? '' },
+            { header: '% Merma', get: m => (m.porcentaje || 0).toFixed(1) },
+            { header: 'Costo $', get: m => Math.round(costoMerma(m)) },
+            { header: 'Causa', get: m => m.causa || '' },
+          ], mermas)} disabled={loading || mermas.length === 0}>
+            <FileDown size={15} /> Excel
+          </Button>
           <Button variant="secondary" onClick={generarPDF} loading={generandoPDF} disabled={loading || mermas.length === 0}>
             <FileDown size={15} /> Informe PDF
           </Button>

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown, FileDown, Plus, Trash2, ClipboardCheck } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { deduplicarOperarios } from '../lib/operarios'
+import { exportarCSV } from '../lib/exportar'
 import { useUser } from '../context/UserContext'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -1323,6 +1324,23 @@ export default function Camaras() {
     mostrarToast(ajustados === 0 ? 'Sin diferencias para ajustar' : `${ajustados} producto(s) ajustado(s)${faltantes > 0 ? ` · ${faltantes} faltante(s) a Mermas` : ''}`)
   }
 
+  function exportarMovimientosCSV() {
+    exportarCSV(`movimientos_camara_${filtroMovFecha || new Date().toISOString().split('T')[0]}`, [
+      { header: 'Fecha',     get: m => m.fecha || (m.created_at || '').slice(0, 10) },
+      { header: 'Hora',      get: m => m.created_at ? new Date(m.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '' },
+      { header: 'Producto',  get: m => m.sabor_nombre || m.producto_nombre || '' },
+      { header: 'Tipo',      get: m => m.tipo === 'ingreso' ? 'Ingreso' : 'Egreso' },
+      { header: 'KG',        get: m => (m.kg || 0).toFixed(2) },
+      { header: 'Cantidad',  get: m => m.baldes || 0 },
+      { header: 'Lote',      get: m => m.lote || '' },
+      { header: 'Operario',  get: m => m.operario_nombre || '' },
+      { header: 'Motivo',    get: m => categoriaMotivo(m.motivo) },
+      { header: 'Elaborado', get: m => productoElaboradoDe(m.motivo) || '' },
+      { header: 'Rindió',    get: m => m.rindio != null ? m.rindio : '' },
+      { header: 'Rend/balde', get: m => (m.rindio != null && (m.baldes || 0) > 0) ? (m.rindio / m.baldes).toFixed(1) : '' },
+    ], movimientos)
+  }
+
   function exportarMovimientosPDF() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const pw = doc.internal.pageSize.getWidth()
@@ -1895,14 +1913,24 @@ export default function Camaras() {
                 <option value="postre">Postres</option>
               </select>
             </div>
-            <button
-              onClick={exportarMovimientosPDF}
-              disabled={movimientos.length === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors"
-              style={{ borderColor: colors.border, color: colors.textSecondary, backgroundColor: colors.surface }}
-            >
-              <FileDown size={14} /> Exportar PDF
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={exportarMovimientosCSV}
+                disabled={movimientos.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-40"
+                style={{ borderColor: colors.border, color: colors.textSecondary, backgroundColor: colors.surface }}
+              >
+                <FileDown size={14} /> Excel
+              </button>
+              <button
+                onClick={exportarMovimientosPDF}
+                disabled={movimientos.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-40"
+                style={{ borderColor: colors.border, color: colors.textSecondary, backgroundColor: colors.surface }}
+              >
+                <FileDown size={14} /> PDF
+              </button>
+            </div>
           </div>
 
           {/* Resumen interactivo por destino del egreso (clic para filtrar) */}

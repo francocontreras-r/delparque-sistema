@@ -15,6 +15,7 @@ import Button from '../components/ui/Button'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
+import { exportarCSV } from '../lib/exportar'
 import {
   DollarSign, RefreshCw, Warehouse, Thermometer, Percent,
   TrendingUp, TrendingDown, Clock, FileDown, AlertTriangle,
@@ -681,9 +682,24 @@ export default function Finanzas() {
             </Button>
           )}
           {tab === 'Márgenes' && (
-            <Button variant="primary" onClick={generarPDFMargenes} loading={generandoPDF}>
-              <FileDown size={14} /> Exportar PDF
-            </Button>
+            <>
+              <Button variant="secondary" onClick={() => exportarCSV('rentabilidad', [
+                { header: 'Producto', get: p => p.nombre },
+                { header: 'Tipo', get: p => p.tipo || '' },
+                { header: 'Costo MP', get: p => Math.round(p.costo_materiales || 0) },
+                { header: 'Mano de obra', get: p => Math.round(p.mano_de_obra || 0) },
+                { header: 'Costo total', get: p => Math.round(p.costo_total || 0) },
+                { header: 'Precio venta', get: p => Math.round(p.precio_venta || 0) },
+                { header: 'Ganancia', get: p => Math.round(p.ganancia || 0) },
+                { header: 'Margen %', get: p => (p.margen || 0).toFixed(1) },
+                { header: 'Estado', get: p => nivelMargen(p.margen).label },
+              ], margenesSorted)} disabled={margenesSorted.length === 0}>
+                <FileDown size={14} /> Excel
+              </Button>
+              <Button variant="primary" onClick={generarPDFMargenes} loading={generandoPDF}>
+                <FileDown size={14} /> Exportar PDF
+              </Button>
+            </>
           )}
         </div>
       </div>

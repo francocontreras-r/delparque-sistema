@@ -4,14 +4,18 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import html2canvas from 'html2canvas'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { colors } from '../styles/design-system'
+import Spinner from '../components/ui/Spinner'
+import KpiCard from '../components/ui/KpiCard'
+import Button from '../components/ui/Button'
 import {
   getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
   dibujarKpi, dibujarSeccion, dibujarFirmas,
   PDF_CONTENT_Y, PDF_NEGRO, PDF_BLANCO,
 } from '../lib/pdfEstilos'
 
-const ACCENT = '#D4521A'
-const CARD = { background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '20px', marginBottom: '16px' }
+const ACCENT = colors.brand
+const CARD = { background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: '12px', padding: '20px', marginBottom: '16px' }
 const PERIODOS = [['semana', 'Semana'], ['mes', 'Mes'], ['trimestre', 'Trimestre']]
 const TABS = [['equipo', '👥 Equipo'], ['operario', '👤 Por Operario'], ['ranking', '🏆 Ranking'], ['pdf', '📄 Informe PDF']]
 
@@ -360,29 +364,25 @@ export default function InformeOperarios() {
   }
 
   if (loading) return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px', color: ACCENT, fontSize: '18px' }}>
-      Cargando rendimiento...
-    </div>
+    <div className="flex justify-center py-14"><Spinner size={28} /></div>
   )
   if (error) return (
-    <div style={{ padding: '24px', color: '#ef4444' }}>
-      <p>Error: {error}</p>
-      <button onClick={cargar} style={{ marginTop: '12px', padding: '8px 16px', background: ACCENT, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
-        Reintentar
-      </button>
+    <div className="p-6 rounded-xl" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}` }}>
+      <p style={{ color: colors.danger }}>Error: {error}</p>
+      <Button variant="primary" onClick={cargar} className="mt-3">Reintentar</Button>
     </div>
   )
 
   const opActual = datos.ranking.find(r => r.nombre === operarioSel) || null
 
   return (
-    <div style={{ padding: '24px', background: '#0f172a', minHeight: '100vh', color: '#f1f5f9' }}>
+    <div className="space-y-5" style={{ color: colors.textPrimary }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <h1 style={{ fontSize: '24px', fontWeight: '800', color: '#f1f5f9', margin: 0 }}>Rendimiento Operativo</h1>
-          <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>Análisis de productividad • Del Parque</p>
+          <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary, margin: 0 }}>Rendimiento Operativo</h1>
+          <p className="text-sm mt-0.5" style={{ color: colors.textMuted, margin: '2px 0 0' }}>Análisis de productividad · Del Parque</p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           {PERIODOS.map(([k, l]) => (
@@ -395,10 +395,10 @@ export default function InformeOperarios() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: '4px', marginBottom: '24px', borderBottom: '1px solid #334155' }}>
+      <div style={{ display: 'flex', gap: '4px', borderBottom: `1px solid ${colors.border}` }}>
         {TABS.map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
-            style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: tab === k ? '700' : '400', background: 'transparent', color: tab === k ? ACCENT : '#94a3b8', borderBottom: tab === k ? `2px solid ${ACCENT}` : '2px solid transparent' }}>
+            style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: tab === k ? '700' : '400', background: 'transparent', color: tab === k ? ACCENT : colors.textSecondary, borderBottom: tab === k ? `2px solid ${ACCENT}` : '2px solid transparent' }}>
             {l}
           </button>
         ))}
@@ -407,17 +407,14 @@ export default function InformeOperarios() {
       {/* ── TAB EQUIPO ── */}
       {tab === 'equipo' && (
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '12px', marginBottom: '24px' }}>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
             {[
-              { label: 'Operarios activos',    value: datos.operarios.length, color: '#3b82f6' },
-              { label: 'Órdenes completadas',  value: datos.ordenes.filter(o => o.estado === 'completada').length, color: '#10b981' },
+              { label: 'Operarios activos',    value: datos.operarios.length, color: colors.info },
+              { label: 'Órdenes completadas',  value: datos.ordenes.filter(o => o.estado === 'completada').length, color: colors.success },
               { label: 'Rendimiento promedio', value: (() => { const con = datos.ranking.filter(r => r.rendimiento !== null); return con.length > 0 ? Math.round(con.reduce((a, r) => a + r.rendimiento, 0) / con.length) + '%' : '—' })(), color: ACCENT },
-              { label: 'Mejor operario',       value: datos.ranking[0]?.nombre.split(' ')[0] || '—', color: '#fbbf24' },
+              { label: 'Mejor operario',       value: datos.ranking[0]?.nombre.split(' ')[0] || '—', color: colors.warning },
             ].map(k => (
-              <div key={k.label} style={{ ...CARD, marginBottom: 0, borderTop: `3px solid ${k.color}` }}>
-                <div style={{ fontSize: '26px', fontWeight: '800', color: k.color }}>{k.value}</div>
-                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{k.label}</div>
-              </div>
+              <KpiCard key={k.label} label={k.label} value={k.value} color={k.color} />
             ))}
           </div>
 

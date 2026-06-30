@@ -2560,8 +2560,11 @@ export default function Deposito() {
       alerta(PDF_SEM_CRIT, `${aSinCosto.length} egreso(s) SIN costo cargado`, 'Se valorizan como $0 y bajan el total real. Cargá el costo de estos productos:')
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(70, 70, 70)
       const txt = doc.splitTextToSize(sinCostoProd.join(' · '), pw - 32)
-      txt.slice(0, 8).forEach((line, i) => doc.text(line, 16, y + i * 4))
-      y += Math.min(txt.length, 8) * 4 + 4
+      txt.forEach(line => {
+        if (y > ph - PDF_PIE_H - 6) { doc.addPage(); didDP('Alertas de Control')(); y = PDF_CONTENT_Y }
+        doc.text(line, 16, y); y += 4
+      })
+      y += 4
     }
     if (!aOtro.length && !aAjuste.length && !aSinCosto.length) {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...PDF_SEM_OK)

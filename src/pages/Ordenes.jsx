@@ -271,8 +271,26 @@ export default function Ordenes() {
   const [fechaInicioVal, setFechaInicioVal] = useState('')
   const [fechaFinVal, setFechaFinVal]       = useState('')
   const [savingHora, setSavingHora]         = useState(false)
+  // Alta de base usada al cerrar un sabor cuya base no figura en stock
+  const [baseAlta, setBaseAlta]   = useState({ cantidad: '', fecha: '', operario: '' })
 
   const { isAdmin, user } = useUser()
+
+  // Al abrir el modal de finalización de un sabor sin base en stock, prellenar
+  // el alta de base con lo que la receta dice que se necesitó.
+  useEffect(() => {
+    if (!modalFin) return
+    const info = baseDeSabor(modalFin.orden)
+    if (info && info.baseNombre && info.falta) {
+      setBaseAlta({
+        cantidad: info.necesaria ? String(Math.round(info.necesaria * 10) / 10) : '',
+        fecha: nowLocal(),
+        operario: modalFin.orden.operario_nombre || '',
+      })
+    } else {
+      setBaseAlta({ cantidad: '', fecha: '', operario: '' })
+    }
+  }, [modalFin]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { cargar() }, [])
 
@@ -416,6 +434,22 @@ export default function Ordenes() {
 
   function resolverReceta(nombre) {
     return resolverRecetaCtx(nombre, { sabores, bases, saborIngredientes, baseIngredientes })
+  }
+
+  // ¿La orden es un sabor que necesita una base, y hay stock de esa base?
+  // Devuelve null para bases/impulsivos/postres (no aplica el control).
+  function baseDeSabor(orden) {
+    if (!orden) return null
+    if (orden.tipo_producto && orden.tipo_producto !== 'helado') return null
+    const sabor = sabores.find(s => normalizarNombre(s.nombre) === normalizarNombre(orden.sabor_nombre))
+    if (!sabor) return null // no es un sabor conocido (p. ej. una base)
+    if (!sabor.base_nombre) return { sinBaseEnReceta: true, saborNombre: sabor.nombre }
+    const litrosBase = Number(sabor.litros_base) || 0
+    const necesaria = (Number(orden.batches) || 0) * litrosBase
+    const disponible = stockBases
+      .filter(b => normalizarNombre(b.base_nombre) === normalizarNombre(sabor.base_nombre))
+      .reduce((a, b) => a + (Number(b.kg_disponible) || 0), 0)
+    return { baseNombre: sabor.base_nombre, litrosBase, necesaria, disponible, falta: disponible + 0.5 < (necesaria || 0.01) }
   }
 
   function calcularKgObjetivo(nombreProducto, batches) {
@@ -627,8 +661,35 @@ export default function Ordenes() {
 
   async function confirmarFinConFecha() {
     if (!modalFin) return
-    setSavingHora(true)
     const { orden, fromDetalle } = modalFin
+
+    // ── Control base↔sabor: no se cierra un sabor sin su base ────────────────
+    const info = baseDeSabor(orden)
+    if (info && info.baseNombre && info.falta) {
+      const cant = parseFloat(baseAlta.cantidad)
+      if (!(cant > 0)) { toast2('Registrá los kg de base que se usaron para poder cerrar', 'error'); return }
+      if (!baseAlta.fecha) { toast2('Indicá la fecha en que se hizo la base', 'error'); return }
+      setSavingHora(true)
+      const fechaBase = baseAlta.fecha.slice(0, 10)
+      const hoyStr = new Date().toISOString().slice(0, 10)
+      const payload = {
+        base_nombre: info.baseNombre,
+        kg_disponible: cant, kg_original: cant,
+        orden_origen: `RETRO-${orden.numero || orden.id}`,
+        operario_nombre: baseAlta.operario || orden.operario_nombre || null,
+        fecha: fechaBase,
+        es_retroactiva: fechaBase < hoyStr,
+      }
+      let { error: eBase } = await supabase.from('stock_bases').insert(payload)
+      // Si todavía no se corrió el ALTER (columna es_retroactiva), reintentar sin ella.
+      if (eBase && /es_retroactiva/i.test(eBase.message || '')) {
+        const { es_retroactiva, ...sinCol } = payload // eslint-disable-line no-unused-vars
+        ;({ error: eBase } = await supabase.from('stock_bases').insert(sinCol))
+      }
+      if (eBase) { setSavingHora(false); toast2('No se pudo registrar la base: ' + eBase.message, 'error'); return }
+    }
+
+    setSavingHora(true)
     const fechaFin = new Date(fechaFinVal).toISOString()
     const { error, mermaError, toastMsg, toastType } = await finalizarOrdenManual(orden, fechaFin)
     setSavingHora(false)
@@ -1751,6 +1812,40 @@ export default function Ordenes() {
                 Inicio registrado: {fmtDatetime(modalFin.orden.fecha_inicio)}
               </p>
             )}
+
+            {(() => {
+              const info = baseDeSabor(modalFin.orden)
+              if (info?.sinBaseEnReceta) return (
+                <div className="px-3 py-2.5 text-xs" style={{ backgroundColor: colors.warningBg, border: `1px solid ${colors.warning}55`, borderRadius: radius.md, color: colors.warning }}>
+                  ⚠️ Este sabor no tiene una base vinculada en la receta. Vinculale una base en <strong>Recetas</strong> para que el sistema pueda controlar el consumo de base.
+                </div>
+              )
+              if (!info || !info.baseNombre || !info.falta) return null
+              return (
+                <div className="px-3 py-3 space-y-2.5" style={{ backgroundColor: colors.dangerBg, border: `1px solid ${colors.danger}55`, borderRadius: radius.md }}>
+                  <p className="text-xs font-semibold" style={{ color: colors.danger }}>
+                    No se puede cerrar sin registrar la base usada.
+                  </p>
+                  <p className="text-xs" style={{ color: colors.textSecondary }}>
+                    Este sabor usa <strong style={{ color: colors.textPrimary }}>{info.baseNombre}</strong> (~{fmtNum(info.necesaria)} kg) y no figura en stock. Registrá la base que se elaboró para poder cerrar — queda como consumo, con su fecha real.
+                  </p>
+                  <Input label="Kg de base usados" type="number" value={baseAlta.cantidad}
+                    onChange={e => setBaseAlta(s => ({ ...s, cantidad: e.target.value }))} />
+                  <Input label="Fecha en que se hizo la base" type="datetime-local" value={baseAlta.fecha}
+                    onChange={e => setBaseAlta(s => ({ ...s, fecha: e.target.value }))} />
+                  <Select label="Operario que la hizo" value={baseAlta.operario}
+                    onChange={e => setBaseAlta(s => ({ ...s, operario: e.target.value }))}>
+                    <option value="">— Seleccionar —</option>
+                    {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+                  </Select>
+                  {baseAlta.fecha && baseAlta.fecha.slice(0, 10) < new Date().toISOString().slice(0, 10) && (
+                    <p className="text-[11px]" style={{ color: colors.textMuted }}>
+                      Se marcará como <strong>retroactiva</strong> (su tiempo no se computa en eficiencia).
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
           </div>
         )}
       </Modal>

@@ -19,12 +19,22 @@ const CARD = { background: colors.surface, border: `1px solid ${colors.border}`,
 const PERIODOS = [['semana', 'Semana'], ['mes', 'Mes'], ['trimestre', 'Trimestre']]
 const TABS = [['equipo', '👥 Equipo'], ['operario', '👤 Por Operario'], ['ranking', '🏆 Ranking'], ['pdf', '📄 Informe PDF']]
 
+// Un producto se mide en UNIDADES (postres / impulsivos) y no en kg.
+const esUnidad = o => o.tipo_producto === 'postre' || o.tipo_producto === 'impulsivo'
+
+// Nivel sobre el % de cumplimiento de producción (kg real vs objetivo de receta).
 function nivel(pct) {
   if (pct === null || pct === undefined) return { label: 'Sin datos', color: '#64748b', bg: '#64748b22' }
   if (pct >= 90) return { label: 'EXCELENTE', color: '#10b981', bg: '#10b98122' }
   if (pct >= 75) return { label: 'BUENO',     color: '#3b82f6', bg: '#3b82f622' }
   if (pct >= 60) return { label: 'REGULAR',   color: '#f59e0b', bg: '#f59e0b22' }
   return                 { label: 'BAJO',       color: '#ef4444', bg: '#ef444422' }
+}
+
+// Texto + flecha de tendencia. La flecha se usa SOLO en pantalla (HTML); en el
+// PDF se imprime el texto plano porque Helvetica de jsPDF no tiene ↑ ↓ →.
+function flechaTendencia(dir) {
+  return dir === 'up' ? '↑' : dir === 'down' ? '↓' : dir === 'flat' ? '→' : '·'
 }
 
 function Barra({ pct, color }) {
@@ -73,59 +83,63 @@ export default function InformeOperarios() {
       const ranking = operarios.map(op => {
         const misOrdenes  = ordenes.filter(o => o.operario_nombre === op.nombre)
         const completadas = misOrdenes.filter(o => o.estado === 'completada')
-        const conKg       = completadas.filter(o => Number(o.kg_objetivo) > 0)
-        const conTiempo   = completadas.filter(o => Number(o.horas_estimadas) > 0 && Number(o.horas_reales) > 0)
 
-        const pctProduccion = conKg.length > 0
-          ? Math.round(conKg.reduce((a, o) => a + Math.min((Number(o.kg_producido) || 0) / Number(o.kg_objetivo) * 100, 120), 0) / conKg.length)
+        // ── Helado (kg) — el rendimiento se mide acá ──────────────────────────
+        const heladoCompl = completadas.filter(o => !esUnidad(o))
+        // Solo cuentan las órdenes con objetivo de receta Y kg realmente registrados.
+        // Una orden "completada" sin kg cargados NO se castiga como 0%; se marca aparte.
+        const conProd = heladoCompl.filter(o => Number(o.kg_objetivo) > 0 && Number(o.kg_producido) > 0)
+        const sinRegistroKg = heladoCompl.filter(o => Number(o.kg_objetivo) > 0 && !(Number(o.kg_producido) > 0)).length
+
+        const pctProduccion = conProd.length > 0
+          ? Math.round(conProd.reduce((a, o) => a + Math.min((Number(o.kg_producido) / Number(o.kg_objetivo)) * 100, 120), 0) / conProd.length)
           : null
+        // Rendimiento = cumplimiento de producción (sin dimensión de tiempo).
+        const rendimiento = pctProduccion
 
-        const pctTiempo = conTiempo.length > 0
-          ? Math.round(conTiempo.reduce((a, o) => a + Math.min((Number(o.horas_estimadas) / Number(o.horas_reales)) * 100, 120), 0) / conTiempo.length)
-          : null
+        // ── Postres / impulsivos (unidades) — circuito propio, sin tiempo ─────
+        const unidadAsignadas = misOrdenes.filter(esUnidad).length
+        const unidadCompl     = completadas.filter(esUnidad)
+        const postresLotes    = unidadCompl.length
+        const postresUnidades = unidadCompl.reduce((a, o) => a + (Number(o.cantidad_unidades) || 0), 0)
 
-        const pctCumplimiento = misOrdenes.length > 0
-          ? Math.round((completadas.length / misOrdenes.length) * 100)
-          : null
-
-        const partes = []
-        if (pctProduccion  !== null) partes.push({ v: pctProduccion,  w: 0.5 })
-        if (pctTiempo      !== null) partes.push({ v: pctTiempo,      w: 0.3 })
-        if (pctCumplimiento !== null) partes.push({ v: pctCumplimiento, w: 0.2 })
-        const rendimiento = partes.length > 0
-          ? Math.round(partes.reduce((a, p) => a + p.v * p.w, 0) / partes.reduce((a, p) => a + p.w, 0))
-          : null
-
-        const ultimas10 = completadas.slice(0, 10).map(o => ({
+        const ultimas10 = heladoCompl.filter(o => Number(o.kg_objetivo) > 0).slice(0, 10).map(o => ({
           nombre:    (o.sabor_nombre || '?').slice(0, 12),
           objetivo:  Number(o.kg_objetivo)  || 0,
           producido: Number(o.kg_producido) || 0,
         })).reverse()
 
-        const mitad = Math.floor(completadas.length / 2)
-        const primera = completadas.slice(mitad).filter(o => Number(o.kg_objetivo) > 0)
-        const segunda = completadas.slice(0, mitad).filter(o => Number(o.kg_objetivo) > 0)
-        const avgP = primera.length > 0 ? primera.reduce((a, o) => a + (Number(o.kg_producido) || 0) / Number(o.kg_objetivo) * 100, 0) / primera.length : null
-        const avgS = segunda.length > 0 ? segunda.reduce((a, o) => a + (Number(o.kg_producido) || 0) / Number(o.kg_objetivo) * 100, 0) / segunda.length : null
-        const tendencia = avgP !== null && avgS !== null
-          ? avgS > avgP + 3 ? '↑ Mejorando' : avgS < avgP - 3 ? '↓ Bajando' : '→ Estable'
-          : '— Sin datos'
+        // Tendencia: compara la primera mitad vs la segunda mitad del cumplimiento.
+        const mitad = Math.floor(conProd.length / 2)
+        const primera = conProd.slice(mitad)
+        const segunda = conProd.slice(0, mitad)
+        const prom = arr => arr.length > 0 ? arr.reduce((a, o) => a + Number(o.kg_producido) / Number(o.kg_objetivo) * 100, 0) / arr.length : null
+        const avgP = prom(primera), avgS = prom(segunda)
+        let tendDir = 'none', tendencia = 'Sin datos'
+        if (avgP !== null && avgS !== null) {
+          if (avgS > avgP + 3)      { tendDir = 'up';   tendencia = 'Mejorando' }
+          else if (avgS < avgP - 3) { tendDir = 'down'; tendencia = 'Bajando' }
+          else                      { tendDir = 'flat'; tendencia = 'Estable' }
+        }
 
         return {
           ...op,
           misOrdenes: misOrdenes.length,
           completadas: completadas.length,
-          pctProduccion, pctTiempo, pctCumplimiento, rendimiento,
-          ultimas10, tendencia,
-          totalKgProducido: completadas.reduce((a, o) => a + (Number(o.kg_producido) || 0), 0),
-          totalKgObjetivo:  completadas.reduce((a, o) => a + (Number(o.kg_objetivo)  || 0), 0),
-          horasPromEst:  conTiempo.length > 0 ? conTiempo.reduce((a, o) => a + Number(o.horas_estimadas), 0) / conTiempo.length : null,
-          horasPromReal: conTiempo.length > 0 ? conTiempo.reduce((a, o) => a + Number(o.horas_reales),     0) / conTiempo.length : null,
+          heladoCompletadas: heladoCompl.length,
+          conProd: conProd.length,
+          sinRegistroKg,
+          pctProduccion, rendimiento,
+          unidadAsignadas, postresLotes, postresUnidades,
+          ultimas10, tendencia, tendDir,
+          totalKgProducido: heladoCompl.reduce((a, o) => a + (Number(o.kg_producido) || 0), 0),
+          totalKgObjetivo:  conProd.reduce((a, o) => a + (Number(o.kg_objetivo)  || 0), 0),
         }
-      }).sort((a, b) => (b.rendimiento || 0) - (a.rendimiento || 0))
+      }).sort((a, b) => (b.rendimiento ?? -1) - (a.rendimiento ?? -1))
 
+      // Comparativa entre operarios por producto (solo helado: requiere kg objetivo).
       const comparativas = {}
-      ordenes.filter(o => o.estado === 'completada' && Number(o.kg_objetivo) > 0).forEach(o => {
+      ordenes.filter(o => o.estado === 'completada' && !esUnidad(o) && Number(o.kg_objetivo) > 0 && Number(o.kg_producido) > 0).forEach(o => {
         const prod = o.sabor_nombre || '?'
         if (!comparativas[prod]) comparativas[prod] = []
         comparativas[prod].push({
@@ -162,12 +176,11 @@ export default function InformeOperarios() {
       // P1 — Portada
       dibujarPortada(doc, pw, ph, MOD, 'INFORME DE RENDIMIENTO', periodoLabel, hoy)
 
-      // Helpers para gráficos nativos (Power BI-style, sin html2canvas)
       const hexRgb = h => { const n = parseInt(h.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255] }
       const nivelRgb = pct => hexRgb(nivel(pct).color)
       const esClaro = c => (c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114) > 150
 
-      // P3 — Tablero del equipo
+      // ════════════════════════ INFORME DEL EQUIPO ════════════════════════
       if (tipo === 'equipo') {
         doc.addPage()
         const ranking  = datos.ranking
@@ -177,7 +190,6 @@ export default function InformeOperarios() {
         const completadasTot = ranking.reduce((a, r) => a + r.completadas, 0)
         const mejor = conDatos[0] || null
 
-        // KPI cards con acento (consistente con Finanzas/Mermas)
         const cards = [
           { l: 'Operarios',        v: String(ranking.length),                       c: PDF_NEGRO },
           { l: 'Con datos',        v: String(conDatos.length),                      c: PDF_NEGRO },
@@ -229,9 +241,9 @@ export default function InformeOperarios() {
         })
         y += 10
 
-        // Ranking por rendimiento (barras horizontales, color por nivel)
+        // Ranking por rendimiento (barras horizontales)
         if (conDatos.length > 0) {
-          y = dibujarSeccion(doc, pw, 'Ranking por rendimiento', y)
+          y = dibujarSeccion(doc, pw, 'Ranking por cumplimiento de producción', y)
           const top = conDatos.slice(0, 10)
           const labelW = 38, axisX = 14 + labelW, axisRight = pw - 18, axisW = axisRight - axisX, rowH = 5.8
           top.forEach((r, i) => {
@@ -252,21 +264,21 @@ export default function InformeOperarios() {
         y = dibujarSeccion(doc, pw, 'Detalle del ranking', y)
         autoTable(doc, {
           ...EST, startY: y,
-          head: [['POS', 'OPERARIO', 'ÓRDENES', 'COMPLET.', '% PROD.', '% TIEMPO', 'RENDIM.', 'NIVEL']],
+          head: [['POS', 'OPERARIO', 'ÓRDENES', 'COMPLET.', 'CUMPL. PROD.', 'POSTRES', 'RENDIM.', 'NIVEL']],
           body: ranking.map((r, i) => [
             `${i + 1}°`,
             r.nombre,
             String(r.misOrdenes),
             String(r.completadas),
             r.pctProduccion !== null ? r.pctProduccion + '%' : '—',
-            r.pctTiempo     !== null ? r.pctTiempo     + '%' : '—',
+            r.postresLotes > 0 ? `${r.postresLotes} lote(s) · ${r.postresUnidades} u` : '—',
             r.rendimiento   !== null ? r.rendimiento   + '%' : '—',
             nivel(r.rendimiento).label,
           ]),
           columnStyles: {
             0: { halign: 'center', cellWidth: 12 },
             2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
-            5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'center' },
+            6: { halign: 'right' }, 7: { halign: 'center' },
           },
           didParseCell(data) {
             if (data.section !== 'body') return
@@ -280,12 +292,12 @@ export default function InformeOperarios() {
           didDrawPage: didDP('RANKING DEL EQUIPO'),
         })
 
+      // ════════════════════════ INFORME INDIVIDUAL ════════════════════════
       } else {
         const op = datos.ranking.find(r => r.nombre === operarioSel)
         if (!op) return
 
         doc.addPage()
-        // KPIs del operario
         const kpiW = (pw - 28 - 4) / 2
         dibujarKpi(doc, 14,          PDF_CONTENT_Y,      kpiW, 18, 'Órdenes asignadas',  op.misOrdenes)
         dibujarKpi(doc, 14 + kpiW+2, PDF_CONTENT_Y,      kpiW, 18, 'Órdenes completadas', op.completadas)
@@ -294,61 +306,76 @@ export default function InformeOperarios() {
 
         let y = PDF_CONTENT_Y + 48
         y = dibujarSeccion(doc, pw, `Perfil — ${op.nombre}`, y)
+        const perfil = [
+          ['Órdenes asignadas',              String(op.misOrdenes)],
+          ['Órdenes completadas',            String(op.completadas)],
+          ['Cumplimiento de producción',     op.pctProduccion !== null ? op.pctProduccion + '%' : '—'],
+          ['KG total producidos',            op.totalKgProducido.toFixed(1) + ' kg'],
+          ['Nivel',                          nivel(op.rendimiento).label],
+          ['Tendencia',                      op.tendencia],
+        ]
+        if (op.postresLotes > 0 || op.unidadAsignadas > 0)
+          perfil.push(['Postres / impulsivos', `${op.postresLotes} lote(s) · ${op.postresUnidades} unidades`])
+        if (op.sinRegistroKg > 0)
+          perfil.push(['Órdenes sin kg registrado', `${op.sinRegistroKg} (revisar carga en Producción)`])
         autoTable(doc, {
           ...EST, startY: y,
-          body: [
-            ['Órdenes asignadas',         String(op.misOrdenes)],
-            ['Órdenes completadas',        String(op.completadas)],
-            ['% Producción vs objetivo',   op.pctProduccion !== null ? op.pctProduccion + '%' : '—'],
-            ['% Eficiencia de tiempo',     op.pctTiempo     !== null ? op.pctTiempo     + '%' : '—'],
-            ['KG total producidos',        op.totalKgProducido.toFixed(1) + ' kg'],
-            ['Rendimiento global',         op.rendimiento   !== null ? op.rendimiento   + '%' : '—'],
-            ['Nivel',                      nivel(op.rendimiento).label],
-            ['Tendencia',                  op.tendencia || '—'],
-          ],
+          body: perfil,
           columnStyles: { 0: { fontStyle: 'bold', cellWidth: 80 }, 1: { halign: 'right' } },
+          didParseCell(data) {
+            if (data.section === 'body' && data.row.index === perfil.length - 1 && op.sinRegistroKg > 0) {
+              data.cell.styles.textColor = hexRgb('#b45309')
+            }
+          },
           didDrawPage: didDP(`OPERARIO: ${op.nombre}`),
         })
+        // Cursor propio: NO usar doc.lastAutoTable.finalY tras el gráfico (no es
+        // una tabla) — eso provocaba que las secciones se dibujaran encima.
+        let cursor = doc.lastAutoTable.finalY + 8
 
-        // Gráfico evolución últimas 10 órdenes
+        // Gráfico evolución (kg objetivo vs producido)
         if (chartRefEvol.current && op.ultimas10.length > 0) {
           try {
-            let yE = doc.lastAutoTable.finalY + 8
-            if (yE > ph - 60) { doc.addPage(); yE = PDF_CONTENT_Y }
-            yE = dibujarSeccion(doc, pw, 'Evolución últimas órdenes', yE)
+            if (cursor > ph - 70) { doc.addPage(); cursor = PDF_CONTENT_Y }
+            cursor = dibujarSeccion(doc, pw, 'Evolución de producción (kg)', cursor)
             const canvasEvol = await html2canvas(chartRefEvol.current, { backgroundColor: '#1e293b', scale: 2, logging: false, useCORS: true })
             const imgEvol = canvasEvol.toDataURL('image/png')
             const imgEvolH = (canvasEvol.height * (pw - 28)) / canvasEvol.width
             doc.setDrawColor(51, 65, 85); doc.setLineWidth(0.3)
-            doc.rect(14, yE, pw - 28, imgEvolH)
-            doc.addImage(imgEvol, 'PNG', 14, yE, pw - 28, imgEvolH)
+            doc.rect(14, cursor, pw - 28, imgEvolH)
+            doc.addImage(imgEvol, 'PNG', 14, cursor, pw - 28, imgEvolH)
+            cursor += imgEvolH + 4
             doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139)
-            doc.text('KG objetivo vs producido — últimas 10 órdenes completadas', 14, yE + imgEvolH + 3)
+            doc.text('KG objetivo vs producido — últimas órdenes de helado', 14, cursor)
+            cursor += 6
           } catch (e) { console.warn('chart evol:', e) }
         }
 
+        // Historial de órdenes
         const ords = datos.ordenes.filter(o => o.operario_nombre === op.nombre)
         if (ords.length > 0) {
-          let yH = doc.lastAutoTable.finalY + 8
-          if (yH > ph - 50) { doc.addPage(); yH = PDF_CONTENT_Y }
-          yH = dibujarSeccion(doc, pw, 'Historial de órdenes', yH)
+          if (cursor > ph - 50) { doc.addPage(); cursor = PDF_CONTENT_Y }
+          cursor = dibujarSeccion(doc, pw, 'Historial de órdenes', cursor)
           autoTable(doc, {
-            ...EST, styles: { ...EST.styles, fontSize: 7 }, startY: yH,
-            head: [['FECHA', 'PRODUCTO', 'KG OBJ.', 'KG REAL', '% PROD.', 'HS EST.', 'HS REAL', '% TIEMPO']],
+            ...EST, styles: { ...EST.styles, fontSize: 7 }, startY: cursor,
+            head: [['FECHA', 'PRODUCTO', 'TIPO', 'OBJETIVO', 'PRODUCIDO', 'CUMPL.', 'ESTADO']],
             body: ords.map(o => {
+              const unidad = esUnidad(o)
+              const compl = o.estado === 'completada'
               const kgObj  = Number(o.kg_objetivo)  || 0
               const kgReal = Number(o.kg_producido) || 0
+              const uds = Number(o.cantidad_unidades) || 0
               return [
                 o.fecha_produccion || (o.created_at || '').slice(0, 10) || '—',
                 (o.sabor_nombre || '—').slice(0, 22),
-                kgObj  > 0 ? kgObj.toFixed(1)  : '—',
-                kgReal > 0 ? kgReal.toFixed(1) : '—',
-                kgObj  > 0 ? Math.round(kgReal / kgObj * 100) + '%' : '—',
-                Number(o.horas_estimadas) > 0 ? Number(o.horas_estimadas).toFixed(1) : '—',
-                Number(o.horas_reales)    > 0 ? Number(o.horas_reales).toFixed(1)    : '—',
-                Number(o.eficiencia_tiempo) > 0 ? Math.round(Number(o.eficiencia_tiempo)) + '%' : '—',
+                unidad ? (o.tipo_producto === 'postre' ? 'Postre' : 'Impulsivo') : 'Helado',
+                unidad ? (uds > 0 ? `${uds} u` : '—') : (kgObj > 0 ? `${kgObj.toFixed(1)} kg` : '—'),
+                unidad ? (compl && uds > 0 ? `${uds} u` : '—') : (kgReal > 0 ? `${kgReal.toFixed(1)} kg` : '—'),
+                unidad ? (compl ? '100%' : '—') : (kgObj > 0 && kgReal > 0 ? Math.round(kgReal / kgObj * 100) + '%' : '—'),
+                compl ? 'Completada' : (o.estado === 'en_proceso' ? 'En proceso' : 'Pendiente'),
               ]
             }),
+            columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
             didDrawPage: didDP(`OPERARIO: ${op.nombre}`),
           })
         }
@@ -382,7 +409,7 @@ export default function InformeOperarios() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary, margin: 0 }}>Rendimiento Operativo</h1>
-          <p className="text-sm mt-0.5" style={{ color: colors.textMuted, margin: '2px 0 0' }}>Análisis de productividad · Del Parque</p>
+          <p className="text-sm mt-0.5" style={{ color: colors.textMuted, margin: '2px 0 0' }}>Cumplimiento de producción · Del Parque</p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           {PERIODOS.map(([k, l]) => (
@@ -440,22 +467,25 @@ export default function InformeOperarios() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {[
-                      { label: 'Producción', pct: op.pctProduccion, color: '#10b981' },
-                      { label: 'Tiempo',     pct: op.pctTiempo,     color: ACCENT },
-                      { label: 'Cumplim.',   pct: op.pctCumplimiento, color: '#3b82f6' },
-                    ].map(bar => (
-                      <div key={bar.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-                        <span style={{ color: '#64748b', width: '80px', flexShrink: 0 }}>{bar.label}</span>
-                        <Barra pct={bar.pct} color={bar.color} />
-                        <span style={{ color: nivel(bar.pct).color, fontWeight: '700', width: '42px', textAlign: 'right' }}>
-                          {bar.pct !== null ? bar.pct + '%' : '—'}
-                        </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                      <span style={{ color: '#64748b', width: '80px', flexShrink: 0 }}>Producción</span>
+                      <Barra pct={op.pctProduccion} color="#10b981" />
+                      <span style={{ color: nivel(op.pctProduccion).color, fontWeight: '700', width: '42px', textAlign: 'right' }}>
+                        {op.pctProduccion !== null ? op.pctProduccion + '%' : '—'}
+                      </span>
+                    </div>
+                    {(op.postresLotes > 0 || op.unidadAsignadas > 0) && (
+                      <div style={{ fontSize: '12px', color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#64748b' }}>🍰 Postres</span>
+                        <span>{op.postresLotes} lote(s) · {op.postresUnidades} u</span>
                       </div>
-                    ))}
+                    )}
+                    {op.sinRegistroKg > 0 && (
+                      <div style={{ fontSize: '11px', color: '#f59e0b' }}>⚠ {op.sinRegistroKg} orden(es) sin kg registrado</div>
+                    )}
                   </div>
                   <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #334155', display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#64748b' }}>
-                    <span>{op.tendencia}</span>
+                    <span>{flechaTendencia(op.tendDir)} {op.tendencia}</span>
                     <span>{op.totalKgProducido.toFixed(0)} kg</span>
                   </div>
                 </div>
@@ -484,7 +514,7 @@ export default function InformeOperarios() {
                   </div>
                   <div>
                     <div style={{ fontSize: '22px', fontWeight: '800' }}>{opActual.nombre}</div>
-                    <div style={{ fontSize: '13px', color: '#64748b' }}>{opActual.tendencia} en el período</div>
+                    <div style={{ fontSize: '13px', color: '#64748b' }}>{flechaTendencia(opActual.tendDir)} {opActual.tendencia} en el período</div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
@@ -501,14 +531,14 @@ export default function InformeOperarios() {
                 </div>
               </div>
 
-              {/* Producción */}
+              {/* Producción (helado) */}
               <div style={CARD}>
-                <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px', color: ACCENT, margin: '0 0 16px' }}>📦 ¿Qué tan bien produce?</h3>
+                <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px', color: ACCENT, margin: '0 0 16px' }}>📦 Cumplimiento de producción (helado)</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '12px', marginBottom: '16px' }}>
                   {[
-                    { label: '% Producción vs objetivo', value: opActual.pctProduccion !== null ? opActual.pctProduccion + '%' : 'Sin datos', sub: opActual.totalKgObjetivo > 0 ? `${opActual.totalKgProducido.toFixed(0)} de ${opActual.totalKgObjetivo.toFixed(0)} kg` : '', color: nivel(opActual.pctProduccion).color },
-                    { label: 'Órdenes al 95%+', value: opActual.completadas > 0 ? datos.ordenes.filter(o => o.operario_nombre === opActual.nombre && o.estado === 'completada' && Number(o.kg_objetivo) > 0 && (Number(o.kg_producido) / Number(o.kg_objetivo)) >= 0.95).length + ' de ' + opActual.completadas : '—', color: '#10b981' },
-                    { label: 'Promedio kg/orden', value: opActual.completadas > 0 ? (opActual.totalKgProducido / opActual.completadas).toFixed(1) + ' kg' : '—', color: '#3b82f6' },
+                    { label: 'Cumplimiento vs objetivo', value: opActual.pctProduccion !== null ? opActual.pctProduccion + '%' : 'Sin datos', sub: opActual.totalKgObjetivo > 0 ? `${opActual.totalKgProducido.toFixed(0)} de ${opActual.totalKgObjetivo.toFixed(0)} kg` : '', color: nivel(opActual.pctProduccion).color },
+                    { label: 'Órdenes al 95%+', value: opActual.conProd > 0 ? datos.ordenes.filter(o => o.operario_nombre === opActual.nombre && o.estado === 'completada' && !esUnidad(o) && Number(o.kg_objetivo) > 0 && Number(o.kg_producido) > 0 && (Number(o.kg_producido) / Number(o.kg_objetivo)) >= 0.95).length + ' de ' + opActual.conProd : '—', color: '#10b981' },
+                    { label: 'Promedio kg/orden', value: opActual.conProd > 0 ? (opActual.totalKgProducido / opActual.heladoCompletadas).toFixed(1) + ' kg' : '—', color: '#3b82f6' },
                   ].map(k => (
                     <div key={k.label} style={{ background: '#0f172a', borderRadius: '6px', padding: '14px', border: '1px solid #334155' }}>
                       <div style={{ fontSize: '20px', fontWeight: '800', color: k.color }}>{k.value}</div>
@@ -517,6 +547,11 @@ export default function InformeOperarios() {
                     </div>
                   ))}
                 </div>
+                {opActual.sinRegistroKg > 0 && (
+                  <div style={{ background: '#f59e0b1a', border: '1px solid #f59e0b', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', color: '#fbbf24', marginBottom: '12px' }}>
+                    ⚠ {opActual.sinRegistroKg} orden(es) completada(s) sin kg registrado — no se computan en el cumplimiento. Conviene cargar la producción en el módulo Producción.
+                  </div>
+                )}
                 {opActual.ultimas10.length > 0 && (
                   <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={opActual.ultimas10}>
@@ -532,15 +567,15 @@ export default function InformeOperarios() {
                 )}
               </div>
 
-              {/* Tiempo */}
+              {/* Postres / impulsivos — circuito propio (sin tiempo) */}
               <div style={CARD}>
-                <h3 style={{ fontSize: '16px', fontWeight: '700', color: ACCENT, margin: '0 0 16px' }}>⏱ ¿Qué tan rápido trabaja?</h3>
-                {opActual.pctTiempo !== null ? (
+                <h3 style={{ fontSize: '16px', fontWeight: '700', color: ACCENT, margin: '0 0 16px' }}>🍰 Postres y especiales (circuito propio)</h3>
+                {opActual.unidadAsignadas > 0 ? (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '12px' }}>
                     {[
-                      { label: 'Eficiencia de tiempo',      value: opActual.pctTiempo + '%', color: nivel(opActual.pctTiempo).color },
-                      { label: 'Horas estimadas promedio',  value: opActual.horasPromEst  !== null ? opActual.horasPromEst.toFixed(1)  + ' hs' : '—', color: '#64748b' },
-                      { label: 'Horas reales promedio',     value: opActual.horasPromReal !== null ? opActual.horasPromReal.toFixed(1) + ' hs' : '—', color: opActual.horasPromReal > opActual.horasPromEst ? '#ef4444' : '#10b981' },
+                      { label: 'Lotes completados', value: `${opActual.postresLotes} de ${opActual.unidadAsignadas}`, color: '#10b981' },
+                      { label: 'Unidades producidas', value: `${opActual.postresUnidades} u`, color: ACCENT },
+                      { label: 'Prom. unidades/lote', value: opActual.postresLotes > 0 ? Math.round(opActual.postresUnidades / opActual.postresLotes) + ' u' : '—', color: '#3b82f6' },
                     ].map(k => (
                       <div key={k.label} style={{ background: '#0f172a', borderRadius: '6px', padding: '14px', border: '1px solid #334155' }}>
                         <div style={{ fontSize: '20px', fontWeight: '800', color: k.color }}>{k.value}</div>
@@ -550,17 +585,17 @@ export default function InformeOperarios() {
                   </div>
                 ) : (
                   <div style={{ padding: '20px', textAlign: 'center', color: '#64748b', background: '#0f172a', borderRadius: '6px' }}>
-                    Sin datos de tiempo — las órdenes necesitan horas estimadas y registrar inicio/fin
+                    Sin órdenes de postres / impulsivos en el período. Estos productos se miden por lotes y unidades, no por tiempo (pueden abarcar varias jornadas).
                   </div>
                 )}
               </div>
 
               {/* Comparativa */}
               <div style={CARD}>
-                <h3 style={{ fontSize: '16px', fontWeight: '700', color: ACCENT, margin: '0 0 16px' }}>👥 Comparativa con el equipo</h3>
+                <h3 style={{ fontSize: '16px', fontWeight: '700', color: ACCENT, margin: '0 0 16px' }}>👥 Comparativa con el equipo (helado)</h3>
                 {(() => {
-                  const misProductos = [...new Set(datos.ordenes.filter(o => o.operario_nombre === opActual.nombre && o.estado === 'completada' && Number(o.kg_objetivo) > 0).map(o => o.sabor_nombre))].filter(Boolean)
-                  if (misProductos.length === 0) return <p style={{ color: '#64748b' }}>Sin órdenes completadas para comparar</p>
+                  const misProductos = [...new Set(datos.ordenes.filter(o => o.operario_nombre === opActual.nombre && o.estado === 'completada' && !esUnidad(o) && Number(o.kg_objetivo) > 0 && Number(o.kg_producido) > 0).map(o => o.sabor_nombre))].filter(Boolean)
+                  if (misProductos.length === 0) return <p style={{ color: '#64748b' }}>Sin órdenes de helado con kg registrado para comparar</p>
                   return (
                     <div style={{ overflowX: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
@@ -605,33 +640,32 @@ export default function InformeOperarios() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', whiteSpace: 'nowrap' }}>
                     <thead>
                       <tr style={{ background: '#334155' }}>
-                        {['Fecha', 'Producto', 'Kg Obj.', 'Kg Real', '% Prod.', 'Hs Est.', 'Hs Real', '% Tiempo', 'Rendimiento', 'Estado'].map(h => (
+                        {['Fecha', 'Producto', 'Tipo', 'Objetivo', 'Producido', 'Cumpl.', 'Estado'].map(h => (
                           <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontSize: '10px', textTransform: 'uppercase', color: '#94a3b8' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {datos.ordenes.filter(o => o.operario_nombre === opActual.nombre).map(o => {
+                        const unidad = esUnidad(o)
+                        const compl = o.estado === 'completada'
                         const kgObj  = Number(o.kg_objetivo)  || 0
                         const kgReal = Number(o.kg_producido) || 0
-                        const pctP = kgObj > 0 ? Math.round(kgReal / kgObj * 100) : null
-                        const pctT = Number(o.eficiencia_tiempo) || null
-                        const rend = pctP !== null || pctT !== null ? Math.round(((pctP || 100) * 0.6) + ((pctT || 100) * 0.4)) : null
-                        const nv = nivel(rend)
+                        const uds = Number(o.cantidad_unidades) || 0
+                        const pctP = !unidad && kgObj > 0 && kgReal > 0 ? Math.round(kgReal / kgObj * 100) : null
+                        const cumpl = unidad ? (compl ? '100%' : '—') : (pctP !== null ? pctP + '%' : '—')
+                        const cumplColor = unidad ? (compl ? '#10b981' : '#64748b') : (pctP === null ? '#64748b' : pctP >= 95 ? '#10b981' : pctP >= 75 ? '#f59e0b' : '#ef4444')
                         return (
                           <tr key={o.id} style={{ borderBottom: '1px solid #1e293b' }}>
                             <td style={{ padding: '8px 10px', color: '#94a3b8' }}>{o.fecha_produccion || (o.created_at || '').slice(0, 10) || '—'}</td>
                             <td style={{ padding: '8px 10px', fontWeight: '600', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.sabor_nombre || '—'}</td>
-                            <td style={{ padding: '8px 10px', color: '#64748b' }}>{kgObj > 0 ? kgObj.toFixed(1) : '—'}</td>
-                            <td style={{ padding: '8px 10px' }}>{kgReal > 0 ? kgReal.toFixed(1) : '—'}</td>
-                            <td style={{ padding: '8px 10px', color: pctP >= 95 ? '#10b981' : pctP >= 75 ? '#f59e0b' : '#ef4444', fontWeight: '700' }}>{pctP !== null ? pctP + '%' : '—'}</td>
-                            <td style={{ padding: '8px 10px', color: '#64748b' }}>{Number(o.horas_estimadas) > 0 ? Number(o.horas_estimadas).toFixed(1) + 'h' : '—'}</td>
-                            <td style={{ padding: '8px 10px', color: '#64748b' }}>{Number(o.horas_reales) > 0 ? Number(o.horas_reales).toFixed(1) + 'h' : '—'}</td>
-                            <td style={{ padding: '8px 10px', color: pctT >= 95 ? '#10b981' : pctT >= 75 ? '#f59e0b' : '#ef4444', fontWeight: '700' }}>{pctT !== null ? Math.round(pctT) + '%' : '—'}</td>
-                            <td style={{ padding: '8px 10px', color: nv.color, fontWeight: '800' }}>{rend !== null ? rend + '%' : '—'}</td>
+                            <td style={{ padding: '8px 10px', color: '#94a3b8' }}>{unidad ? (o.tipo_producto === 'postre' ? 'Postre' : 'Impulsivo') : 'Helado'}</td>
+                            <td style={{ padding: '8px 10px', color: '#64748b' }}>{unidad ? (uds > 0 ? `${uds} u` : '—') : (kgObj > 0 ? kgObj.toFixed(1) + ' kg' : '—')}</td>
+                            <td style={{ padding: '8px 10px' }}>{unidad ? (compl && uds > 0 ? `${uds} u` : '—') : (kgReal > 0 ? kgReal.toFixed(1) + ' kg' : '—')}</td>
+                            <td style={{ padding: '8px 10px', color: cumplColor, fontWeight: '700' }}>{cumpl}</td>
                             <td style={{ padding: '8px 10px' }}>
-                              <span style={{ background: o.estado === 'completada' ? '#10b98122' : '#f59e0b22', color: o.estado === 'completada' ? '#10b981' : '#f59e0b', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>
-                                {o.estado || '—'}
+                              <span style={{ background: compl ? '#10b98122' : '#f59e0b22', color: compl ? '#10b981' : '#f59e0b', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>
+                                {compl ? 'Completada' : (o.estado === 'en_proceso' ? 'En proceso' : 'Pendiente')}
                               </span>
                             </td>
                           </tr>
@@ -659,7 +693,7 @@ export default function InformeOperarios() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
               <thead>
                 <tr style={{ background: '#334155' }}>
-                  {['Pos', 'Operario', 'Órdenes', 'Completadas', '% Producción', '% Tiempo', '% Cumplimiento', 'Rendimiento', 'Nivel'].map(h => (
+                  {['Pos', 'Operario', 'Órdenes', 'Completadas', 'Cumpl. producción', 'Postres', 'Rendimiento', 'Nivel'].map(h => (
                     <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '11px', textTransform: 'uppercase', color: '#94a3b8' }}>{h}</th>
                   ))}
                 </tr>
@@ -675,8 +709,7 @@ export default function InformeOperarios() {
                       <td style={{ padding: '12px', color: '#64748b' }}>{r.misOrdenes}</td>
                       <td style={{ padding: '12px', color: '#64748b' }}>{r.completadas}</td>
                       <td style={{ padding: '12px', color: nivel(r.pctProduccion).color, fontWeight: '700' }}>{r.pctProduccion !== null ? r.pctProduccion + '%' : '—'}</td>
-                      <td style={{ padding: '12px', color: nivel(r.pctTiempo).color, fontWeight: '700' }}>{r.pctTiempo !== null ? r.pctTiempo + '%' : '—'}</td>
-                      <td style={{ padding: '12px', color: nivel(r.pctCumplimiento).color, fontWeight: '700' }}>{r.pctCumplimiento !== null ? r.pctCumplimiento + '%' : '—'}</td>
+                      <td style={{ padding: '12px', color: '#94a3b8' }}>{r.postresLotes > 0 ? `${r.postresLotes} · ${r.postresUnidades} u` : '—'}</td>
                       <td style={{ padding: '12px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <div style={{ width: '70px', background: '#334155', borderRadius: '4px', height: '8px' }}>

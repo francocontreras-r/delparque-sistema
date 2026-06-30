@@ -23,6 +23,7 @@ import { colors, radius, shadow } from '../styles/design-system'
 import { finalizarOrdenManual, progresoColor, ESTADO_EN_PROCESO, ESTADO_COMPLETADA } from '../lib/ordenes'
 import { POSTRES } from '../lib/postres'
 import EtapasOrden from '../components/EtapasOrden'
+import ReconciliacionBases from '../components/ReconciliacionBases'
 import { usaEtapas } from '../lib/etapas'
 import { ClipboardList, Plus, Printer, FileDown, CheckCircle2, Warehouse, X, ChevronDown, ChevronUp, Package, Clock, BarChart2, AlertTriangle } from 'lucide-react'
 const logoUrl = '/logo-byn.png'
@@ -224,6 +225,7 @@ export default function Ordenes() {
   const [stockAlert, setStockAlert]   = useState(null)
   const [checkingId, setCheckingId]   = useState(null)
   const [ordenDetalle, setOrdenDetalle]   = useState(null)
+  const [reconcOpen, setReconcOpen]   = useState(false)
   const [detalleRegistros, setDetalleRegistros] = useState([])
   const [cargandoDetalle, setCargandoDetalle]   = useState(false)
   const [finalizando, setFinalizando] = useState(false)
@@ -1145,11 +1147,16 @@ export default function Ordenes() {
               <BarChart2 size={15} /> ¿Qué puedo producir?
             </Button>
           )}
+          <Button variant="secondary" onClick={() => setReconcOpen(true)}>
+            <BarChart2 size={15} /> Reconciliar bases
+          </Button>
           <Button variant="primary" onClick={() => setModal(true)}>
             <Plus size={15} /> Nueva orden
           </Button>
         </div>
       </div>
+
+      {reconcOpen && <ReconciliacionBases onClose={() => setReconcOpen(false)} />}
 
       <div className="grid grid-cols-3 gap-3">
         <KpiCard label="Pendientes"  value={loading ? '—' : kpiPendientes}  color={colors.warning} />

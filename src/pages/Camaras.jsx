@@ -933,7 +933,7 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
               <table className="w-full min-w-[340px]">
                 <thead>
                   <tr style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                    {['LOTE', esImp ? 'UNIDADES' : 'KG', !esImp && 'BALDES', 'OPERARIO', 'FECHA ELAB.'].filter(Boolean).map(h => (
+                    {['LOTE', esImp ? 'UNIDADES' : 'KG', !esImp && (esPost ? 'UNIDADES' : 'BALDES'), 'OPERARIO', 'FECHA ELAB.'].filter(Boolean).map(h => (
                       <th key={h} className="py-2 px-3 text-left font-semibold uppercase"
                         style={{ fontSize: 9, color: colors.textMuted, letterSpacing: '0.07em' }}>{h}</th>
                     ))}
@@ -977,7 +977,7 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
                             {lotes.reduce((a, l) => a + (l.kg || 0), 0).toFixed(1)} kg
                           </td>
                           <td className="py-2 px-3 text-xs font-bold" style={{ color: colors.brand }}>
-                            {lotes.reduce((a, l) => a + (l.baldes || 0), 0)} bal.
+                            {lotes.reduce((a, l) => a + (l.baldes || 0), 0)} {esPost ? 'u.' : 'bal.'}
                           </td>
                         </>
                       )}
@@ -1002,7 +1002,7 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
               <table className="w-full min-w-[420px]">
                 <thead>
                   <tr style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                    {['Fecha/Hora', 'Tipo', 'KG', 'Baldes', 'Lote', 'Operario'].map(h => (
+                    {['Fecha/Hora', 'Tipo', 'KG', (esImp || esPost) ? 'Unidades' : 'Baldes', 'Lote', 'Operario'].map(h => (
                       <th key={h} className="py-2 px-3 text-left font-semibold uppercase"
                         style={{ fontSize: 9, color: colors.textMuted, letterSpacing: '0.07em' }}>{h}</th>
                     ))}

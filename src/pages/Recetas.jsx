@@ -12,6 +12,7 @@ import { colors, radius, shadow } from '../styles/design-system'
 import { BookOpen, Search, Edit2, RefreshCw, X, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
 import { POSTRES } from '../lib/postres'
 import { normalizarNombre } from '../lib/texto'
+import { crearCosteador } from '../lib/costeoRecetas'
 
 // Un ingrediente de receta puede ser materia prima cruda (depósito), un
 // intermedio (base/sabor, del proceso anterior) o agua (no se almacena, gratis).
@@ -91,7 +92,7 @@ function ModalConfEliminar({ receta, onClose, onConfirm, saving }) {
 }
 
 // ── Modal de edición ──────────────────────────────────────────────────────────
-function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, intermedios, showToast }) {
+function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, intermedios, costeador, showToast }) {
   const [ings, setIngs] = useState(() =>
     rawIngs.map((i, idx) => ({
       _key: idx,
@@ -134,14 +135,17 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, i
 
   const ingsConCosto = useMemo(() =>
     ings.map(i => {
-      const tIng = tipoIngrediente(i.nombre, intermedios) // 'agua' | 'intermedio' | 'insumo'
+      const tIng = costeador ? costeador.tipoDe(i.nombre) : tipoIngrediente(i.nombre, intermedios)
       // Prioridad: vínculo por ID; si no hay, cae al nombre (compatibilidad)
       const porId = i.insumo_id != null ? insumoPorId[i.insumo_id] : null
       const ins = porId || insumoPorNombre[(i.nombre || '').trim().toLowerCase()]
-      const cu = ins?.costo_unitario || 0
-      return { ...i, tIng, costoUnit: cu, costoTotal: (Number(i.cantidad) || 0) * cu, tienePreco: !!ins, vinculado: !!porId }
+      // El costo de un intermedio sale de su propia receta (rollup).
+      const cu = costeador ? costeador.costoDe(i.nombre) : (ins?.costo_unitario || 0)
+      // "tienePreco": insumo → vinculado con costo; intermedio → su receta da costo.
+      const tienePreco = tIng === 'agua' ? true : tIng === 'intermedio' ? cu > 0 : !!ins
+      return { ...i, tIng, costoUnit: cu, costoTotal: (Number(i.cantidad) || 0) * cu, tienePreco, vinculado: !!porId }
     }),
-    [ings, insumoPorNombre, insumoPorId, intermedios]
+    [ings, insumoPorNombre, insumoPorId, intermedios, costeador]
   )
 
   const subtotalMP  = ingsConCosto.reduce((a, i) => a + i.costoTotal, 0)
@@ -282,7 +286,9 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, i
                     {ing.tIng === 'agua' ? (
                       <span style={{ color: colors.info }}>💧 Sin costo (no se almacena)</span>
                     ) : ing.tIng === 'intermedio' ? (
-                      <span style={{ color: colors.info }}>🧩 Intermedio · se costea por su propia receta</span>
+                      <span style={{ color: ing.costoUnit > 0 ? colors.info : colors.warning }}>
+                        🧩 Intermedio · {ing.costoUnit > 0 ? `$${pesos(ing.costoUnit)}/${ing.unidad || 'u'} · $${pesos(ing.costoTotal)}` : 'completá su receta para costearlo'}
+                      </span>
                     ) : (
                       <>
                         {ing.vinculado
@@ -459,17 +465,28 @@ export default function Recetas() {
     return m
   }, [insumos])
 
+  // Costeador con rollup: el costo de un sabor incluye su base; el de un postre,
+  // sus sabores. Resuelve intermedios (base/sabor) recursivamente; el agua es gratis.
+  const costeador = useMemo(
+    () => crearCosteador({ insumos, bases, baseIngredientes: baseIngs, sabores, saborIngredientes: saborIngs }),
+    [insumos, bases, baseIngs, sabores, saborIngs]
+  )
+
   function enrichIngs(rawList, nombreField = 'insumo_nombre') {
     return rawList.map(i => {
-      const ins = insumoPorNombre[(i[nombreField] || '').trim().toLowerCase()]
-      const cu = ins?.costo_unitario || 0
+      const nombre = i[nombreField]
+      const tIng = costeador.tipoDe(nombre)
+      const cu = costeador.costoDe(nombre) // incluye rollup de intermedios
+      const ins = insumoPorNombre[(nombre || '').trim().toLowerCase()]
       return {
-        insumo: i[nombreField],
+        insumo: nombre,
         cantidad: i.cantidad,
         unidad: i.unidad,
+        tIng,
         costoUnit: cu,
         costoTotal: (Number(i.cantidad) || 0) * cu,
-        tienePreco: !!ins,
+        // "sin precio" solo para MP cruda no costeada; agua/intermedios no aplican
+        tienePreco: tIng === 'agua' ? true : tIng === 'intermedio' ? cu > 0 : !!ins,
       }
     })
   }
@@ -498,7 +515,7 @@ export default function Recetas() {
           manoDeObra: b.mano_de_obra || 0,
           costoTotal: b.costo_total || 0,
           subtotalMP, ingredientes: ings,
-          sinPrecio: ings.some(i => !i.tienePreco),
+          sinPrecio: ings.some(i => i.tIng === 'insumo' && !i.tienePreco),
           updatedAt: b.updated_at,
         }
       }),
@@ -514,7 +531,7 @@ export default function Recetas() {
           manoDeObra: s.mano_de_obra || 0,
           costoTotal: s.costo_total || 0,
           subtotalMP, ingredientes: ings,
-          sinPrecio: ings.some(i => !i.tienePreco),
+          sinPrecio: ings.some(i => i.tIng === 'insumo' && !i.tienePreco),
           updatedAt: s.updated_at,
         }
       }),
@@ -527,7 +544,7 @@ export default function Recetas() {
           manoDeObra: i.mano_de_obra || 0,
           costoTotal: i.costo_total || 0,
           subtotalMP, ingredientes: ings,
-          sinPrecio: ings.some(i2 => !i2.tienePreco),
+          sinPrecio: ings.some(i2 => i2.tIng === 'insumo' && !i2.tienePreco),
           updatedAt: i.updated_at,
         }
       }),
@@ -544,7 +561,7 @@ export default function Recetas() {
           id: p.id, nombre: (p.nombre || '').toUpperCase(), tipo: 'Postre',
           litros_batch: 0, manoDeObra: imp?.mano_de_obra || 0, costoTotal: imp?.costo_total || 0,
           subtotalMP, ingredientes: ings,
-          sinPrecio: ings.some(i => !i.tienePreco),
+          sinPrecio: ings.some(i => i.tIng === 'insumo' && !i.tienePreco),
         }
       }),
     }
@@ -909,6 +926,7 @@ export default function Recetas() {
           rawIngs={editando.rawIngs}
           insumos={insumos}
           intermedios={nombresIntermedios}
+          costeador={costeador}
           onClose={() => setEditando(null)}
           onSaved={() => cargar()}
           showToast={showToast}

@@ -13,6 +13,7 @@ import {
   dibujarKpi, dibujarSeccion, dibujarFirmas,
   PDF_CONTENT_Y, PDF_NEGRO, PDF_BLANCO,
 } from '../lib/pdfEstilos'
+import { fmtMin } from '../lib/etapas'
 
 const ACCENT = colors.brand
 const CARD = { background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: '12px', padding: '20px', marginBottom: '16px' }
@@ -66,9 +67,18 @@ export default function InformeOperarios() {
       else if (periodo === 'mes')  desde.setMonth(hoy.getMonth() - 1)
       else                         desde.setMonth(hoy.getMonth() - 3)
 
-      const [{ data: ops, error: e1 }, { data: ords, error: e2 }] = await Promise.all([
+      const desdeStr = desde.toISOString().slice(0, 10)
+      const [
+        { data: ops, error: e1 }, { data: ords, error: e2 },
+        { data: etps }, { data: camMovs }, { data: depMovs }, { data: mermasData },
+      ] = await Promise.all([
         supabase.from('operarios').select('id,nombre').eq('activo', true).order('nombre'),
         supabase.from('ordenes_produccion').select('*').gte('created_at', desde.toISOString()).order('created_at', { ascending: false }),
+        // orden_etapas puede no existir todavía (degradación segura) → data null
+        supabase.from('orden_etapas').select('*').gte('created_at', desde.toISOString()),
+        supabase.from('movimientos_camara').select('operario_nombre,tipo,created_at').gte('created_at', desde.toISOString()),
+        supabase.from('movimientos_deposito').select('operario_recibe,tipo,fecha').gte('fecha', desdeStr),
+        supabase.from('mermas').select('operario_nombre,diferencia,fecha').gte('fecha', desdeStr),
       ])
       if (e1) throw e1
       if (e2) throw e2
@@ -79,6 +89,16 @@ export default function InformeOperarios() {
         operario_nombre: (o.operario_nombre || '').toUpperCase(),
         sabor_nombre: (o.sabor_nombre || o.producto_nombre || '').toUpperCase(),
       }))
+      const etapas = (etps || []).map(e => ({ ...e, operario_nombre: (e.operario_nombre || '').toUpperCase() }))
+
+      // Actividad operativa por operario (cámara, depósito, mermas).
+      const actividadDe = nombre => {
+        const N = (nombre || '').toUpperCase()
+        const camara   = (camMovs || []).filter(m => (m.operario_nombre || '').toUpperCase() === N).length
+        const deposito = (depMovs || []).filter(m => (m.operario_recibe || '').toUpperCase() === N).length
+        const misMermas = (mermasData || []).filter(m => (m.operario_nombre || '').toUpperCase() === N)
+        return { camara, deposito, mermas: misMermas.length }
+      }
 
       const ranking = operarios.map(op => {
         const misOrdenes  = ordenes.filter(o => o.operario_nombre === op.nombre)
@@ -91,17 +111,39 @@ export default function InformeOperarios() {
         const conProd = heladoCompl.filter(o => Number(o.kg_objetivo) > 0 && Number(o.kg_producido) > 0)
         const sinRegistroKg = heladoCompl.filter(o => Number(o.kg_objetivo) > 0 && !(Number(o.kg_producido) > 0)).length
 
-        const pctProduccion = conProd.length > 0
+        const pctHeladoProd = conProd.length > 0
           ? Math.round(conProd.reduce((a, o) => a + Math.min((Number(o.kg_producido) / Number(o.kg_objetivo)) * 100, 120), 0) / conProd.length)
           : null
-        // Rendimiento = cumplimiento de producción (sin dimensión de tiempo).
-        const rendimiento = pctProduccion
 
-        // ── Postres / impulsivos (unidades) — circuito propio, sin tiempo ─────
+        // ── Postres / impulsivos (unidades) — circuito propio ────────────────
         const unidadAsignadas = misOrdenes.filter(esUnidad).length
         const unidadCompl     = completadas.filter(esUnidad)
         const postresLotes    = unidadCompl.length
         const postresUnidades = unidadCompl.reduce((a, o) => a + (Number(o.cantidad_unidades) || 0), 0)
+        // Cumplimiento de postres = lotes terminados / asignados.
+        const pctPostreCompl = unidadAsignadas > 0 ? Math.round((postresLotes / unidadAsignadas) * 100) : null
+
+        // ── Eficiencia de mano de obra (etapas) — el tiempo, medido bien ─────
+        // Solo etapas ACTIVAS finalizadas que hizo este operario; estándar/real.
+        const misEtapas = etapas.filter(e => e.operario_nombre === op.nombre && e.es_activa && e.fin && Number(e.tiempo_min) > 0)
+        const stdMin  = misEtapas.reduce((a, e) => a + (Number(e.estandar_min) || 0), 0)
+        const realMin = misEtapas.reduce((a, e) => a + (Number(e.tiempo_min) || 0), 0)
+        const pctEficiencia = (stdMin > 0 && realMin > 0) ? Math.round((stdMin / realMin) * 100) : null
+        const unidadesTerminadas = etapas.filter(e => e.operario_nombre === op.nombre && e.es_cierre && e.fin)
+          .reduce((a, e) => a + (Number(e.unidades) || 0), 0)
+
+        // ── Cumplimiento de producción combinado (helado kg + postres lotes) ─
+        const prodParts = []
+        if (pctHeladoProd !== null) prodParts.push({ v: pctHeladoProd, w: conProd.length })
+        if (pctPostreCompl !== null) prodParts.push({ v: pctPostreCompl, w: unidadAsignadas })
+        const pesoTot = prodParts.reduce((a, p) => a + p.w, 0)
+        const pctProduccion = pesoTot > 0 ? Math.round(prodParts.reduce((a, p) => a + p.v * p.w, 0) / pesoTot) : null
+
+        // ── Rendimiento = 60% producción + 40% eficiencia (lo que haya) ──────
+        let rendimiento = null
+        if (pctProduccion !== null && pctEficiencia !== null) rendimiento = Math.round(pctProduccion * 0.6 + pctEficiencia * 0.4)
+        else if (pctProduccion !== null) rendimiento = pctProduccion
+        else if (pctEficiencia !== null) rendimiento = pctEficiencia
 
         const ultimas10 = heladoCompl.filter(o => Number(o.kg_objetivo) > 0).slice(0, 10).map(o => ({
           nombre:    (o.sabor_nombre || '?').slice(0, 12),
@@ -129,9 +171,11 @@ export default function InformeOperarios() {
           heladoCompletadas: heladoCompl.length,
           conProd: conProd.length,
           sinRegistroKg,
-          pctProduccion, rendimiento,
-          unidadAsignadas, postresLotes, postresUnidades,
+          pctHeladoProd, pctPostreCompl, pctProduccion, pctEficiencia, rendimiento,
+          unidadAsignadas, postresLotes, postresUnidades, unidadesTerminadas,
+          stdMin, realMin,
           ultimas10, tendencia, tendDir,
+          actividad: actividadDe(op.nombre),
           totalKgProducido: heladoCompl.reduce((a, o) => a + (Number(o.kg_producido) || 0), 0),
           totalKgObjetivo:  conProd.reduce((a, o) => a + (Number(o.kg_objetivo)  || 0), 0),
         }
@@ -264,13 +308,14 @@ export default function InformeOperarios() {
         y = dibujarSeccion(doc, pw, 'Detalle del ranking', y)
         autoTable(doc, {
           ...EST, startY: y,
-          head: [['POS', 'OPERARIO', 'ÓRDENES', 'COMPLET.', 'CUMPL. PROD.', 'POSTRES', 'RENDIM.', 'NIVEL']],
+          head: [['POS', 'OPERARIO', 'ÓRDENES', 'COMPLET.', 'CUMPL. PROD.', 'EFIC.', 'POSTRES', 'RENDIM.', 'NIVEL']],
           body: ranking.map((r, i) => [
             `${i + 1}°`,
             r.nombre,
             String(r.misOrdenes),
             String(r.completadas),
             r.pctProduccion !== null ? r.pctProduccion + '%' : '—',
+            r.pctEficiencia !== null ? r.pctEficiencia + '%' : '—',
             r.postresLotes > 0 ? `${r.postresLotes} lote(s) · ${r.postresUnidades} u` : '—',
             r.rendimiento   !== null ? r.rendimiento   + '%' : '—',
             nivel(r.rendimiento).label,
@@ -278,13 +323,13 @@ export default function InformeOperarios() {
           columnStyles: {
             0: { halign: 'center', cellWidth: 12 },
             2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
-            6: { halign: 'right' }, 7: { halign: 'center' },
+            5: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'center' },
           },
           didParseCell(data) {
             if (data.section !== 'body') return
             const r = ranking[data.row.index]
             if (!r) return
-            if (data.column.index === 6 || data.column.index === 7) {
+            if (data.column.index === 7 || data.column.index === 8) {
               data.cell.styles.textColor = nivelRgb(r.rendimiento)
               data.cell.styles.fontStyle = 'bold'
             }
@@ -310,12 +355,16 @@ export default function InformeOperarios() {
           ['Órdenes asignadas',              String(op.misOrdenes)],
           ['Órdenes completadas',            String(op.completadas)],
           ['Cumplimiento de producción',     op.pctProduccion !== null ? op.pctProduccion + '%' : '—'],
+          ['Eficiencia de mano de obra',     op.pctEficiencia !== null ? `${op.pctEficiencia}%  (estándar ${fmtMin(op.stdMin)} / real ${fmtMin(op.realMin)})` : '—'],
+          ['Rendimiento global',             op.rendimiento !== null ? `${op.rendimiento}%` : '—'],
           ['KG total producidos',            op.totalKgProducido.toFixed(1) + ' kg'],
           ['Nivel',                          nivel(op.rendimiento).label],
           ['Tendencia',                      op.tendencia],
         ]
         if (op.postresLotes > 0 || op.unidadAsignadas > 0)
-          perfil.push(['Postres / impulsivos', `${op.postresLotes} lote(s) · ${op.postresUnidades} unidades`])
+          perfil.push(['Postres / impulsivos', `${op.postresLotes} de ${op.unidadAsignadas} lotes · ${op.postresUnidades} u plan. · ${op.unidadesTerminadas} u terminadas`])
+        if (op.actividad)
+          perfil.push(['Actividad operativa', `${op.actividad.camara} cámara · ${op.actividad.deposito} depósito · ${op.actividad.mermas} mermas`])
         if (op.sinRegistroKg > 0)
           perfil.push(['Órdenes sin kg registrado', `${op.sinRegistroKg} (revisar carga en Producción)`])
         autoTable(doc, {
@@ -474,6 +523,15 @@ export default function InformeOperarios() {
                         {op.pctProduccion !== null ? op.pctProduccion + '%' : '—'}
                       </span>
                     </div>
+                    {op.pctEficiencia !== null && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                        <span style={{ color: '#64748b', width: '80px', flexShrink: 0 }}>Eficiencia</span>
+                        <Barra pct={op.pctEficiencia} color="#60a5fa" />
+                        <span style={{ color: nivel(op.pctEficiencia).color, fontWeight: '700', width: '42px', textAlign: 'right' }}>
+                          {op.pctEficiencia + '%'}
+                        </span>
+                      </div>
+                    )}
                     {(op.postresLotes > 0 || op.unidadAsignadas > 0) && (
                       <div style={{ fontSize: '12px', color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: '#64748b' }}>🍰 Postres</span>
@@ -536,7 +594,7 @@ export default function InformeOperarios() {
                 <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px', color: ACCENT, margin: '0 0 16px' }}>📦 Cumplimiento de producción (helado)</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '12px', marginBottom: '16px' }}>
                   {[
-                    { label: 'Cumplimiento vs objetivo', value: opActual.pctProduccion !== null ? opActual.pctProduccion + '%' : 'Sin datos', sub: opActual.totalKgObjetivo > 0 ? `${opActual.totalKgProducido.toFixed(0)} de ${opActual.totalKgObjetivo.toFixed(0)} kg` : '', color: nivel(opActual.pctProduccion).color },
+                    { label: 'Cumplimiento vs objetivo', value: opActual.pctHeladoProd !== null ? opActual.pctHeladoProd + '%' : 'Sin datos', sub: opActual.totalKgObjetivo > 0 ? `${opActual.totalKgProducido.toFixed(0)} de ${opActual.totalKgObjetivo.toFixed(0)} kg` : '', color: nivel(opActual.pctHeladoProd).color },
                     { label: 'Órdenes al 95%+', value: opActual.conProd > 0 ? datos.ordenes.filter(o => o.operario_nombre === opActual.nombre && o.estado === 'completada' && !esUnidad(o) && Number(o.kg_objetivo) > 0 && Number(o.kg_producido) > 0 && (Number(o.kg_producido) / Number(o.kg_objetivo)) >= 0.95).length + ' de ' + opActual.conProd : '—', color: '#10b981' },
                     { label: 'Promedio kg/orden', value: opActual.conProd > 0 ? (opActual.totalKgProducido / opActual.heladoCompletadas).toFixed(1) + ' kg' : '—', color: '#3b82f6' },
                   ].map(k => (
@@ -567,15 +625,15 @@ export default function InformeOperarios() {
                 )}
               </div>
 
-              {/* Postres / impulsivos — circuito propio (sin tiempo) */}
+              {/* Eficiencia de mano de obra (etapas) */}
               <div style={CARD}>
-                <h3 style={{ fontSize: '16px', fontWeight: '700', color: ACCENT, margin: '0 0 16px' }}>🍰 Postres y especiales (circuito propio)</h3>
-                {opActual.unidadAsignadas > 0 ? (
+                <h3 style={{ fontSize: '16px', fontWeight: '700', color: ACCENT, margin: '0 0 16px' }}>⏱ Eficiencia de mano de obra</h3>
+                {opActual.pctEficiencia !== null ? (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '12px' }}>
                     {[
-                      { label: 'Lotes completados', value: `${opActual.postresLotes} de ${opActual.unidadAsignadas}`, color: '#10b981' },
-                      { label: 'Unidades producidas', value: `${opActual.postresUnidades} u`, color: ACCENT },
-                      { label: 'Prom. unidades/lote', value: opActual.postresLotes > 0 ? Math.round(opActual.postresUnidades / opActual.postresLotes) + ' u' : '—', color: '#3b82f6' },
+                      { label: 'Eficiencia (estándar / real)', value: opActual.pctEficiencia + '%', color: nivel(opActual.pctEficiencia).color },
+                      { label: 'Tiempo estándar', value: fmtMin(opActual.stdMin), color: '#64748b' },
+                      { label: 'Tiempo real activo', value: fmtMin(opActual.realMin), color: opActual.realMin > opActual.stdMin ? '#ef4444' : '#10b981' },
                     ].map(k => (
                       <div key={k.label} style={{ background: '#0f172a', borderRadius: '6px', padding: '14px', border: '1px solid #334155' }}>
                         <div style={{ fontSize: '20px', fontWeight: '800', color: k.color }}>{k.value}</div>
@@ -585,9 +643,46 @@ export default function InformeOperarios() {
                   </div>
                 ) : (
                   <div style={{ padding: '20px', textAlign: 'center', color: '#64748b', background: '#0f172a', borderRadius: '6px' }}>
-                    Sin órdenes de postres / impulsivos en el período. Estos productos se miden por lotes y unidades, no por tiempo (pueden abarcar varias jornadas).
+                    Sin etapas registradas en el período. La eficiencia se calcula cuando el operario carga sus etapas (moldeado, desmolde, baño…) en el detalle de la orden. La espera del abatidor no cuenta como trabajo.
                   </div>
                 )}
+              </div>
+
+              {/* Postres / impulsivos — circuito propio */}
+              {(opActual.unidadAsignadas > 0 || opActual.unidadesTerminadas > 0) && (
+                <div style={CARD}>
+                  <h3 style={{ fontSize: '16px', fontWeight: '700', color: ACCENT, margin: '0 0 16px' }}>🍰 Postres y especiales</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '12px' }}>
+                    {[
+                      { label: 'Lotes completados', value: `${opActual.postresLotes} de ${opActual.unidadAsignadas}`, color: '#10b981' },
+                      { label: 'Unidades planificadas', value: `${opActual.postresUnidades} u`, color: ACCENT },
+                      { label: 'Unidades terminadas (sus etapas)', value: `${opActual.unidadesTerminadas} u`, color: '#3b82f6' },
+                    ].map(k => (
+                      <div key={k.label} style={{ background: '#0f172a', borderRadius: '6px', padding: '14px', border: '1px solid #334155' }}>
+                        <div style={{ fontSize: '20px', fontWeight: '800', color: k.color }}>{k.value}</div>
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>{k.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Actividad operativa (cámara / depósito / mermas) */}
+              <div style={CARD}>
+                <h3 style={{ fontSize: '16px', fontWeight: '700', color: ACCENT, margin: '0 0 16px' }}>🗂 Actividad operativa</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '12px' }}>
+                  {[
+                    { label: 'Movimientos de cámara', value: opActual.actividad?.camara ?? 0, color: '#60a5fa' },
+                    { label: 'Retiros de depósito', value: opActual.actividad?.deposito ?? 0, color: '#a78bfa' },
+                    { label: 'Mermas registradas', value: opActual.actividad?.mermas ?? 0, color: (opActual.actividad?.mermas ?? 0) > 0 ? '#f59e0b' : '#64748b' },
+                  ].map(k => (
+                    <div key={k.label} style={{ background: '#0f172a', borderRadius: '6px', padding: '14px', border: '1px solid #334155' }}>
+                      <div style={{ fontSize: '20px', fontWeight: '800', color: k.color }}>{k.value}</div>
+                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>{k.label}</div>
+                    </div>
+                  ))}
+                </div>
+                <p style={{ fontSize: '11px', color: '#64748b', marginTop: '10px' }}>Actividad del operario fuera de producción, para tener el panorama completo de su jornada.</p>
               </div>
 
               {/* Comparativa */}
@@ -693,7 +788,7 @@ export default function InformeOperarios() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
               <thead>
                 <tr style={{ background: '#334155' }}>
-                  {['Pos', 'Operario', 'Órdenes', 'Completadas', 'Cumpl. producción', 'Postres', 'Rendimiento', 'Nivel'].map(h => (
+                  {['Pos', 'Operario', 'Órdenes', 'Completadas', 'Cumpl. producción', 'Eficiencia', 'Postres', 'Rendimiento', 'Nivel'].map(h => (
                     <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '11px', textTransform: 'uppercase', color: '#94a3b8' }}>{h}</th>
                   ))}
                 </tr>
@@ -709,6 +804,7 @@ export default function InformeOperarios() {
                       <td style={{ padding: '12px', color: '#64748b' }}>{r.misOrdenes}</td>
                       <td style={{ padding: '12px', color: '#64748b' }}>{r.completadas}</td>
                       <td style={{ padding: '12px', color: nivel(r.pctProduccion).color, fontWeight: '700' }}>{r.pctProduccion !== null ? r.pctProduccion + '%' : '—'}</td>
+                      <td style={{ padding: '12px', color: r.pctEficiencia !== null ? nivel(r.pctEficiencia).color : '#64748b', fontWeight: '700' }}>{r.pctEficiencia !== null ? r.pctEficiencia + '%' : '—'}</td>
                       <td style={{ padding: '12px', color: '#94a3b8' }}>{r.postresLotes > 0 ? `${r.postresLotes} · ${r.postresUnidades} u` : '—'}</td>
                       <td style={{ padding: '12px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

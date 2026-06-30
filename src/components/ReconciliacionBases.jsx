@@ -21,6 +21,9 @@ export default function ReconciliacionBases({ onClose }) {
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
   const [bases, setBases]     = useState([])
+  const [operarios, setOperarios] = useState([])
+  // Form de reconciliación inline: { nombre, modo:'faltante'|'consumir', kg, fecha, operario, saving }
+  const [reconc, setReconc]   = useState(null)
 
   useEffect(() => { cargar() }, [])
 
@@ -32,12 +35,14 @@ export default function ReconciliacionBases({ onClose }) {
         { data: sabores },
         { data: ings },
         { data: ords },
+        { data: ops },
       ] = await Promise.all([
         supabase.from('stock_bases').select('*'),
         supabase.from('sabores').select('id,nombre,litros_base,base_nombre'),
         supabase.from('sabor_ingredientes').select('sabor_id,unidad,cantidad'),
         supabase.from('ordenes_produccion').select('sabor_nombre,producto_nombre,batches,kg_producido,tipo_producto,estado,fecha_produccion')
           .eq('estado', 'completada'),
+        supabase.from('operarios').select('id,nombre').eq('activo', true).order('nombre'),
       ])
       if (e1) throw e1
 
@@ -96,12 +101,61 @@ export default function ReconciliacionBases({ onClose }) {
         .sort((a, b) => Math.abs(b.saldo) - Math.abs(a.saldo))
 
       setBases(lista)
+      setOperarios(ops || [])
     } catch (err) {
       console.error('ReconciliacionBases:', err)
       setError(err.message)
     } finally {
       setLoading(false)
     }
+  }
+
+  // Registra la base que se hizo pero nunca se cargó (saldo negativo). Queda como
+  // ya consumida (kg_disponible = lo que sobró respecto a lo consumido).
+  async function registrarBaseFaltante(b) {
+    const cant = parseFloat(reconc.kg)
+    if (!(cant > 0)) return
+    if (!reconc.fecha) return
+    setReconc(r => ({ ...r, saving: true }))
+    const fechaStr = reconc.fecha.slice(0, 10)
+    const hoyStr = new Date().toISOString().slice(0, 10)
+    const disponible = Math.max(0, cant - b.consumido) // lo consumido ya se fue
+    const payload = {
+      base_nombre: b.nombre,
+      kg_original: cant,
+      kg_disponible: disponible,
+      orden_origen: `RECON-${fechaStr}`,
+      operario_nombre: reconc.operario || null,
+      fecha: fechaStr,
+      es_retroactiva: fechaStr < hoyStr,
+    }
+    let { error } = await supabase.from('stock_bases').insert(payload)
+    if (error && /es_retroactiva/i.test(error.message || '')) {
+      const { es_retroactiva, ...sinCol } = payload // eslint-disable-line no-unused-vars
+      ;({ error } = await supabase.from('stock_bases').insert(sinCol))
+    }
+    if (error) { setReconc(r => ({ ...r, saving: false })); setError(error.message); return }
+    setReconc(null)
+    await cargar()
+  }
+
+  // Marca como consumido el saldo disponible de una base (saldo positivo que en
+  // realidad ya se usó). Vacía kg_disponible de sus lotes hasta absorber el saldo.
+  async function marcarConsumida(b) {
+    setReconc(r => ({ ...r, saving: true }))
+    const { data: lotes } = await supabase.from('stock_bases')
+      .select('id,kg_disponible').eq('base_nombre', b.nombre).gt('kg_disponible', 0)
+      .order('fecha', { ascending: true })
+    let restante = b.saldo
+    for (const l of (lotes || [])) {
+      if (restante <= 0) break
+      const baja = Math.min(Number(l.kg_disponible) || 0, restante)
+      const nuevo = Math.max(0, (Number(l.kg_disponible) || 0) - baja)
+      await supabase.from('stock_bases').update({ kg_disponible: nuevo }).eq('id', l.id)
+      restante -= baja
+    }
+    setReconc(null)
+    await cargar()
   }
 
   const tot = bases.reduce((a, b) => ({
@@ -199,14 +253,67 @@ export default function ReconciliacionBases({ onClose }) {
                   </div>
                 )}
 
-                {b.estado === 'revisar_saldo' && (
-                  <div className="px-4 py-2 text-xs" style={{ color: colors.warning, borderTop: `1px solid ${colors.border}` }}>
-                    Quedan {kg(b.saldo)} sin justificar: puede ser base sin usar todavía, o sabores cargados sin descontar la base. No es merma — revisar.
+                {b.estado === 'base_no_reg' && (
+                  <div className="px-4 py-2.5 text-xs flex items-center justify-between gap-3 flex-wrap" style={{ color: colors.warning, borderTop: `1px solid ${colors.border}` }}>
+                    <span>Se consumió {kg(-b.saldo)} más de base que la producida: se hicieron sabores de una base que nunca se cargó como orden.</span>
+                    {reconc?.nombre !== b.nombre && (
+                      <button onClick={() => setReconc({ nombre: b.nombre, modo: 'faltante', kg: String(Math.round(b.consumido)), fecha: new Date().toISOString().slice(0, 16), operario: '' })}
+                        className="text-xs font-bold px-3 py-1.5 rounded-lg text-white flex-shrink-0" style={{ background: colors.brand }}>
+                        Registrar base faltante →
+                      </button>
+                    )}
                   </div>
                 )}
-                {b.estado === 'base_no_reg' && (
-                  <div className="px-4 py-2 text-xs" style={{ color: colors.warning, borderTop: `1px solid ${colors.border}` }}>
-                    Se consumió {kg(-b.saldo)} más de base que la producida en el sistema: se hicieron sabores de una base que nunca se cargó como orden.
+                {b.estado === 'revisar_saldo' && (
+                  <div className="px-4 py-2.5 text-xs flex items-center justify-between gap-3 flex-wrap" style={{ color: colors.warning, borderTop: `1px solid ${colors.border}` }}>
+                    <span>Quedan {kg(b.saldo)} sin justificar: puede ser base sin usar todavía, o sabores cargados sin descontarla.</span>
+                    {reconc?.nombre !== b.nombre && (
+                      <button onClick={() => setReconc({ nombre: b.nombre, modo: 'consumir', saving: false })}
+                        className="text-xs font-bold px-3 py-1.5 rounded-lg flex-shrink-0" style={{ background: 'transparent', color: colors.brand, border: `1px solid ${colors.brand}55` }}>
+                        Marcar como consumida
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Formulario de reconciliación inline */}
+                {reconc?.nombre === b.nombre && reconc.modo === 'faltante' && (
+                  <div className="px-4 py-3 space-y-2" style={{ background: colors.bg, borderTop: `1px solid ${colors.border}` }}>
+                    <p className="text-xs" style={{ color: colors.textSecondary }}>Registrá la base <b style={{ color: colors.textPrimary }}>{b.nombre}</b> que se hizo y no se cargó. Queda como ya consumida (con su fecha real).</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <label className="text-xs" style={{ color: colors.textMuted }}>Kg de base que se hizo
+                        <input type="number" value={reconc.kg} onChange={e => setReconc(r => ({ ...r, kg: e.target.value }))}
+                          className="w-full mt-1 rounded px-2 py-1.5 text-sm" style={{ background: colors.surface, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                      </label>
+                      <label className="text-xs" style={{ color: colors.textMuted }}>Fecha en que se hizo
+                        <input type="datetime-local" value={reconc.fecha} onChange={e => setReconc(r => ({ ...r, fecha: e.target.value }))}
+                          className="w-full mt-1 rounded px-2 py-1.5 text-sm" style={{ background: colors.surface, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                      </label>
+                      <label className="text-xs" style={{ color: colors.textMuted }}>Operario
+                        <select value={reconc.operario} onChange={e => setReconc(r => ({ ...r, operario: e.target.value }))}
+                          className="w-full mt-1 rounded px-2 py-1.5 text-sm" style={{ background: colors.surface, border: `1px solid ${colors.border}`, color: colors.textPrimary }}>
+                          <option value="">— Seleccionar —</option>
+                          {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={() => setReconc(null)} disabled={reconc.saving} className="text-xs font-semibold px-3 py-1.5 rounded-lg" style={{ color: colors.textSecondary, border: `1px solid ${colors.border}` }}>Cancelar</button>
+                      <button onClick={() => registrarBaseFaltante(b)} disabled={reconc.saving || !(parseFloat(reconc.kg) > 0)} className="text-xs font-bold px-3 py-1.5 rounded-lg text-white" style={{ background: colors.brand, opacity: reconc.saving ? 0.6 : 1 }}>
+                        {reconc.saving ? 'Guardando…' : 'Registrar base'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {reconc?.nombre === b.nombre && reconc.modo === 'consumir' && (
+                  <div className="px-4 py-3 space-y-2" style={{ background: colors.bg, borderTop: `1px solid ${colors.border}` }}>
+                    <p className="text-xs" style={{ color: colors.textSecondary }}>¿Confirmás que esos <b style={{ color: colors.textPrimary }}>{kg(b.saldo)}</b> ya se usaron (sabores hechos sin descontar la base)? Se quita ese stock disponible.</p>
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={() => setReconc(null)} disabled={reconc.saving} className="text-xs font-semibold px-3 py-1.5 rounded-lg" style={{ color: colors.textSecondary, border: `1px solid ${colors.border}` }}>Cancelar</button>
+                      <button onClick={() => marcarConsumida(b)} disabled={reconc.saving} className="text-xs font-bold px-3 py-1.5 rounded-lg text-white" style={{ background: colors.brand, opacity: reconc.saving ? 0.6 : 1 }}>
+                        {reconc.saving ? 'Guardando…' : 'Sí, marcar consumida'}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

@@ -9,6 +9,7 @@ import {
 } from '../lib/pdfEstilos'
 import { useUser } from '../context/UserContext'
 import { deduplicarOperarios } from '../lib/operarios'
+import { POSTRES } from '../lib/postres'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
@@ -136,6 +137,7 @@ export default function Mermas() {
   const [mermas, setMermas]       = useState([])
   const [sabores, setSabores]     = useState([])
   const [operarios, setOperarios] = useState([])
+  const [impulsivos, setImpulsivos] = useState([])
   const [loading, setLoading]     = useState(true)
   const [toast, setToast]         = useState(null)
   const [modal, setModal]         = useState(false)
@@ -151,14 +153,16 @@ export default function Mermas() {
   useEffect(() => { cargar() }, [])
 
   async function cargar() {
-    const [{ data: m }, { data: s }, { data: o }] = await Promise.all([
+    const [{ data: m }, { data: s }, { data: o }, { data: imp }] = await Promise.all([
       supabase.from('mermas').select('*').order('created_at', { ascending: false }).limit(200),
       supabase.from('stock_camaras').select('*').order('nombre'),
       supabase.from('operarios').select('*').order('nombre'),
+      supabase.from('impulsivos').select('nombre,costo_total'),
     ])
     setMermas(m || [])
     setSabores(s || [])
     setOperarios(deduplicarOperarios(o))
+    setImpulsivos(imp || [])
     setLoading(false)
   }
 
@@ -227,7 +231,21 @@ export default function Mermas() {
     return m
   }, [sabores])
 
+  // Costo por UNIDAD de impulsivos y postres (para costear sus mermas en unidades)
+  const costoUnidadPorNombre = useMemo(() => {
+    const m = {}
+    impulsivos.forEach(i => { m[(i.nombre || '').trim().toLowerCase()] = i.costo_total || 0 })
+    POSTRES.forEach(p => { m[(p.nombre || '').trim().toLowerCase()] = p.costo_total || 0 })
+    return m
+  }, [impulsivos])
+
   function costoMerma(m) {
+    // Impulsivos/postres: la merma viene en unidades → costo unitario × unidades
+    if (m.unidades != null && m.unidades > 0) {
+      const cu = costoUnidadPorNombre[(m.sabor_nombre || '').trim().toLowerCase()] || 0
+      return m.unidades * cu
+    }
+    // Resto (helados/sabores): costo por kg
     const costoKg = costoKgPorSabor[(m.sabor_nombre || '').trim().toLowerCase()] || 0
     return (m.diferencia || 0) * costoKg
   }

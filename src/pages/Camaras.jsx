@@ -1303,15 +1303,17 @@ export default function Camaras() {
         motivo: 'Ajuste de inventario', operario_nombre: operario || null, fecha: hoy, created_at: now,
       })
 
-      // Faltante → merma valorizada
+      // Faltante → merma valorizada (impulsivo/postre por unidad, helado por kg)
       if (diff < 0) {
-        const faltKg = esImp ? 0 : kgPorBalde * Math.abs(diff)
+        const esUnidad = (item.tipo_producto || 'helado') !== 'helado'
+        const faltKg = esUnidad ? 0 : kgPorBalde * Math.abs(diff)
         await supabase.from('mermas').insert({
           fecha: hoy, sabor_nombre: item.nombre, operario_nombre: operario || null,
           kg_teoricos: faltKg, kg_reales: 0, diferencia: faltKg, porcentaje: faltKg > 0 ? 100 : 0,
           causa: 'Faltante de conteo',
-          observaciones: `${Math.abs(diff)} ${esImp ? 'unidades' : 'baldes'} faltantes en conteo físico`,
+          observaciones: `${Math.abs(diff)} ${esUnidad ? 'unidades' : 'baldes'} faltantes en conteo físico`,
           usuario_email: user?.email || null,
+          ...(esUnidad ? { unidades: Math.abs(diff) } : {}),
         })
       }
       ajustados++
@@ -1663,7 +1665,8 @@ export default function Camaras() {
     // Pérdidas de cámara (Merma/Baja) → también se registran en el módulo Mermas,
     // para que se vean y se costeen como pérdida (antes quedaban invisibles).
     if (tipo === 'egreso' && (motivo === 'Merma' || motivo === 'Baja')) {
-      const kgPerdido = tipoCam === 'impulsivo' ? 0 : (kg || 0)
+      const esUnidad = tipoCam !== 'helado'          // impulsivo o postre → se costea por unidad
+      const kgPerdido = esUnidad ? 0 : (kg || 0)
       await supabase.from('mermas').insert({
         fecha: new Date().toISOString().split('T')[0],
         sabor_nombre: sabor.nombre,
@@ -1675,6 +1678,7 @@ export default function Camaras() {
         causa: `${motivo} de cámara`,
         observaciones: `${baldes} ${tipoCam === 'helado' ? 'baldes' : 'unidades'} dados de ${motivo.toLowerCase()} en cámara`,
         usuario_email: user?.email || null,
+        ...(esUnidad ? { unidades: baldes } : {}),
       })
     }
     const updated = { ...sabor, baldes: nuevoBaldes, kg: nuevosKg, lote: nuevoLote }

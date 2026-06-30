@@ -459,9 +459,13 @@ export default function Recetas() {
     const impIngsPor   = {}; impIngs.forEach(i   => { (impIngsPor[i.impulsivo_id]     ||= []).push(i) })
     const tipoPorNombre = {}; stockCamaras.forEach(c => { tipoPorNombre[c.nombre] = c.tipo })
 
-    // Mapa de ingredientes de postres desde lib/postres.js (fallback)
+    // Mapa de ingredientes de postres desde lib/postres.js (fallback / semilla)
     const postresLibMap = {}
     POSTRES.forEach(p => { postresLibMap[(p.nombre || '').trim().toLowerCase()] = p.ingredientes || [] })
+    // Recetas de postres viven en la tabla `impulsivos` (igual que producción).
+    const impPorNombre = {}; impulsivos.forEach(im => { impPorNombre[(im.nombre || '').trim().toLowerCase()] = im })
+    // Nombres que son postres (para no mostrarlos en la pestaña Impulsivos).
+    const postreNombres = new Set(postres.map(p => (p.nombre || '').trim().toLowerCase()))
 
     return {
       Bases: bases.map(b => {
@@ -493,7 +497,7 @@ export default function Recetas() {
           updatedAt: s.updated_at,
         }
       }),
-      Impulsivos: impulsivos.map(i => {
+      Impulsivos: impulsivos.filter(i => !postreNombres.has((i.nombre || '').trim().toLowerCase())).map(i => {
         const ings = enrichIngs(impIngsPor[i.id] || [])
         const subtotalMP = ings.reduce((a, i2) => a + i2.costoTotal, 0)
         return {
@@ -507,12 +511,17 @@ export default function Recetas() {
         }
       }),
       Postres: postres.map(p => {
-        const libIngs = postresLibMap[(p.nombre || '').trim().toLowerCase()] || []
-        const ings = enrichIngs(libIngs, 'nombre')
+        const key = (p.nombre || '').trim().toLowerCase()
+        const imp = impPorNombre[key]
+        const dbIngs = imp ? (impIngsPor[imp.id] || []) : []
+        // Prioriza la receta editada en DB; si no hay, usa el catálogo como base.
+        const ings = dbIngs.length > 0
+          ? enrichIngs(dbIngs)
+          : enrichIngs(postresLibMap[key] || [], 'nombre')
         const subtotalMP = ings.reduce((a, i) => a + i.costoTotal, 0)
         return {
           id: p.id, nombre: (p.nombre || '').toUpperCase(), tipo: 'Postre',
-          litros_batch: 0, manoDeObra: 0, costoTotal: 0,
+          litros_batch: 0, manoDeObra: imp?.mano_de_obra || 0, costoTotal: imp?.costo_total || 0,
           subtotalMP, ingredientes: ings,
           sinPrecio: ings.some(i => !i.tienePreco),
         }
@@ -582,7 +591,16 @@ export default function Recetas() {
           .select().single()
         if (error) { showToast(error.message, 'error'); return }
         setImpulsivos(prev => [...prev, nuevo])
-        setEditando({ receta: nuevo, tipo: 'Postres', rawIngs: [] })
+        // Sembrar con la receta del catálogo (lib/postres.js) para no arrancar vacío.
+        const cat = POSTRES.find(pp => (pp.nombre || '').trim().toLowerCase() === (receta.nombre || '').trim().toLowerCase())
+        let rawIngs = []
+        if (cat?.ingredientes?.length) {
+          const filas = cat.ingredientes.map(i => ({ impulsivo_id: nuevo.id, insumo_nombre: i.nombre, cantidad: i.cantidad, unidad: i.unidad }))
+          const { data: ins } = await supabase.from('impulsivo_ingredientes').insert(filas).select()
+          rawIngs = ins || []
+          if (ins?.length) setImpIngs(prev => [...prev, ...ins])
+        }
+        setEditando({ receta: nuevo, tipo: 'Postres', rawIngs })
       }
       return
     }
@@ -716,14 +734,12 @@ export default function Recetas() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {tab !== 'Postres' && (
-                      <button
-                        onClick={e => { e.stopPropagation(); abrirEditor(r) }}
-                        className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
-                        style={{ backgroundColor: '#fff7ed', color: colors.brand, border: `1px solid #fed7aa` }}>
-                        <Edit2 size={11} /> Editar
-                      </button>
-                    )}
+                    <button
+                      onClick={e => { e.stopPropagation(); abrirEditor(r) }}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
+                      style={{ backgroundColor: '#fff7ed', color: colors.brand, border: `1px solid #fed7aa` }}>
+                      <Edit2 size={11} /> Editar
+                    </button>
                     {isAdmin && (
                       <>
                         <button

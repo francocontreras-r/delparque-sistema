@@ -21,9 +21,13 @@ create table if not exists producto_etapas (
   es_activa         boolean not null default true, -- false = espera (abatidor/cámara)
   estandar_min_unidad numeric not null default 0,  -- minutos estándar por unidad
   activo            boolean not null default true,
-  created_at        timestamptz default now(),
-  unique (tipo_producto, coalesce(producto_nombre, ''), etapa_orden)
+  created_at        timestamptz default now()
 );
+
+-- Unicidad por tipo+producto+orden. Va como índice (no constraint) porque usa
+-- una expresión (coalesce) que UNIQUE de tabla no admite.
+create unique index if not exists ux_producto_etapas
+  on producto_etapas (tipo_producto, coalesce(producto_nombre, ''), etapa_orden);
 
 -- ── 2) Etapas registradas de cada orden ──────────────────────────────────────
 -- Una fila por etapa de cada orden. El operario marca inicio/fin; el tiempo

@@ -87,18 +87,26 @@ export default function ReconciliacionBases({ onClose }) {
         b.sabores.push({ nombre: nom, batches, baseConsumida, helado, rindeEsp, rindeReal, fecha: o.fecha_produccion })
       })
 
-      // Estado por base (honesto, con tolerancia)
+      // Estado por base (honesto, con tolerancia).
+      // Clave: comparar el STOCK DISPONIBLE contra lo que DEBERÍA quedar
+      // (producido − consumido). Una base con sobrante en cámara que cuadra con
+      // el stock está CONCILIADA (no es problema): es base sin usar todavía.
       const lista = Object.values(porBase).map(b => {
-        const saldo = b.producido - b.consumido
-        const tol = Math.max(3, b.producido * 0.05)
+        const esperadoDisp = b.producido - b.consumido   // lo que debería quedar en stock
+        const descuadre = b.disponible - esperadoDisp     // + = stock de más; − = stock de menos
+        const faltanteBase = b.consumido - b.producido    // + = se consumió más de lo producido
+        const tol = Math.max(5, b.producido * 0.05)
         let estado = 'conciliado'
-        if (saldo > tol) estado = 'revisar_saldo'       // base figura / sin vincular
-        else if (saldo < -tol) estado = 'base_no_reg'   // sabores sin base en sistema
-        // rinde bajo real en algún sabor (posible merma)
+        if (faltanteBase > tol) estado = 'base_no_reg'        // sabores de una base no cargada
+        else if (descuadre > tol) estado = 'stock_fantasma'   // el sistema muestra stock de más
+        else if (descuadre < -tol) estado = 'stock_faltante'  // falta stock vs lo esperado
         const rindeBajo = b.sabores.some(s => s.rindeEsp && s.rindeReal && s.rindeReal < s.rindeEsp - 10)
-        return { ...b, saldo, estado, rindeBajo }
+        return { ...b, esperadoDisp, descuadre, faltanteBase, estado, rindeBajo }
       }).filter(b => b.producido > 0 || b.sabores.length > 0)
-        .sort((a, b) => Math.abs(b.saldo) - Math.abs(a.saldo))
+        .sort((a, b) => {
+          const sev = e => e === 'conciliado' ? 0 : 1
+          return sev(b.estado) - sev(a.estado) || Math.abs(b.descuadre) - Math.abs(a.descuadre)
+        })
 
       setBases(lista)
       setOperarios(ops || [])
@@ -146,7 +154,7 @@ export default function ReconciliacionBases({ onClose }) {
     const { data: lotes } = await supabase.from('stock_bases')
       .select('id,kg_disponible').eq('base_nombre', b.nombre).gt('kg_disponible', 0)
       .order('fecha', { ascending: true })
-    let restante = b.saldo
+    let restante = b.descuadre // solo el stock de MÁS (lo fantasma), no el sobrante legítimo
     for (const l of (lotes || [])) {
       if (restante <= 0) break
       const baja = Math.min(Number(l.kg_disponible) || 0, restante)
@@ -161,14 +169,15 @@ export default function ReconciliacionBases({ onClose }) {
   const tot = bases.reduce((a, b) => ({
     producido: a.producido + b.producido,
     consumido: a.consumido + b.consumido,
-    saldo: a.saldo + Math.max(0, b.saldo),
+    revisarKg: a.revisarKg + (b.estado === 'base_no_reg' ? b.faltanteBase : b.estado !== 'conciliado' ? Math.abs(b.descuadre) : 0),
     revisar: a.revisar + (b.estado !== 'conciliado' || b.rindeBajo ? 1 : 0),
-  }), { producido: 0, consumido: 0, saldo: 0, revisar: 0 })
+  }), { producido: 0, consumido: 0, revisarKg: 0, revisar: 0 })
 
   const ESTADOS = {
-    conciliado:    { label: '✓ Conciliada',        variant: 'success' },
-    revisar_saldo: { label: '⚠ Saldo a revisar',   variant: 'warning' },
-    base_no_reg:   { label: '⚠ Base no registrada', variant: 'warning' },
+    conciliado:     { label: '✓ Conciliada',         variant: 'success' },
+    stock_fantasma: { label: '⚠ Stock de más',       variant: 'warning' },
+    stock_faltante: { label: '⚠ Stock de menos',     variant: 'warning' },
+    base_no_reg:    { label: '⚠ Base no registrada', variant: 'warning' },
   }
 
   return (
@@ -189,7 +198,7 @@ export default function ReconciliacionBases({ onClose }) {
             {[
               { l: 'Base producida', v: kg(tot.producido), c: colors.info },
               { l: 'Consumida en sabores', v: kg(tot.consumido), c: colors.success },
-              { l: 'Saldo a revisar', v: kg(tot.saldo), c: tot.saldo > 3 ? colors.warning : colors.textMuted },
+              { l: 'A revisar', v: kg(tot.revisarKg), c: tot.revisarKg > 5 ? colors.warning : colors.textMuted },
               { l: 'Bases a revisar', v: String(tot.revisar), c: tot.revisar > 0 ? colors.warning : colors.success },
             ].map(k => (
               <div key={k.l} style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: radius.md, padding: '12px 14px' }}>
@@ -241,38 +250,51 @@ export default function ReconciliacionBases({ onClose }) {
                         <Td></Td>
                         <Td className="text-right font-bold">{kg(b.consumido)}</Td>
                         <Td className="text-right font-bold">{kg(b.sabores.reduce((a, s) => a + s.helado, 0))}</Td>
-                        <Td className="text-right font-bold" style={{ color: Math.abs(b.saldo) > Math.max(3, b.producido * 0.05) ? colors.warning : colors.textMuted }}>
-                          saldo {kg(b.saldo)}
+                        <Td className="text-right font-bold" style={{ color: b.estado === 'conciliado' ? colors.success : colors.warning }}>
+                          {b.estado === 'conciliado' ? '✓ cuadra'
+                            : b.estado === 'base_no_reg' ? `falta base ${kg(b.faltanteBase)}`
+                            : b.estado === 'stock_fantasma' ? `stock +${kg(b.descuadre)}`
+                            : `stock ${kg(b.descuadre)}`}
                         </Td>
                       </Tr>
                     </Tbody>
                   </Table>
                 ) : (
                   <div className="px-4 py-3 text-sm" style={{ color: colors.textMuted }}>
-                    Sin sabores vinculados a esta base en el período. {kg(b.disponible)} figuran en stock — revisar si están sin usar o si se hicieron sabores sin descontarla.
+                    Sin sabores vinculados a esta base en el período. {kg(b.disponible)} figuran en stock.
                   </div>
                 )}
 
+                {b.estado === 'conciliado' && b.disponible > 5 && (
+                  <div className="px-4 py-2 text-xs" style={{ color: colors.success, borderTop: `1px solid ${colors.border}` }}>
+                    Cuadra: quedan {kg(b.disponible)} de base sin usar todavía (stock legítimo).
+                  </div>
+                )}
                 {b.estado === 'base_no_reg' && (
                   <div className="px-4 py-2.5 text-xs flex items-center justify-between gap-3 flex-wrap" style={{ color: colors.warning, borderTop: `1px solid ${colors.border}` }}>
-                    <span>Se consumió {kg(-b.saldo)} más de base que la producida: se hicieron sabores de una base que nunca se cargó como orden.</span>
+                    <span>Se consumió {kg(b.faltanteBase)} más de base que la producida: se hicieron sabores de una base que nunca se cargó como orden.</span>
                     {reconc?.nombre !== b.nombre && (
-                      <button onClick={() => setReconc({ nombre: b.nombre, modo: 'faltante', kg: String(Math.round(b.consumido)), fecha: new Date().toISOString().slice(0, 16), operario: '' })}
+                      <button onClick={() => setReconc({ nombre: b.nombre, modo: 'faltante', kg: String(Math.round(b.faltanteBase)), fecha: new Date().toISOString().slice(0, 16), operario: '' })}
                         className="text-xs font-bold px-3 py-1.5 rounded-lg text-white flex-shrink-0" style={{ background: colors.brand }}>
                         Registrar base faltante →
                       </button>
                     )}
                   </div>
                 )}
-                {b.estado === 'revisar_saldo' && (
+                {b.estado === 'stock_fantasma' && (
                   <div className="px-4 py-2.5 text-xs flex items-center justify-between gap-3 flex-wrap" style={{ color: colors.warning, borderTop: `1px solid ${colors.border}` }}>
-                    <span>Quedan {kg(b.saldo)} sin justificar: puede ser base sin usar todavía, o sabores cargados sin descontarla.</span>
+                    <span>El sistema muestra {kg(b.descuadre)} de más en stock: se hicieron sabores sin descontar la base.</span>
                     {reconc?.nombre !== b.nombre && (
                       <button onClick={() => setReconc({ nombre: b.nombre, modo: 'consumir', saving: false })}
                         className="text-xs font-bold px-3 py-1.5 rounded-lg flex-shrink-0" style={{ background: 'transparent', color: colors.brand, border: `1px solid ${colors.brand}55` }}>
                         Marcar como consumida
                       </button>
                     )}
+                  </div>
+                )}
+                {b.estado === 'stock_faltante' && (
+                  <div className="px-4 py-2 text-xs" style={{ color: colors.warning, borderTop: `1px solid ${colors.border}` }}>
+                    Falta {kg(-b.descuadre)} de stock vs lo esperado: posible merma de cámara o base consumida sin registrar. Revisar con un conteo físico.
                   </div>
                 )}
 
@@ -307,7 +329,7 @@ export default function ReconciliacionBases({ onClose }) {
                 )}
                 {reconc?.nombre === b.nombre && reconc.modo === 'consumir' && (
                   <div className="px-4 py-3 space-y-2" style={{ background: colors.bg, borderTop: `1px solid ${colors.border}` }}>
-                    <p className="text-xs" style={{ color: colors.textSecondary }}>¿Confirmás que esos <b style={{ color: colors.textPrimary }}>{kg(b.saldo)}</b> ya se usaron (sabores hechos sin descontar la base)? Se quita ese stock disponible.</p>
+                    <p className="text-xs" style={{ color: colors.textSecondary }}>¿Confirmás que esos <b style={{ color: colors.textPrimary }}>{kg(b.descuadre)}</b> ya se usaron (sabores hechos sin descontar la base)? Se quita ese stock disponible.</p>
                     <div className="flex gap-2 justify-end">
                       <button onClick={() => setReconc(null)} disabled={reconc.saving} className="text-xs font-semibold px-3 py-1.5 rounded-lg" style={{ color: colors.textSecondary, border: `1px solid ${colors.border}` }}>Cancelar</button>
                       <button onClick={() => marcarConsumida(b)} disabled={reconc.saving} className="text-xs font-bold px-3 py-1.5 rounded-lg text-white" style={{ background: colors.brand, opacity: reconc.saving ? 0.6 : 1 }}>

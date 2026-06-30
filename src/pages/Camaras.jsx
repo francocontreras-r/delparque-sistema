@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown, FileDown, Plus, Trash2 } from 'lucide-react'
+import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown, FileDown, Plus, Trash2, ClipboardCheck } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { deduplicarOperarios } from '../lib/operarios'
 import { useUser } from '../context/UserContext'
@@ -1077,6 +1077,82 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
   )
 }
 
+function ModalConteoCamara({ stock, operarios, onClose, onApply }) {
+  const [valores, setValores] = useState(() => Object.fromEntries(stock.map(s => [s.id, String(s.baldes ?? 0)])))
+  const [operario, setOperario] = useState('')
+  const [saving, setSaving] = useState(false)
+  const upd = (id, v) => setValores(p => ({ ...p, [id]: v }))
+
+  const cambios = stock.map(s => {
+    const f = parseInt(valores[s.id])
+    const sistema = s.baldes || 0
+    const fisico = isNaN(f) ? sistema : f
+    return { id: s.id, nombre: s.nombre, esImp: (s.tipo_producto || 'helado') === 'impulsivo', sistema, fisico, diff: fisico - sistema }
+  })
+  const conDif = cambios.filter(c => c.diff !== 0)
+  const hayFaltante = conDif.some(c => c.diff < 0)
+
+  async function confirmar() {
+    setSaving(true)
+    await onApply(conDif.map(c => ({ id: c.id, fisico: c.fisico })), operario)
+    setSaving(false)
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Conteo físico de cámara" maxWidth="max-w-2xl" disableBackdropClose
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} className="flex-1" disabled={saving}>Cancelar</Button>
+          <Button variant="primary" onClick={confirmar} loading={saving} disabled={conDif.length === 0} className="flex-1">
+            Ajustar{conDif.length > 0 ? ` (${conDif.length})` : ''}
+          </Button>
+        </>
+      }>
+      <div className="space-y-3">
+        <p className="text-xs" style={{ color: colors.textMuted }}>
+          Ingresá el conteo real (baldes/unidades). Las diferencias ajustan el stock; los <b style={{ color: colors.danger }}>faltantes se registran en Mermas</b> valorizados.
+        </p>
+        <Select label="Operario que cuenta" value={operario} onChange={e => setOperario(e.target.value)}>
+          <option value="">— Opcional —</option>
+          {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+        </Select>
+        <div className="overflow-x-auto" style={{ maxHeight: 380, overflowY: 'auto', border: `1px solid ${colors.border}`, borderRadius: radius.md }}>
+          <table className="w-full">
+            <thead>
+              <tr style={{ backgroundColor: colors.bg, position: 'sticky', top: 0 }}>
+                {['Producto', 'Sistema', 'Físico', 'Dif.'].map(h => (
+                  <th key={h} className="py-2 px-3 text-left font-semibold uppercase" style={{ fontSize: 10, color: colors.textMuted }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {cambios.map(c => (
+                <tr key={c.id} style={{ borderTop: `1px solid ${colors.border}` }}>
+                  <td className="py-1.5 px-3 text-sm" style={{ color: colors.textPrimary }}>{c.nombre}</td>
+                  <td className="py-1.5 px-3 text-sm" style={{ color: colors.textSecondary }}>{c.sistema}</td>
+                  <td className="py-1.5 px-3">
+                    <input type="number" min="0" value={valores[c.id]} onChange={e => upd(c.id, e.target.value)}
+                      className="w-20 rounded-md border text-sm px-2 py-1 outline-none"
+                      style={{ borderColor: colors.border, backgroundColor: colors.bg, color: colors.textPrimary }} />
+                  </td>
+                  <td className="py-1.5 px-3 text-sm font-bold" style={{ color: c.diff < 0 ? colors.danger : c.diff > 0 ? colors.success : colors.textMuted }}>
+                    {c.diff > 0 ? '+' : ''}{c.diff || '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {hayFaltante && (
+          <p className="text-xs font-semibold" style={{ color: colors.warning }}>
+            ⚠️ Los faltantes se registrarán como merma valorizada (causa "Faltante de conteo").
+          </p>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
 // ── Página principal ──────────────────────────────────────────────────────────
 
 export default function Camaras() {
@@ -1117,6 +1193,7 @@ export default function Camaras() {
   const { isAdmin, user } = useUser()
   const showVal = userRole === 'admin'
   const [modalAgregar, setModalAgregar] = useState(false)
+  const [modalConteo, setModalConteo]   = useState(false)
   const [savingAgregar, setSavingAgregar] = useState(false)
 
   useEffect(() => {
@@ -1178,6 +1255,70 @@ export default function Camaras() {
     setMovimientos(prev => prev.map(m => m.id === id ? { ...m, rindio: v } : m))
     setRindioEdits(prev => { const n = { ...prev }; delete n[id]; return n })
     mostrarToast('Rendimiento registrado')
+  }
+
+  // Conteo físico: ajusta el stock al conteo real y registra el faltante como
+  // movimiento de ajuste + merma valorizada (causa "Faltante de conteo").
+  async function aplicarConteoCamara(cambios, operario) {
+    const hoy = new Date().toISOString().split('T')[0]
+    const now = new Date().toISOString()
+    let ajustados = 0, faltantes = 0
+    for (const c of cambios) {
+      const item = stock.find(s => s.id === c.id)
+      if (!item) continue
+      const fisico = parseInt(c.fisico)
+      const sistema = item.baldes || 0
+      if (isNaN(fisico) || fisico < 0 || fisico === sistema) continue
+      const diff = fisico - sistema
+      const esImp = (item.tipo_producto || 'helado') === 'impulsivo'
+      const kgPorBalde = sistema > 0 ? (item.kg || 0) / sistema : 0
+
+      // Filas reales del producto (puede tener varios lotes); ajustamos sobre ellas
+      const { data: filas } = await supabase.from('stock_camaras')
+        .select('id, baldes, kg').ilike('nombre', item.nombre)
+        .order('ultima_actualizacion', { ascending: true })
+      if (diff < 0) {
+        let restante = Math.abs(diff)
+        for (const f of (filas || [])) {
+          if (restante <= 0) break
+          const quita = Math.min(f.baldes || 0, restante)
+          const nb = (f.baldes || 0) - quita
+          const nk = esImp ? (f.kg || 0) : ((f.baldes || 0) > 0 ? (f.kg || 0) * (nb / (f.baldes || 1)) : 0)
+          await supabase.from('stock_camaras').update({ baldes: nb, kg: nk, ultima_actualizacion: now }).eq('id', f.id)
+          restante -= quita
+        }
+        faltantes++
+      } else {
+        const f = (filas || [])[(filas || []).length - 1] || { id: item.id, baldes: 0, kg: 0 }
+        const nb = (f.baldes || 0) + diff
+        const nk = esImp ? (f.kg || 0) : (f.kg || 0) + kgPorBalde * diff
+        await supabase.from('stock_camaras').update({ baldes: nb, kg: nk, ultima_actualizacion: now }).eq('id', f.id)
+      }
+
+      // Movimiento de ajuste (deja rastro de la corrección)
+      await supabase.from('movimientos_camara').insert({
+        sabor_nombre: item.nombre, producto_nombre: item.nombre,
+        tipo: diff < 0 ? 'egreso' : 'ingreso', tipo_producto: item.tipo_producto || 'helado',
+        kg: esImp ? 0 : kgPorBalde * Math.abs(diff), baldes: Math.abs(diff),
+        motivo: 'Ajuste de inventario', operario_nombre: operario || null, fecha: hoy, created_at: now,
+      })
+
+      // Faltante → merma valorizada
+      if (diff < 0) {
+        const faltKg = esImp ? 0 : kgPorBalde * Math.abs(diff)
+        await supabase.from('mermas').insert({
+          fecha: hoy, sabor_nombre: item.nombre, operario_nombre: operario || null,
+          kg_teoricos: faltKg, kg_reales: 0, diferencia: faltKg, porcentaje: faltKg > 0 ? 100 : 0,
+          causa: 'Faltante de conteo',
+          observaciones: `${Math.abs(diff)} ${esImp ? 'unidades' : 'baldes'} faltantes en conteo físico`,
+          usuario_email: user?.email || null,
+        })
+      }
+      ajustados++
+    }
+    setModalConteo(false)
+    await recargarStock()
+    mostrarToast(ajustados === 0 ? 'Sin diferencias para ajustar' : `${ajustados} producto(s) ajustado(s)${faltantes > 0 ? ` · ${faltantes} faltante(s) a Mermas` : ''}`)
   }
 
   function exportarMovimientosPDF() {
@@ -1673,6 +1814,11 @@ export default function Camaras() {
           {userRole === 'admin' && (
             <Button variant="secondary" onClick={generarPDFStockActual} disabled={loading || !!errorCarga}>
               <FileDown size={15} /> Stock Actual
+            </Button>
+          )}
+          {isAdmin && (
+            <Button variant="secondary" onClick={() => setModalConteo(true)} disabled={loading || !!errorCarga}>
+              <ClipboardCheck size={15} /> Conteo físico
             </Button>
           )}
           {isAdmin && (
@@ -2219,6 +2365,15 @@ export default function Camaras() {
           onClose={() => setModalAgregar(false)}
           onSubmit={agregarProducto}
           saving={savingAgregar}
+        />
+      )}
+
+      {modalConteo && (
+        <ModalConteoCamara
+          stock={stock}
+          operarios={operarios}
+          onClose={() => setModalConteo(false)}
+          onApply={aplicarConteoCamara}
         />
       )}
 

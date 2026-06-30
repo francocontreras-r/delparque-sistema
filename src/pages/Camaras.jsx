@@ -1099,6 +1099,8 @@ export default function Camaras() {
   const [filtroMovFecha, setFiltroMovFecha] = useState(new Date().toISOString().split('T')[0])
   const [filtroMovTipo, setFiltroMovTipo]   = useState('')
   const [filtroMovMotivo, setFiltroMovMotivo] = useState('')  // '' = todos
+  const [rindioEdits, setRindioEdits] = useState({})          // { [movId]: valorEnEdicion }
+  const [savingRindio, setSavingRindio] = useState(null)      // id en guardado
 
   const [operarios, setOperarios]           = useState([])
   const [temperaturas, setTemperaturas]     = useState([])
@@ -1159,6 +1161,19 @@ export default function Camaras() {
     const { data } = await q
     setMovimientos(data || [])
     setLoadingMovs(false)
+  }
+
+  // Registrar/editar el rendimiento de un egreso a producción ya hecho
+  async function actualizarRindio(id, value) {
+    const v = parseFloat(value)
+    if (isNaN(v) || v <= 0) { mostrarToast('Ingresá un número mayor a 0', 'error'); return }
+    setSavingRindio(id)
+    const { error } = await supabase.from('movimientos_camara').update({ rindio: v }).eq('id', id)
+    setSavingRindio(null)
+    if (error) { mostrarToast(error.message, 'error'); return }
+    setMovimientos(prev => prev.map(m => m.id === id ? { ...m, rindio: v } : m))
+    setRindioEdits(prev => { const n = { ...prev }; delete n[id]; return n })
+    mostrarToast('Rendimiento registrado')
   }
 
   function exportarMovimientosPDF() {
@@ -1787,11 +1802,30 @@ export default function Camaras() {
                         <td className="py-2.5 px-4 text-xs" style={{ color: colors.textMuted }}>{cat}</td>
                         <td className="py-2.5 px-4 text-xs" style={{ color: colors.textMuted }}>
                           {esProd ? (
-                            <span>
+                            <span className="inline-flex items-center gap-1.5 flex-wrap">
                               <span style={{ color: colors.textSecondary }}>{elaborado || '—'}</span>
-                              {m.rindio != null
-                                ? <> · {Number(m.rindio).toFixed(1)} · <b style={{ color: colors.brand }}>{rendBalde != null ? rendBalde.toFixed(1) : '—'}/balde</b></>
-                                : <span style={{ color: colors.warning }}> · rinde s/registrar</span>}
+                              {m.rindio != null ? (
+                                <> · {Number(m.rindio).toFixed(1)} · <b style={{ color: colors.brand }}>{rendBalde != null ? rendBalde.toFixed(1) : '—'}/balde</b></>
+                              ) : (
+                                <>
+                                  · <input
+                                      type="number" min="0" step="0.01"
+                                      value={rindioEdits[m.id] ?? ''}
+                                      onChange={e => setRindioEdits(p => ({ ...p, [m.id]: e.target.value }))}
+                                      onKeyDown={e => { if (e.key === 'Enter') actualizarRindio(m.id, rindioEdits[m.id]) }}
+                                      placeholder="rindió"
+                                      className="w-16 rounded-md border text-xs px-1.5 py-1 outline-none"
+                                      style={{ borderColor: colors.border, backgroundColor: colors.bg, color: colors.textPrimary }}
+                                    />
+                                  <button
+                                    onClick={() => actualizarRindio(m.id, rindioEdits[m.id])}
+                                    disabled={savingRindio === m.id || !rindioEdits[m.id]}
+                                    className="px-2 py-1 rounded-md text-xs font-semibold disabled:opacity-40"
+                                    style={{ backgroundColor: colors.brand, color: 'white' }}>
+                                    {savingRindio === m.id ? '…' : '✓ registrar'}
+                                  </button>
+                                </>
+                              )}
                             </span>
                           ) : '—'}
                         </td>

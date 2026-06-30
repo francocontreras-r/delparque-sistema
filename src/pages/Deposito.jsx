@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
 import { deduplicarOperarios } from '../lib/operarios'
+import { normalizarNombre } from '../lib/texto'
 import { clasificarVencimiento, esAlertaVencimiento, labelDias } from '../lib/vencimientos'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -1529,18 +1530,23 @@ export default function Deposito() {
 
   // ── Informe ejecutivo de egresos (valorizado en $) ────────────────────────
   const egresosEjecutivo = useMemo(() => {
+    // Costo por insumo, matcheando por nombre normalizado (ignora tildes/espacios,
+    // como el resto del sistema) para no perder valor por diferencias de nombre.
     const costo = {}
-    insumos.forEach(i => { costo[(i.nombre || '').trim().toLowerCase()] = i.costo_unitario || 0 })
-    const valorDe = m => (Number(m.cantidad) || 0) * (costo[(m.producto_nombre || '').trim().toLowerCase()] || 0)
-    const sinCosto = m => !(costo[(m.producto_nombre || '').trim().toLowerCase()] > 0)
+    insumos.forEach(i => { costo[normalizarNombre(i.nombre)] = i.costo_unitario || 0 })
+    const valorDe = m => (Number(m.cantidad) || 0) * (costo[normalizarNombre(m.producto_nombre)] || 0)
+    const sinCosto = m => !(costo[normalizarNombre(m.producto_nombre)] > 0)
+    const esAjuste = m => /ajuste de inventario/i.test(m.motivo || '') || /ajuste de inventario/i.test(m.observaciones || '')
     const egr = movsInforme.filter(m => m.tipo === 'egreso')
     const totalVal = egr.reduce((a, m) => a + valorDe(m), 0)
 
     const PROD = new Set(['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones', 'Panadería'])
-    const bucketDe = m => PROD.has(m.destino) ? 'Producción' : (m.destino === 'Venta' ? 'Venta' : (m.destino === 'Uso interno' ? 'Uso interno' : 'Otro'))
+    // Los ajustes de inventario se separan: no son ni venta ni consumo claro, y
+    // suelen esconder consumo de producción no registrado.
+    const bucketDe = m => esAjuste(m) ? 'Ajuste' : PROD.has(m.destino) ? 'Producción' : (m.destino === 'Venta' ? 'Venta' : (m.destino === 'Uso interno' ? 'Uso interno' : 'Otro'))
     const BUCKETS = [
       { k: 'Producción', color: colors.success }, { k: 'Venta', color: colors.info },
-      { k: 'Uso interno', color: colors.warning }, { k: 'Otro', color: colors.danger },
+      { k: 'Ajuste', color: '#a78bfa' }, { k: 'Uso interno', color: colors.warning }, { k: 'Otro', color: colors.danger },
     ]
     const bd = {}
     egr.forEach(m => { const b = bucketDe(m); if (!bd[b]) bd[b] = { n: 0, val: 0 }; bd[b].n++; bd[b].val += valorDe(m) })
@@ -1559,15 +1565,22 @@ export default function Deposito() {
     const topRet = Object.values(pr).sort((a, b) => b.val - a.val)
 
     const aOtro = egr.filter(m => m.destino === 'Otro')
-    const aAjuste = egr.filter(m => /ajuste de inventario/i.test(m.motivo || '') || /ajuste de inventario/i.test(m.observaciones || ''))
+    const aAjuste = egr.filter(esAjuste)
     const aSinCosto = egr.filter(sinCosto)
+    // Productos distintos sin costo (lo que el usuario tiene que cargar/corregir)
+    const sinCostoProd = [...new Set(aSinCosto.map(m => m.producto_nombre || '—'))].sort()
+
+    const valorDeItems = arr => arr.map(m => ({
+      fecha: m.fecha || (m.created_at || '').slice(0, 10), producto: m.producto_nombre || '—',
+      cant: `${m.cantidad ?? ''} ${m.unidad || ''}`.trim(), retira: m.operario_recibe || '—', val: valorDe(m),
+    }))
 
     return {
       egr, totalVal, pctProd, noProdVal, destinos, topProd, topRet,
       alertas: {
-        otro: { n: aOtro.length, val: aOtro.reduce((a, m) => a + valorDe(m), 0), items: aOtro },
-        ajuste: { n: aAjuste.length, val: aAjuste.reduce((a, m) => a + valorDe(m), 0), items: aAjuste },
-        sinCosto: { n: aSinCosto.length, items: aSinCosto },
+        otro: { n: aOtro.length, val: aOtro.reduce((a, m) => a + valorDe(m), 0), items: valorDeItems(aOtro) },
+        ajuste: { n: aAjuste.length, val: aAjuste.reduce((a, m) => a + valorDe(m), 0), items: valorDeItems(aAjuste) },
+        sinCosto: { n: aSinCosto.length, productos: sinCostoProd },
       },
     }
   }, [movsInforme, insumos])
@@ -2446,20 +2459,21 @@ export default function Deposito() {
     const EST = getEstiloInforme()
     const didDP = tit => () => { dibujarEncabezado(doc, pw, MOD, tit, hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber) }
 
-    // Costo por producto (para valorizar en $)
+    // Costo por producto (match por nombre normalizado: ignora tildes/espacios)
     const costo = {}
-    insumos.forEach(i => { costo[(i.nombre || '').trim().toLowerCase()] = i.costo_unitario || 0 })
-    const valorDe = m => (Number(m.cantidad) || 0) * (costo[(m.producto_nombre || '').trim().toLowerCase()] || 0)
-    const sinCosto = m => !(costo[(m.producto_nombre || '').trim().toLowerCase()] > 0)
+    insumos.forEach(i => { costo[normalizarNombre(i.nombre)] = i.costo_unitario || 0 })
+    const valorDe = m => (Number(m.cantidad) || 0) * (costo[normalizarNombre(m.producto_nombre)] || 0)
+    const sinCosto = m => !(costo[normalizarNombre(m.producto_nombre)] > 0)
+    const esAjuste = m => /ajuste de inventario/i.test(m.motivo || '') || /ajuste de inventario/i.test(m.observaciones || '')
 
     const egr = movsInforme.filter(m => m.tipo === 'egreso')
     const totalVal = egr.reduce((a, m) => a + valorDe(m), 0)
 
     const PROD = new Set(['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones', 'Panadería'])
-    const bucketDe = m => PROD.has(m.destino) ? 'Producción' : (m.destino === 'Venta' ? 'Venta' : (m.destino === 'Uso interno' ? 'Uso interno' : 'Otro'))
+    const bucketDe = m => esAjuste(m) ? 'Ajuste' : PROD.has(m.destino) ? 'Producción' : (m.destino === 'Venta' ? 'Venta' : (m.destino === 'Uso interno' ? 'Uso interno' : 'Otro'))
     const BUCKETS = [
       { k: 'Producción', col: PDF_SEM_OK }, { k: 'Venta', col: [59, 130, 246] },
-      { k: 'Uso interno', col: PDF_SEM_CRIT }, { k: 'Otro', col: PDF_SEM_NEG },
+      { k: 'Ajuste', col: [167, 139, 250] }, { k: 'Uso interno', col: PDF_SEM_CRIT }, { k: 'Otro', col: PDF_SEM_NEG },
     ]
     const bd = {}
     egr.forEach(m => { const b = bucketDe(m); if (!bd[b]) bd[b] = { n: 0, val: 0 }; bd[b].n++; bd[b].val += valorDe(m) })
@@ -2476,8 +2490,9 @@ export default function Deposito() {
     const topRet = Object.values(pr).sort((a, b) => b.val - a.val)
 
     const aOtro = egr.filter(m => m.destino === 'Otro')
-    const aAjuste = egr.filter(m => /ajuste de inventario/i.test(m.motivo || '') || /ajuste de inventario/i.test(m.observaciones || ''))
+    const aAjuste = egr.filter(esAjuste)
     const aSinCosto = egr.filter(sinCosto)
+    const sinCostoProd = [...new Set(aSinCosto.map(m => m.producto_nombre || '—'))].sort()
 
     // Portada
     dibujarPortada(doc, pw, ph, MOD, 'Informe Ejecutivo de Egresos', periodo, hoy)
@@ -2523,9 +2538,31 @@ export default function Deposito() {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(70, 70, 70); doc.text(doc.splitTextToSize(detalle, pw - 36)[0] || '', 18, y + 8.6)
       y += 14
     }
-    if (aOtro.length) alerta(PDF_SEM_NEG, `${aOtro.length} egreso(s) a destino "Otro"  —  $${pesos(aOtro.reduce((a, m) => a + valorDe(m), 0))}`, aOtro.slice(0, 4).map(m => `${m.producto_nombre} (${m.operario_recibe || 's/retira'})`).join(' · ') || 'Revisar justificación')
-    if (aAjuste.length) alerta(PDF_SEM_CRIT, `${aAjuste.length} ajuste(s) de inventario  —  $${pesos(aAjuste.reduce((a, m) => a + valorDe(m), 0))}`, 'Los ajustes pueden ocultar faltantes: conviene revisar producto y responsable de cada uno.')
-    if (aSinCosto.length) alerta(PDF_SEM_CRIT, `${aSinCosto.length} egreso(s) SIN costo cargado`, 'Esos productos no tienen costo en Depósito, su valor se cuenta como $0. Cargá el costo unitario para valorizar bien.')
+    // Tabla de detalle (con fecha) debajo de una alerta
+    const tablaAlerta = items => {
+      autoTable(doc, {
+        ...EST, styles: { ...EST.styles, fontSize: 7 }, startY: y,
+        head: [['Fecha', 'Producto', 'Cant.', 'Retira', 'Valor $']],
+        body: items.map(m => [formatFechaMov(m), m.producto_nombre || '—', `${m.cantidad ?? ''} ${m.unidad || ''}`.trim(), m.operario_recibe || '—', `$${pesos(valorDe(m))}`]),
+        columnStyles: { 2: { halign: 'right' }, 4: { halign: 'right' } }, didDrawPage: didDP('Alertas de Control'),
+      })
+      y = (doc.lastAutoTable?.finalY || y) + 6
+    }
+    if (aOtro.length) {
+      alerta(PDF_SEM_NEG, `${aOtro.length} egreso(s) a destino "Otro"  —  $${pesos(aOtro.reduce((a, m) => a + valorDe(m), 0))}`, 'Egresos sin destino productivo claro. Detalle por fecha:')
+      tablaAlerta(aOtro)
+    }
+    if (aAjuste.length) {
+      alerta(PDF_SEM_CRIT, `${aAjuste.length} ajuste(s) de inventario  —  $${pesos(aAjuste.reduce((a, m) => a + valorDe(m), 0))}`, 'Pueden esconder consumo de producción no registrado o faltantes. Detalle por fecha:')
+      tablaAlerta(aAjuste)
+    }
+    if (aSinCosto.length) {
+      alerta(PDF_SEM_CRIT, `${aSinCosto.length} egreso(s) SIN costo cargado`, 'Se valorizan como $0 y bajan el total real. Cargá el costo de estos productos:')
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(70, 70, 70)
+      const txt = doc.splitTextToSize(sinCostoProd.join(' · '), pw - 32)
+      txt.slice(0, 8).forEach((line, i) => doc.text(line, 16, y + i * 4))
+      y += Math.min(txt.length, 8) * 4 + 4
+    }
     if (!aOtro.length && !aAjuste.length && !aSinCosto.length) {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...PDF_SEM_OK)
       doc.text('Sin alertas en el período: todos los egresos tienen destino productivo y costo cargado.', 14, y + 4)
@@ -3060,31 +3097,55 @@ export default function Deposito() {
                     {/* Alertas de control */}
                     {(egresosEjecutivo.alertas.otro.n > 0 || egresosEjecutivo.alertas.ajuste.n > 0 || egresosEjecutivo.alertas.sinCosto.n > 0) && (
                       <div className="space-y-2">
-                        {egresosEjecutivo.alertas.otro.n > 0 && (
-                          <div className="flex items-start gap-2 p-3 rounded-lg" style={{ backgroundColor: `${colors.danger}1A`, border: `1px solid ${colors.danger}` }}>
-                            <AlertTriangle size={16} style={{ color: colors.danger }} className="mt-0.5 flex-shrink-0" />
-                            <div className="text-sm" style={{ color: colors.text }}>
-                              <b style={{ color: colors.danger }}>{egresosEjecutivo.alertas.otro.n} egreso(s) a destino "Otro" — ${pesos(egresosEjecutivo.alertas.otro.val)}.</b>{' '}
-                              <span style={{ color: colors.textSecondary }}>{egresosEjecutivo.alertas.otro.items.slice(0, 4).map(m => `${m.producto_nombre} (${m.operario_recibe || 's/retira'})`).join(' · ')}</span>
+                        {[
+                          { key: 'otro', c: colors.danger, titulo: `${egresosEjecutivo.alertas.otro.n} egreso(s) a destino "Otro" — $${pesos(egresosEjecutivo.alertas.otro.val)}`, nota: 'Egresos sin destino productivo claro.', data: egresosEjecutivo.alertas.otro },
+                          { key: 'ajuste', c: colors.warning, titulo: `${egresosEjecutivo.alertas.ajuste.n} ajuste(s) de inventario — $${pesos(egresosEjecutivo.alertas.ajuste.val)}`, nota: 'Pueden ocultar consumo de producción no registrado o faltantes. Revisar cada uno.', data: egresosEjecutivo.alertas.ajuste },
+                        ].filter(a => a.data.n > 0).map(a => (
+                          <div key={a.key} className="p-3 rounded-lg" style={{ backgroundColor: `${a.c}1A`, border: `1px solid ${a.c}` }}>
+                            <div className="flex items-start gap-2">
+                              <AlertTriangle size={16} style={{ color: a.c }} className="mt-0.5 flex-shrink-0" />
+                              <div className="text-sm">
+                                <b style={{ color: a.c }}>{a.titulo}.</b>{' '}
+                                <span style={{ color: colors.textSecondary }}>{a.nota}</span>
+                              </div>
+                            </div>
+                            <div className="mt-2 overflow-x-auto">
+                              <table className="w-full text-xs" style={{ borderCollapse: 'collapse' }}>
+                                <thead>
+                                  <tr style={{ color: colors.textMuted }}>
+                                    <th className="text-left font-semibold py-1 pr-3">Fecha</th>
+                                    <th className="text-left font-semibold py-1 pr-3">Producto</th>
+                                    <th className="text-right font-semibold py-1 pr-3">Cant.</th>
+                                    <th className="text-left font-semibold py-1 pr-3">Retira</th>
+                                    <th className="text-right font-semibold py-1">Valor $</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {a.data.items.slice(0, 12).map((it, i) => (
+                                    <tr key={i} style={{ borderTop: `1px solid ${colors.border}`, color: colors.text }}>
+                                      <td className="py-1 pr-3 whitespace-nowrap">{formatFecha(it.fecha)}</td>
+                                      <td className="py-1 pr-3">{it.producto}</td>
+                                      <td className="py-1 pr-3 text-right whitespace-nowrap">{it.cant}</td>
+                                      <td className="py-1 pr-3">{it.retira}</td>
+                                      <td className="py-1 text-right whitespace-nowrap">${pesos(it.val)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                              {a.data.items.length > 12 && <div className="text-[11px] mt-1" style={{ color: colors.textMuted }}>… y {a.data.items.length - 12} más (ver PDF)</div>}
                             </div>
                           </div>
-                        )}
-                        {egresosEjecutivo.alertas.ajuste.n > 0 && (
-                          <div className="flex items-start gap-2 p-3 rounded-lg" style={{ backgroundColor: `${colors.warning}1A`, border: `1px solid ${colors.warning}` }}>
-                            <AlertTriangle size={16} style={{ color: colors.warning }} className="mt-0.5 flex-shrink-0" />
-                            <div className="text-sm" style={{ color: colors.text }}>
-                              <b style={{ color: colors.warning }}>{egresosEjecutivo.alertas.ajuste.n} ajuste(s) de inventario — ${pesos(egresosEjecutivo.alertas.ajuste.val)}.</b>{' '}
-                              <span style={{ color: colors.textSecondary }}>Los ajustes pueden ocultar faltantes: conviene revisar producto y responsable de cada uno.</span>
-                            </div>
-                          </div>
-                        )}
+                        ))}
                         {egresosEjecutivo.alertas.sinCosto.n > 0 && (
-                          <div className="flex items-start gap-2 p-3 rounded-lg" style={{ backgroundColor: `${colors.warning}1A`, border: `1px solid ${colors.warning}` }}>
-                            <AlertTriangle size={16} style={{ color: colors.warning }} className="mt-0.5 flex-shrink-0" />
-                            <div className="text-sm" style={{ color: colors.text }}>
-                              <b style={{ color: colors.warning }}>{egresosEjecutivo.alertas.sinCosto.n} egreso(s) sin costo cargado.</b>{' '}
-                              <span style={{ color: colors.textSecondary }}>Su valor se cuenta como $0. Cargá el costo unitario para valorizar bien.</span>
+                          <div className="p-3 rounded-lg" style={{ backgroundColor: `${colors.warning}1A`, border: `1px solid ${colors.warning}` }}>
+                            <div className="flex items-start gap-2">
+                              <AlertTriangle size={16} style={{ color: colors.warning }} className="mt-0.5 flex-shrink-0" />
+                              <div className="text-sm">
+                                <b style={{ color: colors.warning }}>{egresosEjecutivo.alertas.sinCosto.n} egreso(s) sin costo cargado.</b>{' '}
+                                <span style={{ color: colors.textSecondary }}>Se valorizan como $0 y bajan el total real. Cargá el costo de estos productos en Stock:</span>
+                              </div>
                             </div>
+                            <div className="mt-1.5 text-xs" style={{ color: colors.text }}>{egresosEjecutivo.alertas.sinCosto.productos.join(' · ')}</div>
                           </div>
                         )}
                       </div>

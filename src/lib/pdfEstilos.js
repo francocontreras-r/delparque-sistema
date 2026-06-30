@@ -1,3 +1,5 @@
+import { DATOS_EMPRESA } from './empresa'
+
 const _logo = new Image()
 _logo.src = '/logo-byn.png'
 export const LOGO_PDF = _logo
@@ -103,8 +105,18 @@ export function dibujarEncabezado(doc, pw, modulo, titulo, hoy) {
   doc.line(14, 28, pw - 14, 28)
 }
 
+// Texto fiscal de la izquierda del pie: razón social + CUIT si están cargados,
+// y siempre la nota de confidencialidad.
+function _textoPie() {
+  const e = DATOS_EMPRESA || {}
+  const id = (e.razonSocial || e.nombre || '').trim()
+  const cuit = e.cuit ? ` · CUIT ${e.cuit}` : ''
+  return id ? `${id}${cuit}  —  Información de uso confidencial`
+            : 'Sistema de Gestión Del Parque  —  Información de uso confidencial'
+}
+
 // ── Pie de página ─────────────────────────────────────────────────────────────
-// Línea negra · "Confidencial — Del Parque" izq · N° de página der
+// Línea negra · Identidad de la empresa izq · N° de página der
 export function dibujarPie(doc, pw, ph, pagina) {
   const y = ph - 10
   doc.setDrawColor(...PDF_NEGRO)
@@ -113,7 +125,7 @@ export function dibujarPie(doc, pw, ph, pagina) {
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(6.5)
   doc.setTextColor(...PDF_GRIS_OSC)
-  doc.text('Sistema de Gestión Del Parque  —  Información de uso confidencial', 14, y + 4)
+  doc.text(_textoPie(), 14, y + 4)
   if (pagina != null) doc.text(`Página ${pagina}`, pw - 14, y + 4, { align: 'right' })
 }
 
@@ -146,6 +158,7 @@ export function dibujarPortada(doc, pw, ph, modulo, titulo, periodo, hoy) {
   // Período y fecha de emisión
   const yMeta = 66 + titleLines.length * 9 + 3
   doc.setFont('helvetica', 'normal')
+  let yEnd
   if (periodo) {
     doc.setFontSize(9)
     doc.setTextColor(55, 55, 55)
@@ -153,13 +166,36 @@ export function dibujarPortada(doc, pw, ph, modulo, titulo, periodo, hoy) {
     doc.setFontSize(7.5)
     doc.setTextColor(...PDF_GRIS_OSC)
     doc.text(`Fecha de emisión: ${hoy}`, 14, yMeta + 7)
+    yEnd = yMeta + 7
   } else {
     doc.setFontSize(7.5)
     doc.setTextColor(...PDF_GRIS_OSC)
     doc.text(`Fecha de emisión: ${hoy}`, 14, yMeta)
+    yEnd = yMeta
   }
+  // Bloque de identidad fiscal de la empresa (solo lo que esté cargado)
+  _bloqueFiscal(doc, 14, yEnd + 12)
   // Pie sin número de página
   dibujarPie(doc, pw, ph, null)
+}
+
+// Renderiza la identidad fiscal de la empresa en la portada (omite campos vacíos).
+function _bloqueFiscal(doc, x, y) {
+  const e = DATOS_EMPRESA || {}
+  if (!e.razonSocial && !e.cuit && !e.domicilio) return
+  let yy = y
+  if (e.razonSocial) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...PDF_NEGRO)
+    doc.text(e.razonSocial, x, yy); yy += 4.6
+  }
+  const linea = (txt) => {
+    if (!txt) return
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...PDF_GRIS_OSC)
+    doc.text(txt, x, yy); yy += 4.2
+  }
+  linea([e.cuit && `CUIT ${e.cuit}`, e.condicionIva].filter(Boolean).join('  ·  '))
+  linea([e.domicilio, e.localidad].filter(Boolean).join('  ·  '))
+  linea([e.telefono, e.email].filter(Boolean).join('  ·  '))
 }
 
 // ── KPI box con borde izquierdo negro ─────────────────────────────────────────

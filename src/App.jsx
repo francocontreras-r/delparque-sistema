@@ -16,6 +16,7 @@ const Finanzas         = lazy(() => import('./pages/Finanzas'))
 const Usuarios         = lazy(() => import('./pages/Usuarios'))
 const Informes         = lazy(() => import('./pages/Informes'))
 const InformeOperarios = lazy(() => import('./pages/InformeOperarios'))
+const Bitacora         = lazy(() => import('./pages/Bitacora'))
 
 // Spinner inline para no crear dependencia circular
 function PageSpinner() {
@@ -91,6 +92,7 @@ function AppRoutes() {
           <Route path="finanzas"     element={<AdminRoute><Suspense fallback={<PageSpinner />}><Finanzas /></Suspense></AdminRoute>} />
           <Route path="informes"     element={<InformesRoute><Suspense fallback={<PageSpinner />}><Informes /></Suspense></InformesRoute>} />
           <Route path="rendimiento-operarios" element={<RendimientoOperariosRoute><Suspense fallback={<PageSpinner />}><InformeOperarios /></Suspense></RendimientoOperariosRoute>} />
+          <Route path="bitacora"     element={<AdminRoute><Suspense fallback={<PageSpinner />}><Bitacora /></Suspense></AdminRoute>} />
           <Route path="usuarios"     element={<AdminRoute><Suspense fallback={<PageSpinner />}><Usuarios /></Suspense></AdminRoute>} />
           <Route path="*"            element={<Navigate to="/produccion" replace />} />
         </Route>

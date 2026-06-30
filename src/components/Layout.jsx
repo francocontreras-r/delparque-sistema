@@ -11,7 +11,7 @@ import Button from './ui/Button'
 import {
   LayoutDashboard, Factory, Thermometer, Warehouse, TrendingUp, TrendingDown,
   ClipboardList, BookOpen, LogOut, Menu, X, DollarSign, Users, Download, FileText,
-  Package,
+  Package, History,
 } from 'lucide-react'
 
 const NAV_GRUPOS = [
@@ -43,6 +43,7 @@ const NAV_GRUPOS = [
     items: [
       { to: '/recetas',  label: 'Recetas',  Icon: BookOpen,  modulo: 'recetas'  },
       { to: '/finanzas', label: 'Finanzas', Icon: DollarSign, modulo: 'finanzas' },
+      { to: '/bitacora', label: 'Bitácora', Icon: History,    modulo: 'bitacora' },
       { to: '/usuarios', label: 'Usuarios', Icon: Users,     modulo: 'usuarios' },
     ],
   },

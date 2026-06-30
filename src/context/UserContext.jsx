@@ -17,6 +17,7 @@ export const ROLE_PERMISOS = {
     produccion: true, camaras: true, rendimientos: true,
     deposito: true, mermas: true, ordenes: true, recetas: true,
     finanzas: true, usuarios: true, informes: true, rendimientoOperarios: true,
+    bitacora: true,
   },
 }
 

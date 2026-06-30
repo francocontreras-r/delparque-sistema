@@ -22,6 +22,8 @@ import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { finalizarOrdenManual, progresoColor, ESTADO_EN_PROCESO, ESTADO_COMPLETADA } from '../lib/ordenes'
 import { POSTRES } from '../lib/postres'
+import EtapasOrden from '../components/EtapasOrden'
+import { usaEtapas } from '../lib/etapas'
 import { ClipboardList, Plus, Printer, FileDown, CheckCircle2, Warehouse, X, ChevronDown, ChevronUp, Package, Clock, BarChart2, AlertTriangle } from 'lucide-react'
 const logoUrl = '/logo-byn.png'
 
@@ -1856,6 +1858,13 @@ export default function Ordenes() {
                     {ordenDetalle.eficiencia_tiempo > 0 && <> | Eficiencia: <strong>{fmtNum(ordenDetalle.eficiencia_tiempo)}%</strong></>}
                   </p>
                 )}
+              </div>
+            )}
+
+            {usaEtapas(ordenDetalle.tipo_producto) && (
+              <div>
+                <p className="text-sm font-semibold mb-2" style={{ color: colors.textPrimary }}>Etapas de proceso</p>
+                <EtapasOrden orden={ordenDetalle} operarios={operarios} />
               </div>
             )}
 

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
 import { deduplicarOperarios } from '../lib/operarios'
 import { normalizarNombre } from '../lib/texto'
+import { costearProduccion } from '../lib/costeoProduccion'
 import { clasificarVencimiento, esAlertaVencimiento, labelDias } from '../lib/vencimientos'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -942,6 +943,8 @@ export default function Deposito() {
   const [movimientos, setMovimientos] = useState([])
   const [insumos, setInsumos]     = useState([])
   const [operarios, setOperarios] = useState([])
+  // Datos de recetas + ingresos a cámara para el costeo de MP a producción (backflush)
+  const [recetasCosteo, setRecetasCosteo] = useState({ camaraIngresos: [], sabores: [], saborIngredientes: [], bases: [], baseIngredientes: [], impulsivos: [], impulsivoIngredientes: [] })
   const [loading, setLoading]     = useState(true)
   const [toast, setToast]         = useState(null)
   const [modal, setModal]         = useState(null)
@@ -1029,6 +1032,21 @@ export default function Deposito() {
       .eq('tipo', 'ingreso').not('fecha_vencimiento', 'is', null)
       .order('created_at', { ascending: false }).limit(500)
     setVencimientosIngresos(vencData || [])
+
+    // Recetas + ingresos a cámara para el costeo de MP a producción (backflush)
+    const [{ data: camIn }, { data: sab }, { data: sabIng }, { data: bas }, { data: basIng }, { data: imp }, { data: impIng }] = await Promise.all([
+      supabase.from('movimientos_camara').select('producto_nombre,sabor_nombre,tipo_producto,kg,baldes,motivo,fecha').eq('tipo', 'ingreso').order('fecha', { ascending: false }).limit(3000),
+      supabase.from('sabores').select('id,nombre,litros_base,base_nombre'),
+      supabase.from('sabor_ingredientes').select('sabor_id,insumo_nombre,cantidad,unidad'),
+      supabase.from('bases').select('id,nombre,litros_batch'),
+      supabase.from('base_ingredientes').select('base_id,insumo_nombre,cantidad,unidad'),
+      supabase.from('impulsivos').select('id,nombre'),
+      supabase.from('impulsivo_ingredientes').select('impulsivo_id,insumo_nombre,cantidad,unidad'),
+    ])
+    setRecetasCosteo({
+      camaraIngresos: camIn || [], sabores: sab || [], saborIngredientes: sabIng || [],
+      bases: bas || [], baseIngredientes: basIng || [], impulsivos: imp || [], impulsivoIngredientes: impIng || [],
+    })
 
     setInsumos(i || [])
     setOperarios(deduplicarOperarios(o))
@@ -1584,6 +1602,16 @@ export default function Deposito() {
       },
     }
   }, [movsInforme, insumos])
+
+  // ── MP a producción CALCULADA por receta (backflush desde cámara) ─────────
+  const costeoProd = useMemo(() => {
+    const movs = (recetasCosteo.camaraIngresos || []).filter(m => {
+      const mt = (m.motivo || '').toLowerCase()
+      if (mt === 'transferencia' || mt === 'devolución' || mt === 'devolucion' || mt.includes('ajuste')) return false
+      return dentroDePeriodo(m.fecha, informeMes, informeAnio)
+    })
+    return { ...costearProduccion(movs, { ...recetasCosteo, insumos }), nMovs: movs.length }
+  }, [recetasCosteo, insumos, informeMes, informeAnio]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Control Semanal — cálculos ────────────────────────────────────────────
   const rangoCS = useMemo(() => {
@@ -2526,6 +2554,34 @@ export default function Deposito() {
     y = dibujarSeccion(doc, pw, 'Quién retira (responsable del egreso)', y)
     autoTable(doc, { ...EST, startY: y, head: [['Retira / Solicita', 'Movimientos', 'Valor $']], body: topRet.map(r => [r.k, String(r.n), `$${pesos(r.val)}`]), columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } }, didDrawPage: didDP('Resumen Ejecutivo') })
 
+    // ── MP a producción calculada por receta (backflush) ──────────────────────
+    doc.addPage(); didDP('MP a Producción (calculada)')()
+    y = dibujarSeccion(doc, pw, 'Materia prima a producción — calculada por receta', PDF_CONTENT_Y)
+    const regProd = bd['Producción']?.val || 0
+    dibujarKpiCard(doc, 14, y, (pw - 28 - 4) / 2, 22, 'Calculado por receta (real)', `$${pesos(costeoProd.total)}`, PDF_SEM_OK)
+    dibujarKpiCard(doc, 14 + (pw - 28 - 4) / 2 + 4, y, (pw - 28 - 4) / 2, 22, 'Registrado como egreso', `$${pesos(regProd)}`, PDF_SEM_CRIT)
+    y += 22 + 6
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(70, 70, 70)
+    const metodo = `Calculado desde ${costeoProd.nMovs} ingresos a cámara del período: se explota cada producto a su materia prima (incluida la base de cada sabor, prorrateada por el rinde del batch) y se costea a valores actuales. Refleja la MP realmente consumida en producción, más allá de lo que se registró a mano como egreso.`
+    doc.splitTextToSize(metodo, pw - 28).forEach((l, i) => doc.text(l, 14, y + i * 4)); y += doc.splitTextToSize(metodo, pw - 28).length * 4 + 6
+    y = dibujarSeccion(doc, pw, 'Detalle por insumo (consumo del período)', y)
+    autoTable(doc, {
+      ...EST, styles: { ...EST.styles, fontSize: 7 }, startY: y,
+      head: [['Insumo', 'Cantidad', 'Valor $']],
+      body: costeoProd.porInsumo.map(p => [p.nombre, p.cantidad.toLocaleString('es-AR', { maximumFractionDigits: 2 }), `$${pesos(p.valor)}`]),
+      foot: [['TOTAL', '', `$${pesos(costeoProd.total)}`]],
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+      footStyles: { fillColor: PDF_NEGRO, textColor: PDF_BLANCO, fontStyle: 'bold' },
+      didDrawPage: didDP('MP a Producción (calculada)'),
+    })
+    y = doc.lastAutoTable.finalY + 6
+    if (costeoProd.sinReceta.length || costeoProd.sinCosto.length) {
+      if (y > ph - PDF_PIE_H - 20) { doc.addPage(); didDP('MP a Producción (calculada)')(); y = PDF_CONTENT_Y }
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...PDF_SEM_CRIT)
+      if (costeoProd.sinReceta.length) { const t = doc.splitTextToSize(`Sin receta (no costeados): ${costeoProd.sinReceta.join(', ')}`, pw - 28); t.forEach((l, i) => doc.text(l, 14, y + i * 3.6)); y += t.length * 3.6 + 2 }
+      if (costeoProd.sinCosto.length) { const t = doc.splitTextToSize(`Insumos sin costo cargado (valen $0): ${costeoProd.sinCosto.join(', ')}`, pw - 28); t.forEach((l, i) => { if (y > ph - PDF_PIE_H - 6) { doc.addPage(); didDP('MP a Producción (calculada)')(); y = PDF_CONTENT_Y } doc.text(l, 14, y); y += 3.6 }) }
+    }
+
     // Alertas
     doc.addPage(); didDP('Alertas de Control')()
     y = dibujarSeccion(doc, pw, 'Alertas de control', PDF_CONTENT_Y)
@@ -3075,6 +3131,50 @@ export default function Deposito() {
                       <KpiCard label="Movimientos" value={egresosEjecutivo.egr.length} icon={ArrowDown} color={colors.textSecondary} />
                       <KpiCard label="% Productivo" value={`${egresosEjecutivo.pctProd}%`} icon={TrendingUp} color={colors.success} sub="a producción" />
                       <KpiCard label="No productivo" value={`$${pesos(egresosEjecutivo.noProdVal)}`} icon={AlertTriangle} color={colors.warning} sub="uso interno + otro" />
+                    </div>
+
+                    {/* MP a producción calculada por receta (backflush) */}
+                    <div className="p-4 rounded-lg" style={{ background: `${colors.success}12`, border: `1px solid ${colors.success}` }}>
+                      <div className="flex items-start justify-between flex-wrap gap-3">
+                        <div>
+                          <div className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.success }}>Materia prima a producción — calculada por receta</div>
+                          <div className="text-2xl font-extrabold mt-1" style={{ color: colors.text }}>${pesos(costeoProd.total)}</div>
+                          <div className="text-xs mt-1" style={{ color: colors.textSecondary }}>Calculado desde {costeoProd.nMovs} ingresos a cámara del período: se explotan las recetas a materia prima (incluida la base de cada sabor) y se costea a valores actuales. Es la MP real consumida en producción, más allá de lo registrado a mano.</div>
+                        </div>
+                        {(() => { const reg = egresosEjecutivo.destinos.find(d => d.k === 'Producción')?.val || 0; return (
+                          <div className="text-right flex-shrink-0">
+                            <div className="text-[10px] uppercase" style={{ color: colors.textMuted }}>Registrado como egreso</div>
+                            <div className="text-lg font-bold" style={{ color: colors.warning }}>${pesos(reg)}</div>
+                            <div className="text-[10px]" style={{ color: colors.textMuted }}>{costeoProd.total > 0 ? `${Math.round(reg / costeoProd.total * 100)}% del calculado` : ''}</div>
+                          </div>
+                        ) })()}
+                      </div>
+                      {costeoProd.porInsumo.length > 0 && (
+                        <div className="mt-3 overflow-x-auto">
+                          <table className="w-full text-xs" style={{ borderCollapse: 'collapse' }}>
+                            <thead><tr style={{ color: colors.textMuted }}>
+                              <th className="text-left font-semibold py-1 pr-3">Insumo (top consumo)</th>
+                              <th className="text-right font-semibold py-1 pr-3">Cantidad</th>
+                              <th className="text-right font-semibold py-1">Valor $</th>
+                            </tr></thead>
+                            <tbody>
+                              {costeoProd.porInsumo.slice(0, 10).map((p, i) => (
+                                <tr key={i} style={{ borderTop: `1px solid ${colors.border}`, color: colors.text }}>
+                                  <td className="py-1 pr-3">{p.nombre}</td>
+                                  <td className="py-1 pr-3 text-right whitespace-nowrap">{p.cantidad.toLocaleString('es-AR', { maximumFractionDigits: 1 })}</td>
+                                  <td className="py-1 text-right whitespace-nowrap">${pesos(p.valor)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      {(costeoProd.sinReceta.length > 0 || costeoProd.sinCosto.length > 0) && (
+                        <div className="text-[11px] mt-2 space-y-0.5" style={{ color: colors.warning }}>
+                          {costeoProd.sinReceta.length > 0 && <div>⚠ Sin receta (no costeados): {costeoProd.sinReceta.join(' · ')}</div>}
+                          {costeoProd.sinCosto.length > 0 && <div>⚠ Insumos sin costo cargado: {costeoProd.sinCosto.slice(0, 15).join(' · ')}{costeoProd.sinCosto.length > 15 ? ` … (+${costeoProd.sinCosto.length - 15})` : ''}</div>}
+                        </div>
+                      )}
                     </div>
 
                     {/* Egresos por destino */}

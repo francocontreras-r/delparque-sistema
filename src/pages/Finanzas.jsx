@@ -52,6 +52,12 @@ const TIPO_PRECIOS = {
   Especial:       { costo_kg: 2000 },
 }
 
+// Tipos de sabor para precio por tipo. Lisa/Con Agregado/Agua/Especial vienen de
+// la segmentación de cámara; Pistacho y Rocher son "con agregado" pero cuestan
+// más de producir → precio propio (se detectan por nombre).
+const TIERS_SABOR = ['Lisa', 'Con Agregado', 'Agua', 'Especial', 'Pistacho', 'Rocher']
+const tierEmoji = { Lisa: '🔵', 'Con Agregado': '🟣', Agua: '🩵', Especial: '🟠', Pistacho: '🟢', Rocher: '🟤' }
+
 const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 
 const numInputClass = 'w-24 text-right rounded-md border border-[#d1d5db] text-sm px-2 py-1 outline-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
@@ -143,6 +149,8 @@ export default function Finanzas() {
   const [editingCIF, setEditingCIF] = useState({}) // id → monto
   const [litrosMes, setLitrosMes]   = useState(0)
   const [seccionCostos, setSeccionCostos] = useState('Todos') // filtro Bases/Sabores/Impulsivos/Postres
+  const [precioTier, setPrecioTier] = useState({}) // { tier: precio en edición }
+  const [aplicandoTier, setAplicandoTier] = useState('')
   const [historial, setHistorial]   = useState({ disponible: true, rows: [] })
   const [histLoading, setHistLoading] = useState(false)
 
@@ -175,7 +183,7 @@ export default function Finanzas() {
       supabase.from('bases').select('*').order('nombre'),
       supabase.from('base_ingredientes').select('*'),
       supabase.from('insumos').select('nombre,costo_unitario,stock_actual'),
-      supabase.from('stock_camaras').select('nombre,tipo_producto').in('tipo_producto', ['impulsivo', 'postre']),
+      supabase.from('stock_camaras').select('nombre,tipo_producto,tipo'),
       supabase.from('cif_config').select('*').order('categoria').order('concepto'),
       supabase.from('producciones').select('peso_kg').gte('fecha', inicioMes).lte('fecha', finMes),
     ])
@@ -261,6 +269,21 @@ export default function Finanzas() {
     return m
   }, [stockCamaras])
 
+  // Mapa nombre→segmentación de sabor (Lisa/Con Agregado/Agua/Especial) desde cámara
+  const tipoSaborMap = useMemo(() => {
+    const m = {}
+    stockCamaras.forEach(c => { if (c.tipo) m[(c.nombre || '').toUpperCase()] = c.tipo })
+    return m
+  }, [stockCamaras])
+
+  // Tipo de precio de un sabor: Pistacho/Rocher por nombre (cuestan más), si no el de cámara.
+  const tierDeSabor = (nombre) => {
+    const n = (nombre || '').toLowerCase()
+    if (n.includes('pistacho')) return 'Pistacho'
+    if (n.includes('rocher')) return 'Rocher'
+    return tipoSaborMap[(nombre || '').toUpperCase()] || null
+  }
+
   // Mapa nombre→litros_base para calcular CIF por sabor
   const litrosBasePorNombre = useMemo(() => {
     const m = {}
@@ -304,6 +327,41 @@ export default function Finanzas() {
     [...secciones.Bases, ...secciones.Sabores, ...secciones.Impulsivos, ...secciones.Postres]
       .sort((x, y) => x.nombre.localeCompare(y.nombre))
   ), [secciones])
+
+  // Sabores agrupados por tipo de precio (para el panel "precio por tipo")
+  const tierGroups = useMemo(() => {
+    const g = {}; TIERS_SABOR.forEach(t => { g[t] = [] })
+    const sinTipo = []
+    secciones.Sabores.forEach(s => {
+      const t = tierDeSabor(s.nombre)
+      if (t && g[t]) g[t].push(s); else sinTipo.push(s)
+    })
+    return { g, sinTipo }
+  }, [secciones.Sabores, tipoSaborMap]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Aplica un precio de venta a TODOS los sabores de un tipo (de una).
+  async function aplicarPrecioTipo(tier) {
+    const precio = parseFloat(precioTier[tier])
+    const items = tierGroups.g[tier] || []
+    if (!(precio > 0)) { showToast('Ingresá un precio válido', 'error'); return }
+    if (items.length === 0) { showToast(`No hay sabores del tipo ${tier}`, 'error'); return }
+    setAplicandoTier(tier)
+    const ids = items.map(s => s.id)
+    const { error } = await supabase.from('sabores').update({ precio_venta: precio }).in('id', ids)
+    if (error) { setAplicandoTier(''); showToast(error.message, 'error'); return }
+    // Historial de precios (una fila por sabor) para no perder el registro
+    const hoy = new Date().toISOString().split('T')[0]
+    await supabase.from('precios_historicos').insert(items.map(s => ({
+      producto_nombre: s.nombre, tipo_producto: 'sabor', precio_venta: precio,
+      costo_total: s.costo_total || 0,
+      margen: precio > 0 ? Number(((precio - (s.costo_total || 0)) / precio * 100).toFixed(1)) : 0,
+      fecha_vigencia: hoy,
+    })))
+    setSabores(prev => prev.map(s => ids.includes(s.id) ? { ...s, precio_venta: precio } : s))
+    setAplicandoTier('')
+    setPrecioTier(prev => ({ ...prev, [tier]: '' }))
+    showToast(`Precio $${precio.toLocaleString('es-AR')} aplicado a ${items.length} sabor${items.length !== 1 ? 'es' : ''} ${tier}`)
+  }
 
   async function actualizarCampo(producto, campo, valor) {
     const num = parseFloat(valor) || 0
@@ -800,6 +858,41 @@ export default function Finanzas() {
                   </button>
                 ))}
               </div>
+              {/* Precio por tipo de sabor: cargás uno y se aplica a todos los del tipo */}
+              {(seccionCostos === 'Todos' || seccionCostos === 'Sabores') && secciones.Sabores.length > 0 && (
+                <div className="overflow-hidden" style={SURFACE}>
+                  <div className="px-4 py-2.5" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                    <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>💲 Precio de venta por tipo de sabor</span>
+                    <span className="text-xs ml-2" style={{ color: colors.textMuted }}>cargás el precio y se aplica a todos los sabores de ese tipo</span>
+                  </div>
+                  <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {TIERS_SABOR.map(t => {
+                      const items = tierGroups.g[t] || []
+                      return (
+                        <div key={t} className="flex items-center gap-2 p-2 rounded-lg" style={{ border: `1px solid ${colors.border}` }}>
+                          <span className="text-sm" title={t}>{tierEmoji[t]}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold truncate" style={{ color: colors.textPrimary }}>{t}</div>
+                            <div className="text-xs" style={{ color: colors.textMuted }}>{items.length} sabor{items.length !== 1 ? 'es' : ''}</div>
+                          </div>
+                          <input type="number" min="0" value={precioTier[t] || ''} placeholder="$"
+                            onChange={e => setPrecioTier(prev => ({ ...prev, [t]: e.target.value }))}
+                            className="w-24 text-right rounded-md border text-sm px-2 py-1 outline-none"
+                            style={{ borderColor: colors.border, backgroundColor: colors.surface, color: colors.textPrimary }} />
+                          <Button variant="primary" size="sm" loading={aplicandoTier === t}
+                            disabled={items.length === 0 || !(parseFloat(precioTier[t]) > 0)}
+                            onClick={() => aplicarPrecioTipo(t)}>Aplicar</Button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {tierGroups.sinTipo.length > 0 && (
+                    <div className="px-4 pb-3 text-xs" style={{ color: colors.textMuted }}>
+                      Sin tipo asignado (cargá su precio a mano en la tabla): {tierGroups.sinTipo.map(s => s.nombre).join(', ')}
+                    </div>
+                  )}
+                </div>
+              )}
               {[
                 { key: 'Bases',      label: '🧱 BASES',      items: secciones.Bases      },
                 { key: 'Sabores',    label: '🧊 SABORES',    items: secciones.Sabores    },
@@ -831,7 +924,12 @@ export default function Finanzas() {
                           const nv = nivelMargen(margen)
                           return (
                             <Tr key={p.key}>
-                              <Td className="font-medium">{p.nombre}</Td>
+                              <Td className="font-medium">
+                                {p.nombre}
+                                {key === 'Sabores' && tierDeSabor(p.nombre) && (
+                                  <span className="ml-1.5 text-xs" style={{ color: colors.textMuted }}>{tierEmoji[tierDeSabor(p.nombre)]} {tierDeSabor(p.nombre)}</span>
+                                )}
+                              </Td>
                               <Td className="text-right">
                                 ${pesos(p.costo_materiales)}
                                 {tieneDiff && <DiffBadge actual={p.costo_materiales} anterior={prev ? prev.costo_total - (p.mano_de_obra || 0) : null} />}

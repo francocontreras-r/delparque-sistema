@@ -1798,105 +1798,132 @@ export default function Camaras() {
     const N = [20, 20, 20]
     let y = PDF_CONTENT_Y
 
-    function saltarSiNecesario(yy, h = 40) {
-      if (yy + h > ph - 18) { doc.addPage(); dibujarEncabezado(doc, pw, 'Cámaras', 'Stock Actual', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber); return PDF_CONTENT_Y }
-      return yy
-    }
-
-    // P1 Portada
-    dibujarPortada(doc, pw, ph, 'Cámaras', 'Informe Stock Actual', 'Cierre de período', hoy)
-
-    // P2 KPIs + gráfico categorías
-    doc.addPage()
-    dibujarEncabezado(doc, pw, 'Cámaras', 'Stock Actual', hoy)
-    y = PDF_CONTENT_Y
-
-    const helados = stock.filter(s => s.tipoCam !== 'impulsivo')
-    const impulsivos = stock.filter(s => s.tipoCam === 'impulsivo')
-    const totalBaldes = helados.reduce((a, s) => a + (s.baldes || 0), 0)
-    const totalKg = helados.reduce((a, s) => a + (s.kg || 0), 0)
-    const totalUnid = impulsivos.reduce((a, s) => a + (s.baldes || 0), 0)
-    const kpiW = (pw - 28 - 4) / 3
-    dibujarKpi(doc, 14,               y, kpiW, 18, 'Baldes helado', `${totalBaldes}`)
-    dibujarKpi(doc, 14 + kpiW + 2,   y, kpiW, 18, 'KG helado', `${totalKg.toFixed(1)} kg`)
-    dibujarKpi(doc, 14 + (kpiW+2)*2, y, kpiW, 18, 'Unid. impulsivos', `${totalUnid}`)
-    y += 26
-
-    // Gráfico stock por categoría
-    if (chartRefCat.current) {
-      try {
-        const canvas = await html2canvas(chartRefCat.current, { backgroundColor: '#1e293b', scale: 2, logging: false, useCORS: true })
-        const imgData = canvas.toDataURL('image/png')
-        const imgH = (canvas.height * (pw - 28)) / canvas.width
-        y = saltarSiNecesario(y, imgH + 8)
-        doc.setDrawColor(51, 65, 85); doc.setLineWidth(0.3)
-        doc.rect(14, y, pw - 28, imgH)
-        doc.addImage(imgData, 'PNG', 14, y, pw - 28, imgH)
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139)
-        doc.text('Stock de helados por categoría — baldes', 14, y + imgH + 3)
-        y += imgH + 8
-      } catch (e) { console.warn('chart cat:', e) }
-    }
-
-    // Gráfico impulsivos
-    if (chartRefImpuls.current && impulsivos.length > 0) {
-      try {
-        y = saltarSiNecesario(y, 55)
-        const canvas2 = await html2canvas(chartRefImpuls.current, { backgroundColor: '#1e293b', scale: 2, logging: false, useCORS: true })
-        const imgData2 = canvas2.toDataURL('image/png')
-        const imgH2 = (canvas2.height * (pw - 28)) / canvas2.width
-        y = saltarSiNecesario(y, imgH2 + 8)
-        doc.setDrawColor(51, 65, 85); doc.setLineWidth(0.3)
-        doc.rect(14, y, pw - 28, imgH2)
-        doc.addImage(imgData2, 'PNG', 14, y, pw - 28, imgH2)
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139)
-        doc.text('Stock impulsivos — unidades', 14, y + imgH2 + 3)
-        y += imgH2 + 8
-      } catch (e) { console.warn('chart impuls:', e) }
-    }
-
-    // Tabla helados por categoría
-    y = saltarSiNecesario(y)
-    y = dibujarSeccion(doc, pw, 'Detalle helados', y)
-    const cH = helados.reduce((a, s) => a + (s.valorCosto || 0), 0)
-    const vH = helados.reduce((a, s) => a + (s.valorVenta || 0), 0)
-    autoTable(doc, {
-      startY: y, headStyles: HS, bodyStyles: BS, alternateRowStyles: AS, styles: LI,
-      margin: { left: 14, right: 14 },
-      head: [['PRODUCTO', 'TIPO', 'BALDES', 'KG', 'COSTO $', 'VENTA $']],
-      body: helados.map(s => [s.nombre || '—', s.tipoCam || s.tipo || '—', String(s.baldes || 0), `${(s.kg || 0).toFixed(1)} kg`, `$${pesos(s.valorCosto || 0)}`, `$${pesos(s.valorVenta || 0)}`]),
-      foot: [['', '', '', 'TOTAL', `$${pesos(cH)}`, `$${pesos(vH)}`]],
-      footStyles: { ...HS, halign: 'left' },
+    const money = n => `$${pesos(n || 0)}`
+    const encab = () => dibujarEncabezado(doc, pw, 'Cámaras', 'Stock Actual', hoy)
+    // Cada tabla dibuja encabezado en sus páginas y respeta el margen superior.
+    const tabla = (opts) => autoTable(doc, {
+      headStyles: HS, bodyStyles: BS, alternateRowStyles: AS, styles: LI, footStyles: { ...HS },
+      margin: { top: PDF_CONTENT_Y, left: 14, right: 14 }, didDrawPage: encab, ...opts,
     })
-    y = doc.lastAutoTable.finalY + 8
 
-    // Tabla impulsivos
-    if (impulsivos.length > 0) {
-      y = saltarSiNecesario(y)
-      y = dibujarSeccion(doc, pw, 'Impulsivos', y)
-      const cI = impulsivos.reduce((a, s) => a + (s.valorCosto || 0), 0)
-      const vI = impulsivos.reduce((a, s) => a + (s.valorVenta || 0), 0)
-      autoTable(doc, {
-        startY: y, headStyles: HS, bodyStyles: BS, alternateRowStyles: AS, styles: LI,
-        margin: { left: 14, right: 14 },
-        head: [['PRODUCTO', 'UNIDADES', 'COSTO $', 'VENTA $']],
-        body: impulsivos.map(s => [s.nombre || '—', String(s.baldes || 0), `$${pesos(s.valorCosto || 0)}`, `$${pesos(s.valorVenta || 0)}`]),
-        foot: [['', 'TOTAL', `$${pesos(cI)}`, `$${pesos(vI)}`]],
-        footStyles: { ...HS, halign: 'left' },
+    // Clasificación CORRECTA por tipo_producto (helado / impulsivo / postre)
+    const helados = stock.filter(s => (s.tipo_producto || 'helado') === 'helado')
+    const impuls  = stock.filter(s => s.tipo_producto === 'impulsivo')
+    const postres = stock.filter(s => s.tipo_producto === 'postre')
+    const sum = (arr, f) => arr.reduce((a, s) => a + (Number(f(s)) || 0), 0)
+    const bH = sum(helados, s => s.baldes), kgH = sum(helados, s => s.kg)
+    const uI = sum(impuls, s => s.baldes), uP = sum(postres, s => s.baldes)
+    const cH = sum(helados, s => s.valorCosto), vH = sum(helados, s => s.valorVenta)
+    const cI = sum(impuls, s => s.valorCosto),  vI = sum(impuls, s => s.valorVenta)
+    const cP = sum(postres, s => s.valorCosto), vP = sum(postres, s => s.valorVenta)
+    const cTot = cH + cI + cP, vTot = vH + vI + vP
+    const margen = vTot > 0 ? ((vTot - cTot) / vTot * 100) : 0
+
+    // ── P1 Portada ──
+    dibujarPortada(doc, pw, ph, 'Cámaras', 'Informe de Stock', 'Producto terminado — valorizado', hoy)
+
+    // ── P2 Resumen ejecutivo ──
+    doc.addPage(); encab(); y = PDF_CONTENT_Y
+    y = dibujarSeccion(doc, pw, 'Resumen ejecutivo', y)
+    const kw = (pw - 28 - 4) / 3
+    dibujarKpi(doc, 14,           y, kw, 18, 'Helados',    `${bH} baldes · ${kgH.toFixed(0)} kg`)
+    dibujarKpi(doc, 14 + kw + 2,  y, kw, 18, 'Impulsivos', `${uI} u.`)
+    dibujarKpi(doc, 14 + (kw+2)*2, y, kw, 18, 'Postres',   `${uP} u.`)
+    y += 24
+    dibujarKpi(doc, 14,           y, kw, 18, 'Costo total',      money(cTot))
+    dibujarKpi(doc, 14 + kw + 2,  y, kw, 18, 'Venta potencial',  money(vTot))
+    dibujarKpi(doc, 14 + (kw+2)*2, y, kw, 18, 'Margen potencial', `${margen.toFixed(1)}%`)
+    y += 28
+
+    // Barra nativa: venta potencial por línea (prolija, no capturada de pantalla)
+    y = dibujarSeccion(doc, pw, 'Venta potencial por línea', y)
+    const lineas = [
+      { label: 'Helados',    v: vH, c: [212, 82, 26] },
+      { label: 'Impulsivos', v: vI, c: [245, 158, 11] },
+      { label: 'Postres',    v: vP, c: [234, 179, 21] },
+    ]
+    const maxV = Math.max(vH, vI, vP, 1)
+    const barX = 46, barW = pw - 14 - barX - 36
+    lineas.forEach((l, i) => {
+      const by = y + i * 9
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...N)
+      doc.text(l.label, 14, by + 4)
+      doc.setFillColor(235, 238, 242); doc.roundedRect(barX, by, barW, 5, 1, 1, 'F')
+      doc.setFillColor(...l.c); doc.roundedRect(barX, by, Math.max(1, barW * (l.v / maxV)), 5, 1, 1, 'F')
+      doc.setTextColor(...N); doc.text(money(l.v), barX + barW + 2, by + 4)
+    })
+    y += lineas.length * 9 + 8
+
+    // ── Helados ──
+    if (helados.length) {
+      if (y + 40 > ph - 20) { doc.addPage(); encab(); y = PDF_CONTENT_Y }
+      y = dibujarSeccion(doc, pw, 'Helados — por categoría', y)
+      const cats = {}
+      helados.forEach(s => {
+        const k = s.tipo || '—'
+        ;(cats[k] || (cats[k] = { baldes: 0, kg: 0, costo: 0, venta: 0 }))
+        cats[k].baldes += s.baldes || 0; cats[k].kg += s.kg || 0
+        cats[k].costo += s.valorCosto || 0; cats[k].venta += s.valorVenta || 0
+      })
+      tabla({
+        startY: y,
+        head: [['CATEGORÍA', 'BALDES', 'KG', 'COSTO', 'VENTA']],
+        body: Object.keys(cats).sort().map(k => [k, String(cats[k].baldes), cats[k].kg.toFixed(1), money(cats[k].costo), money(cats[k].venta)]),
+        foot: [['TOTAL HELADOS', String(bH), kgH.toFixed(1), money(cH), money(vH)]],
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+      })
+      y = doc.lastAutoTable.finalY + 8
+      if (y + 30 > ph - 20) { doc.addPage(); encab(); y = PDF_CONTENT_Y }
+      y = dibujarSeccion(doc, pw, 'Helados — detalle', y)
+      tabla({
+        startY: y,
+        head: [['PRODUCTO', 'CATEGORÍA', 'BALDES', 'KG', 'COSTO', 'VENTA']],
+        body: [...helados].sort((a, b) => (a.tipo || '').localeCompare(b.tipo || '') || (a.nombre || '').localeCompare(b.nombre || ''))
+          .map(s => [s.nombre || '—', s.tipo || '—', String(s.baldes || 0), (s.kg || 0).toFixed(1), money(s.valorCosto), money(s.valorVenta)]),
+        columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
       })
       y = doc.lastAutoTable.finalY + 8
     }
 
-    // Total valorizado de la cámara (costo y venta potencial)
-    y = saltarSiNecesario(y, 16)
-    const cTot = stock.reduce((a, s) => a + (s.valorCosto || 0), 0)
-    const vTot = stock.reduce((a, s) => a + (s.valorVenta || 0), 0)
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...N)
-    doc.text(`Valor total en cámara — Costo: $${pesos(cTot)}   ·   Venta potencial: $${pesos(vTot)}`, 14, y + 2)
-    y += 8
+    // ── Impulsivos ──
+    if (impuls.length) {
+      if (y + 30 > ph - 20) { doc.addPage(); encab(); y = PDF_CONTENT_Y }
+      y = dibujarSeccion(doc, pw, 'Impulsivos — detalle', y)
+      tabla({
+        startY: y,
+        head: [['PRODUCTO', 'UNIDADES', 'COSTO', 'VENTA']],
+        body: [...impuls].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
+          .map(s => [s.nombre || '—', String(s.baldes || 0), money(s.valorCosto), money(s.valorVenta)]),
+        foot: [['TOTAL IMPULSIVOS', String(uI), money(cI), money(vI)]],
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+      })
+      y = doc.lastAutoTable.finalY + 8
+    }
 
-    // Firmas (al final del contenido; salta de hoja solo si no entran)
-    dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, 'Cámaras', hoy, ['Responsable Cámaras', 'Jefe de Producción'])
+    // ── Postres ──
+    if (postres.length) {
+      if (y + 30 > ph - 20) { doc.addPage(); encab(); y = PDF_CONTENT_Y }
+      y = dibujarSeccion(doc, pw, 'Postres — detalle', y)
+      tabla({
+        startY: y,
+        head: [['PRODUCTO', 'UNIDADES', 'KG', 'COSTO', 'VENTA']],
+        body: [...postres].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
+          .map(s => [s.nombre || '—', String(s.baldes || 0), (s.kg || 0).toFixed(1), money(s.valorCosto), money(s.valorVenta)]),
+        foot: [['TOTAL POSTRES', String(uP), '', money(cP), money(vP)]],
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+      })
+      y = doc.lastAutoTable.finalY + 8
+    }
+
+    // ── Total valorizado ──
+    if (y + 18 > ph - 20) { doc.addPage(); encab(); y = PDF_CONTENT_Y }
+    doc.setFillColor(245, 247, 250); doc.roundedRect(14, y, pw - 28, 12, 1.5, 1.5, 'F')
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...N)
+    doc.text(`VALOR TOTAL EN CÁMARA     Costo ${money(cTot)}     ·     Venta potencial ${money(vTot)}`, 18, y + 8)
+    y += 18
+
+    // Firmas
+    dibujarFirmas(doc, pw, ph, y, 'Cámaras', hoy, ['Responsable Cámaras', 'Jefe de Producción'])
 
     const totalPag = doc.internal.getNumberOfPages()
     for (let p = 2; p <= totalPag; p++) { doc.setPage(p); dibujarPie(doc, pw, ph, p) }

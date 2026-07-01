@@ -20,5 +20,5 @@ alter table public.conteos_stock add column if not exists valor_impacto numeric;
 alter table public.conteos_stock add column if not exists ciclo_id      uuid;       -- agrupa los ítems contados en una misma sesión
 alter table public.conteos_stock add column if not exists modo          text default 'normal';  -- 'normal' | 'ciego'
 
-create index if not exists ix_conteos_ciclo   on public.conteos_stock (ciclo_id);
-create index if not exists ix_conteos_created on public.conteos_stock (created_at);
+create index if not exists ix_conteos_ciclo on public.conteos_stock (ciclo_id);
+create index if not exists ix_conteos_fecha on public.conteos_stock (fecha);

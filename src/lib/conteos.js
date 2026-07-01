@@ -79,9 +79,9 @@ export async function cargarConteosPeriodo({ desde, hasta }) {
   try {
     const { supabase } = await import('./supabase')
     let q = supabase.from('conteos_stock').select('*')
-    if (desde) q = q.gte('created_at', desde)
-    if (hasta) q = q.lte('created_at', hasta)
-    const { data, error } = await q.order('created_at', { ascending: false }).limit(5000)
+    if (desde) q = q.gte('fecha', desde)
+    if (hasta) q = q.lte('fecha', hasta)
+    const { data, error } = await q.order('fecha', { ascending: false }).limit(5000)
     if (error) { console.warn('cargarConteosPeriodo:', error.message); return [] }
     return data || []
   } catch (e) {
@@ -98,8 +98,11 @@ export function resumenSemanal(rows) {
   rows.forEach(r => {
     const clave = `${r.tipo}::${norm(r.producto_nombre)}`
     const prev = ultimoPorClave[clave]
-    // rows viene desc por created_at; el primero que vemos es el más nuevo.
+    // rows viene desc por fecha; el primero que vemos es el más nuevo. Como
+    // `fecha` es por día, si hay empate el mismo día preferimos la versión con
+    // motivo (la aprobada supera al conteo crudo).
     if (!prev) ultimoPorClave[clave] = r
+    else if (!( prev.motivo && String(prev.motivo).trim()) && (r.motivo && String(r.motivo).trim())) ultimoPorClave[clave] = r
   })
   const items = Object.values(ultimoPorClave)
   const faltantes = items.filter(r => (Number(r.diferencia) || 0) < 0)

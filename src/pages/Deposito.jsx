@@ -1432,10 +1432,7 @@ export default function Deposito() {
       unidad: i.unidad || 'u', stockSistema: i.stock_actual || 0,
       costo_unitario: i.costo_unitario || 0, stockFisico: '',
     })))
-    setConteoFilasCam(stockCamaras.map(c => ({
-      id: c.id, nombre: c.nombre, tipo: c.tipo_producto || 'helado',
-      stockKg: c.kg || 0, stockBaldes: c.baldes || 0, fisKg: '', fisBaldes: '',
-    })))
+    setConteoFilasCam([]) // la cámara se cuenta en su propio módulo (evita duplicar)
     setConteoEstado('EN_PROCESO')
     toast2('Conteo iniciado — ingresá los stocks físicos')
   }
@@ -1533,9 +1530,7 @@ export default function Deposito() {
   async function generarInformeSemanalConteo() {
     setGenerandoInformeSem(true)
     try {
-      const desde = `${rangoCS.desde}T00:00:00`
-      const hasta = `${rangoCS.hasta}T23:59:59`
-      const rows = await cargarConteosPeriodo({ desde, hasta })
+      const rows = await cargarConteosPeriodo({ desde: rangoCS.desde, hasta: rangoCS.hasta })
       const R = resumenSemanal(rows)
 
       const doc = new jsPDF({ unit: 'mm', format: 'a4' })
@@ -3572,22 +3567,13 @@ export default function Deposito() {
           {tab === 'Control Semanal' && (
             <div className="space-y-4">
 
-              {/* ── Sub-tabs ─── */}
-              <div className="flex gap-2 flex-wrap">
-                {[
-                  { key: 'deposito', label: 'Depósito' },
-                  { key: 'camara',   label: 'Cámaras' },
-                ].map(s => (
-                  <button key={s.key} onClick={() => setSeccionCS(s.key)}
-                    className="px-4 py-2 rounded-full text-sm font-semibold transition-all border"
-                    style={{
-                      backgroundColor: seccionCS === s.key ? colors.brand : 'transparent',
-                      borderColor: seccionCS === s.key ? colors.brand : colors.border,
-                      color: seccionCS === s.key ? 'white' : colors.textSecondary,
-                    }}>
-                    {s.key === 'deposito' ? '📦 ' : '🧊 '}{s.label}
-                  </button>
-                ))}
+              {/* Un solo lugar por área: acá se cuenta el DEPÓSITO; la cámara se
+                  cuenta en su propio módulo (Cámaras → "Conteo físico"). Ambos
+                  alimentan el mismo informe semanal. */}
+              <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg"
+                style={{ backgroundColor: 'rgba(59,130,246,0.08)', border: `1px solid ${colors.border}`, color: colors.textSecondary }}>
+                <span>📦</span>
+                <span>Control de <b style={{ color: colors.textPrimary }}>Depósito</b>. La cámara se cuenta en el módulo <b style={{ color: colors.textPrimary }}>Cámaras → "Conteo físico"</b>; los dos aparecen juntos en el <b style={{ color: colors.textPrimary }}>Informe semanal</b>.</span>
               </div>
 
               {/* ══ SECCIÓN 1 — Estado del conteo ══════════════════════════════ */}
@@ -3635,7 +3621,7 @@ export default function Deposito() {
                     )}
                     {conteoEstado !== 'SIN_INICIAR' && (
                       <Button variant="secondary" size="sm" onClick={generarPDFConteoSemanal} loading={generandoPDFconteo}>
-                        <FileDown size={13} /> PDF
+                        <FileDown size={13} /> PDF de este conteo
                       </Button>
                     )}
                     {conteoEstado !== 'SIN_INICIAR' && conteoEstado !== 'APROBADO' && (

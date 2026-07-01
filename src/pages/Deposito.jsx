@@ -6,6 +6,8 @@ import { normalizarNombre } from '../lib/texto'
 import { costearProduccion } from '../lib/costeoProduccion'
 import { registrarCambioCosto } from '../lib/historialCostos'
 import { registrarConteoStock, cargarConteosPeriodo, resumenSemanal, nuevoCiclo } from '../lib/conteos'
+import { calcularPlanCompras, pendienteDeOrden } from '../lib/mrp'
+import { POSTRES } from '../lib/postres'
 import { clasificarVencimiento, esAlertaVencimiento, labelDias } from '../lib/vencimientos'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -36,7 +38,7 @@ import {
 
 const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 
-const TABS         = ['Movimientos', 'Stock', 'Trazabilidad', 'Informes', 'Control Semanal']
+const TABS         = ['Movimientos', 'Stock', 'Trazabilidad', 'Informes', 'Control Semanal', 'Plan de compras']
 const DESTINOS     = ['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones', 'Panadería', 'Uso interno', 'Venta', 'Otro']
 const PRESENTACIONES = ['Balde', 'Bolsa', 'Lata', 'Caja', 'Botella', 'Bidón', 'Pomo', 'Pote', 'Sin Presentación']
 const UNIDADES     = ['u', 'kg', 'L']
@@ -1003,6 +1005,12 @@ export default function Deposito() {
   const [generandoPDFconteo, setGenerandoPDFconteo] = useState(false)
   const [conteoCiego, setConteoCiego]           = useState(true) // no muestra el stock del sistema → no se "dibuja"
   const [conteoCicloId, setConteoCicloId]       = useState(null) // ciclo del conteo en curso (para no duplicar al aprobar)
+  // ── Mini-MRP / Plan de compras ──────────────────────────────────────────────
+  const [ordenesAbiertas, setOrdenesAbiertas]   = useState([])
+  const [planItems, setPlanItems]               = useState([]) // [{nombre, tipo_producto, cantidad}]
+  const [planNuevo, setPlanNuevo]               = useState({ nombre: '', cantidad: '' })
+  const [generandoPDFcompras, setGenerandoPDFcompras] = useState(false)
+  const [proveedorPorInsumo, setProveedorPorInsumo] = useState({}) // normNombre → último proveedor
   const [generandoInformeSem, setGenerandoInformeSem] = useState(false)
 
   const { isAdmin, profile, user } = useUser()
@@ -1024,19 +1032,32 @@ export default function Deposito() {
   }
 
   async function cargar() {
-    const [{ data: i }, { data: o }, { data: sc }, { data: ct }, { data: mc }] = await Promise.all([
+    const [{ data: i }, { data: o }, { data: sc }, { data: ct }, { data: mc }, { data: ord }] = await Promise.all([
       supabase.from('insumos').select('*').order('nombre'),
       supabase.from('operarios').select('*').order('nombre'),
       supabase.from('stock_camaras').select('*').order('nombre'),
       supabase.from('conteos_stock').select('*').order('fecha', { ascending: false }).limit(500),
       supabase.from('movimientos_camara').select('id,sabor_nombre,producto_nombre,tipo,kg,baldes,lote,operario_nombre,tipo_producto,motivo,created_at,fecha').order('id', { ascending: false }).limit(300),
+      supabase.from('ordenes_produccion').select('*').in('estado', ['pendiente', 'en_proceso']).order('fecha_produccion', { ascending: true }),
     ])
+    setOrdenesAbiertas(ord || [])
     // Vencimientos: todos los ingresos con fecha_vencimiento, para badges en Stock
     const { data: vencData } = await supabase.from('movimientos_deposito')
       .select('producto_nombre,lote,fecha_vencimiento,created_at')
       .eq('tipo', 'ingreso').not('fecha_vencimiento', 'is', null)
       .order('created_at', { ascending: false }).limit(500)
     setVencimientosIngresos(vencData || [])
+
+    // Último proveedor por insumo (para agrupar el plan de compras)
+    const { data: provData } = await supabase.from('movimientos_deposito')
+      .select('producto_nombre,proveedor,created_at').eq('tipo', 'ingreso')
+      .not('proveedor', 'is', null).order('created_at', { ascending: false }).limit(3000)
+    const provMap = {}
+    ;(provData || []).forEach(m => {
+      const k = normalizarNombre(m.producto_nombre || '')
+      if (k && !provMap[k] && m.proveedor) provMap[k] = m.proveedor
+    })
+    setProveedorPorInsumo(provMap)
 
     // Recetas + ingresos a cámara para el costeo de MP a producción (backflush)
     const [{ data: camIn }, { data: sab }, { data: sabIng }, { data: bas }, { data: basIng }, { data: imp }, { data: impIng }] = await Promise.all([
@@ -1613,6 +1634,89 @@ export default function Deposito() {
     }
   }
 
+  // ── Plan de compras: acciones ───────────────────────────────────────────────
+  // A) Sembrar el plan desde las órdenes abiertas (lo que falta producir).
+  function cargarPlanDesdeOrdenes() {
+    const acc = {}
+    ordenesAbiertas.forEach(o => {
+      const p = pendienteDeOrden(o)
+      if (!p.nombre || !(p.cantidad > 0)) return
+      const k = `${p.tipo_producto}:${normalizarNombre(p.nombre)}`
+      if (!acc[k]) acc[k] = { nombre: (p.nombre || '').toUpperCase(), tipo_producto: p.tipo_producto, cantidad: 0 }
+      acc[k].cantidad += p.cantidad
+    })
+    const items = Object.values(acc)
+    setPlanItems(items)
+    if (items.length === 0) toast2('No hay órdenes abiertas con cantidad pendiente', 'warn')
+    else toast2(`Plan cargado desde ${items.length} producto${items.length !== 1 ? 's' : ''} de órdenes abiertas`)
+  }
+
+  // B) Agregar un producto a mano.
+  function agregarItemPlan() {
+    const prod = catalogoProductos.find(p => p.nombre === planNuevo.nombre)
+    const cant = parseFloat(planNuevo.cantidad)
+    if (!prod) { toast2('Elegí un producto', 'error'); return }
+    if (!(cant > 0)) { toast2('Ingresá una cantidad', 'error'); return }
+    setPlanItems(prev => {
+      const k = `${prod.tipo_producto}:${normalizarNombre(prod.nombre)}`
+      const idx = prev.findIndex(it => `${it.tipo_producto}:${normalizarNombre(it.nombre)}` === k)
+      if (idx >= 0) {
+        const next = [...prev]; next[idx] = { ...next[idx], cantidad: (Number(next[idx].cantidad) || 0) + cant }; return next
+      }
+      return [...prev, { nombre: prod.nombre, tipo_producto: prod.tipo_producto, cantidad: cant }]
+    })
+    setPlanNuevo({ nombre: '', cantidad: '' })
+  }
+
+  const setCantidadPlan = (idx, val) => setPlanItems(prev => prev.map((it, i) => i === idx ? { ...it, cantidad: val } : it))
+  const quitarItemPlan  = (idx) => setPlanItems(prev => prev.filter((_, i) => i !== idx))
+
+  async function generarPDFCompras() {
+    setGenerandoPDFcompras(true)
+    try {
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+      const pw = doc.internal.pageSize.getWidth()
+      const ph = doc.internal.pageSize.getHeight()
+      const hoy = new Date().toLocaleString('es-AR')
+      const MOD = 'DEPÓSITO'
+      const TIT = 'PLAN DE COMPRAS'
+      const EST = getEstiloInforme()
+      dibujarPortada(doc, pw, ph, MOD, TIT, null, hoy)
+
+      doc.addPage()
+      dibujarEncabezado(doc, pw, MOD, TIT, hoy)
+      let y = PDF_CONTENT_Y
+      y = dibujarSeccion(doc, pw, 'Qué comprar (materia prima que no alcanza para el plan)', y)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...PDF_NEGRO)
+      doc.text(`Total estimado a comprar: $${pesos(planCompras.totalCompra)}`, 14, y + 2)
+      y += 8
+
+      planCompras.grupos.forEach(g => {
+        autoTable(doc, {
+          ...EST, startY: y,
+          head: [[`PROVEEDOR: ${g.proveedor}`, 'NECESITA', 'HAY', 'COMPRAR', 'COSTO $']],
+          body: g.items.map(i => [
+            i.nombre, `${i.necesario.toFixed(2)} ${i.unidad}`, `${i.disponible.toFixed(2)} ${i.unidad}`,
+            `${i.faltante.toFixed(2)} ${i.unidad}`, i.sinCosto ? 's/costo' : `$${pesos(i.costoCompra)}`,
+          ]),
+          foot: [['', '', '', 'Subtotal', `$${pesos(g.total)}`]],
+          didDrawPage: () => { dibujarEncabezado(doc, pw, MOD, TIT, hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber) },
+        })
+        y = (doc.lastAutoTable?.finalY || y) + 6
+      })
+      if (planCompras.aComprar.length === 0) {
+        doc.setTextColor(...PDF_GRIS_OSC)
+        doc.text('El stock actual cubre todo el plan. No hay que comprar nada.', 14, y + 4)
+      }
+      dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+      doc.save(`plan_compras_${new Date().toISOString().split('T')[0]}.pdf`)
+    } catch (err) {
+      toast2(err.message || 'No se pudo generar el plan', 'error')
+    } finally {
+      setGenerandoPDFcompras(false)
+    }
+  }
+
   const aniosDisponibles = useMemo(() => {
     const set = new Set(movimientos.map(m => m.fecha ? Number(m.fecha.split('-')[0]) : null).filter(Boolean))
     set.add(new Date().getFullYear())
@@ -1661,6 +1765,25 @@ export default function Deposito() {
     })
     return Object.values(grupos).sort((a, b) => a.destino.localeCompare(b.destino))
   }, [movsInforme])
+
+  // ── Mini-MRP: catálogo de productos y cálculo del plan de compras ───────────
+  // Catálogo para agregar a mano (sabores = helado, impulsivos y postres = unidad).
+  const catalogoProductos = useMemo(() => {
+    const helados = (recetasCosteo.sabores || []).map(s => ({ nombre: (s.nombre || '').toUpperCase(), tipo_producto: 'helado', grupo: 'HELADOS' }))
+    const imps = (recetasCosteo.impulsivos || []).map(i => ({ nombre: (i.nombre || '').toUpperCase(), tipo_producto: 'impulsivo', grupo: 'IMPULSIVOS' }))
+    const postres = POSTRES.map(p => ({ nombre: (p.nombre || '').toUpperCase(), tipo_producto: 'postre', grupo: 'POSTRES' }))
+    const vistos = new Set()
+    return [...helados, ...imps, ...postres].filter(p => {
+      const k = `${p.tipo_producto}:${normalizarNombre(p.nombre)}`
+      if (vistos.has(k)) return false; vistos.add(k); return true
+    }).sort((a, b) => a.grupo.localeCompare(b.grupo) || a.nombre.localeCompare(b.nombre))
+  }, [recetasCosteo])
+
+  const planCompras = useMemo(() => calcularPlanCompras({
+    planItems,
+    ctx: { ...recetasCosteo, insumos },
+    ultimoProveedor: proveedorPorInsumo,
+  }), [planItems, recetasCosteo, insumos, proveedorPorInsumo])
 
   const entregasPorOperario = useMemo(() => {
     const grupos = {}
@@ -3919,6 +4042,128 @@ export default function Deposito() {
                 </div>
               )}
 
+            </div>
+          )}
+
+          {/* ═══════════════════════════ PLAN DE COMPRAS ═══════════════════════ */}
+          {tab === 'Plan de compras' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg"
+                style={{ backgroundColor: 'rgba(59,130,246,0.08)', border: `1px solid ${colors.border}`, color: colors.textSecondary }}>
+                <span>🧮</span>
+                <span>Cargá lo que vas a producir (desde las órdenes abiertas y/o a mano). El sistema explota las recetas, mira el stock y te dice <b style={{ color: colors.textPrimary }}>qué comprar</b>, agrupado por proveedor.</span>
+              </div>
+
+              {/* Producción planificada */}
+              <div className="overflow-hidden" style={SURFACE}>
+                <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>📋 Producción planificada</span>
+                  <div className="flex items-center gap-2">
+                    <Button variant="secondary" size="sm" onClick={cargarPlanDesdeOrdenes}>
+                      <ClipboardCheck size={13} /> Traer órdenes abiertas ({ordenesAbiertas.length})
+                    </Button>
+                    {planItems.length > 0 && (
+                      <button onClick={() => setPlanItems([])} className="text-xs px-2 py-1 rounded-md" style={{ color: colors.textMuted }}>✕ Vaciar</button>
+                    )}
+                  </div>
+                </div>
+                <div className="p-4 space-y-3">
+                  {/* Agregar a mano */}
+                  <div className="flex items-end gap-2 flex-wrap">
+                    <div className="flex-1 min-w-[180px]">
+                      <Select label="Producto" value={planNuevo.nombre} onChange={e => setPlanNuevo(p => ({ ...p, nombre: e.target.value }))}>
+                        <option value="">— Elegir producto —</option>
+                        {['HELADOS', 'IMPULSIVOS', 'POSTRES'].map(g => (
+                          <optgroup key={g} label={g}>
+                            {catalogoProductos.filter(p => p.grupo === g).map(p => <option key={`${p.grupo}-${p.nombre}`} value={p.nombre}>{p.nombre}</option>)}
+                          </optgroup>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="w-28">
+                      <Input label="Cantidad" type="number" min="0" value={planNuevo.cantidad}
+                        onChange={e => setPlanNuevo(p => ({ ...p, cantidad: e.target.value }))} placeholder="kg / u" />
+                    </div>
+                    <Button variant="primary" size="sm" onClick={agregarItemPlan}><Plus size={13} /> Agregar</Button>
+                  </div>
+
+                  {planItems.length === 0 ? (
+                    <p className="text-xs" style={{ color: colors.textMuted }}>Todavía no cargaste nada. Traé las órdenes abiertas o agregá productos a mano.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table className="min-w-[520px]">
+                        <Thead><Tr><Th>Producto</Th><Th>Tipo</Th><Th className="text-right">Cantidad</Th><Th></Th></Tr></Thead>
+                        <Tbody>
+                          {planItems.map((it, idx) => (
+                            <Tr key={`${it.tipo_producto}-${it.nombre}-${idx}`}>
+                              <Td className="font-medium">{it.nombre}</Td>
+                              <Td className="text-xs" style={{ color: colors.textMuted }}>{it.tipo_producto === 'helado' ? '🧊 helado (kg)' : it.tipo_producto === 'postre' ? '🍰 postre (u)' : '📦 impulsivo (u)'}</Td>
+                              <Td className="text-right">
+                                <input type="number" min="0" value={it.cantidad}
+                                  onChange={e => setCantidadPlan(idx, e.target.value)}
+                                  className="w-24 text-right rounded-md border px-2 py-1 text-sm outline-none"
+                                  style={{ borderColor: colors.border, backgroundColor: colors.bg, color: colors.textPrimary }} />
+                              </Td>
+                              <Td className="text-right"><button onClick={() => quitarItemPlan(idx)} style={{ color: colors.danger }}><Trash2 size={14} /></button></Td>
+                            </Tr>
+                          ))}
+                        </Tbody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* KPIs + resultado */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <KpiCard label="Ítems a comprar" value={planCompras.aComprar.length} icon={ClipboardCheck} color={colors.brand} />
+                <KpiCard label="Total estimado" value={`$${pesos(planCompras.totalCompra)}`} icon={DollarSign} color={colors.danger} />
+                <KpiCard label="Ya cubiertos" value={planCompras.cubiertos.length} icon={TrendingUp} color={colors.success} />
+              </div>
+
+              {planCompras.sinReceta.length > 0 && (
+                <div className="flex items-start gap-2 text-xs px-3 py-2 rounded-lg" style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
+                  <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                  <span>Sin receta (no se pueden explotar, no entran al cálculo): {planCompras.sinReceta.join(', ')}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>🛒 Qué comprar</span>
+                <Button variant="secondary" size="sm" onClick={generarPDFCompras} loading={generandoPDFcompras} disabled={planCompras.aComprar.length === 0}>
+                  <FileDown size={13} /> PDF
+                </Button>
+              </div>
+
+              {planCompras.aComprar.length === 0 ? (
+                <EmptyState icon={ClipboardCheck} title={planItems.length === 0 ? 'Cargá el plan para ver qué comprar' : 'El stock cubre todo el plan'}
+                  subtitle={planItems.length === 0 ? 'Traé órdenes abiertas o agregá productos.' : 'No hace falta comprar materia prima para esta producción.'} />
+              ) : (
+                planCompras.grupos.map(g => (
+                  <div key={g.proveedor} className="overflow-hidden" style={SURFACE}>
+                    <div className="px-4 py-2.5 flex items-center justify-between" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>🏭 {g.proveedor}</span>
+                      <span className="text-xs font-bold" style={{ color: colors.danger }}>${pesos(g.total)}</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <Table className="min-w-[600px]">
+                        <Thead><Tr><Th>Insumo</Th><Th className="text-right">Necesita</Th><Th className="text-right">Hay</Th><Th className="text-right">Comprar</Th><Th className="text-right">Costo $</Th></Tr></Thead>
+                        <Tbody>
+                          {g.items.map(i => (
+                            <Tr key={i.nombre}>
+                              <Td className="font-medium">{i.nombre}</Td>
+                              <Td className="text-right text-xs">{i.necesario.toFixed(2)} {i.unidad}</Td>
+                              <Td className="text-right text-xs" style={{ color: colors.textMuted }}>{i.disponible.toFixed(2)} {i.unidad}</Td>
+                              <Td className="text-right font-semibold" style={{ color: colors.danger }}>{i.faltante.toFixed(2)} {i.unidad}</Td>
+                              <Td className="text-right">{i.sinCosto ? <span className="text-xs" style={{ color: colors.warning }}>s/costo</span> : `$${pesos(i.costoCompra)}`}</Td>
+                            </Tr>
+                          ))}
+                        </Tbody>
+                      </Table>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           )}
         </>

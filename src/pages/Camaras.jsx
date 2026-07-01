@@ -1259,16 +1259,25 @@ export default function Camaras() {
 
   useEffect(() => {
     async function cargar() {
-      const [{ data, error }, { data: ops }, { data: sab }, { data: imp }] = await Promise.all([
+      const [{ data, error }, { data: ops }, { data: sab }, { data: imp }, { data: sabIng }] = await Promise.all([
         supabase.from('stock_camaras').select('*').order('tipo', { ascending: true }),
         supabase.from('operarios').select('id,nombre').eq('activo', true).order('nombre'),
-        supabase.from('sabores').select('nombre,costo_total,precio_venta'),
+        supabase.from('sabores').select('id,nombre,costo_total,precio_venta,litros_base'),
         supabase.from('impulsivos').select('nombre,costo_total,precio_venta'),
+        supabase.from('sabor_ingredientes').select('sabor_id,cantidad,unidad'),
       ])
       if (error) { setErrorCarga(error.message); setLoading(false); return }
       // Precios/costos desde Finanzas (fuente única). Cámara solo los lee.
+      // Helado: el costo_total es del BATCH → lo pasamos a POR KG dividiendo por el
+      // rinde estimado (litros_base + kg de agregados de la receta). El precio ya es por kg.
+      const extraKg = {}
+      ;(sabIng || []).forEach(i => { if ((i.unidad || '').toLowerCase() === 'kg') extraKg[i.sabor_id] = (extraKg[i.sabor_id] || 0) + (Number(i.cantidad) || 0) })
       const precioMap = {}
-      ;(sab || []).forEach(s => { precioMap[normalizarNombre(s.nombre)] = { costo: Number(s.costo_total) || 0, precio: Number(s.precio_venta) || 0 } })
+      ;(sab || []).forEach(s => {
+        const rinde = (Number(s.litros_base) || 120) + (extraKg[s.id] || 0)
+        const costoKg = rinde > 0 ? (Number(s.costo_total) || 0) / rinde : 0
+        precioMap[normalizarNombre(s.nombre)] = { costo: costoKg, precio: Number(s.precio_venta) || 0 }
+      })
       ;(imp || []).forEach(i => { precioMap[normalizarNombre(i.nombre)] = { costo: Number(i.costo_total) || 0, precio: Number(i.precio_venta) || 0 } })
       const agrupados = {}
       ;(data || []).forEach(item => {
@@ -1794,15 +1803,19 @@ export default function Camaras() {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     const pw = doc.internal.pageSize.getWidth()
     const ph = doc.internal.pageSize.getHeight()
-    const { HS, BS, AS, LI } = getEstiloInforme()
     const N = [20, 20, 20]
     let y = PDF_CONTENT_Y
 
-    const money = n => `$${pesos(n || 0)}`
+    // Formato argentino con decimales: $1.000.000,25 (miles con punto, decimales con coma)
+    const money = n => `$${(Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     const encab = () => dibujarEncabezado(doc, pw, 'Cámaras', 'Stock Actual', hoy)
-    // Cada tabla dibuja encabezado en sus páginas y respeta el margen superior.
+    // Estilo BLANCO Y NEGRO, todo centrado (sin azul).
+    const BW_HEAD = { fillColor: [35, 35, 35], textColor: [255, 255, 255], halign: 'center', fontStyle: 'bold', lineWidth: 0.1, lineColor: [180, 180, 180] }
+    const BW_BODY = { textColor: [25, 25, 25], halign: 'center', lineWidth: 0.1, lineColor: [210, 210, 210] }
+    const BW_ALT  = { fillColor: [244, 244, 244] }
     const tabla = (opts) => autoTable(doc, {
-      headStyles: HS, bodyStyles: BS, alternateRowStyles: AS, styles: LI, footStyles: { ...HS },
+      headStyles: BW_HEAD, bodyStyles: BW_BODY, alternateRowStyles: BW_ALT, footStyles: BW_HEAD,
+      styles: { fontSize: 8, cellPadding: 2, halign: 'center', valign: 'middle' },
       margin: { top: PDF_CONTENT_Y, left: 14, right: 14 }, didDrawPage: encab, ...opts,
     })
 
@@ -1870,7 +1883,6 @@ export default function Camaras() {
         head: [['CATEGORÍA', 'BALDES', 'KG', 'COSTO', 'VENTA']],
         body: Object.keys(cats).sort().map(k => [k, String(cats[k].baldes), cats[k].kg.toFixed(1), money(cats[k].costo), money(cats[k].venta)]),
         foot: [['TOTAL HELADOS', String(bH), kgH.toFixed(1), money(cH), money(vH)]],
-        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
       })
       y = doc.lastAutoTable.finalY + 8
       if (y + 30 > ph - 20) { doc.addPage(); encab(); y = PDF_CONTENT_Y }
@@ -1880,7 +1892,6 @@ export default function Camaras() {
         head: [['PRODUCTO', 'CATEGORÍA', 'BALDES', 'KG', 'COSTO', 'VENTA']],
         body: [...helados].sort((a, b) => (a.tipo || '').localeCompare(b.tipo || '') || (a.nombre || '').localeCompare(b.nombre || ''))
           .map(s => [s.nombre || '—', s.tipo || '—', String(s.baldes || 0), (s.kg || 0).toFixed(1), money(s.valorCosto), money(s.valorVenta)]),
-        columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
       })
       y = doc.lastAutoTable.finalY + 8
     }
@@ -1895,7 +1906,6 @@ export default function Camaras() {
         body: [...impuls].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
           .map(s => [s.nombre || '—', String(s.baldes || 0), money(s.valorCosto), money(s.valorVenta)]),
         foot: [['TOTAL IMPULSIVOS', String(uI), money(cI), money(vI)]],
-        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
       })
       y = doc.lastAutoTable.finalY + 8
     }
@@ -1910,7 +1920,6 @@ export default function Camaras() {
         body: [...postres].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
           .map(s => [s.nombre || '—', String(s.baldes || 0), (s.kg || 0).toFixed(1), money(s.valorCosto), money(s.valorVenta)]),
         foot: [['TOTAL POSTRES', String(uP), '', money(cP), money(vP)]],
-        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
       })
       y = doc.lastAutoTable.finalY + 8
     }

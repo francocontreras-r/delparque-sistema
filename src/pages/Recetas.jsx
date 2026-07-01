@@ -92,7 +92,7 @@ function ModalConfEliminar({ receta, onClose, onConfirm, saving }) {
 }
 
 // ── Modal de edición ──────────────────────────────────────────────────────────
-function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, intermedios, costeador, showToast }) {
+function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, bases = [], sabores = [], intermedios, costeador, showToast }) {
   const [ings, setIngs] = useState(() =>
     rawIngs.map((i, idx) => ({
       _key: idx,
@@ -127,11 +127,23 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, i
     return m
   }, [insumos])
 
+  // Fuentes para agregar ingredientes: insumos del depósito + bases + sabores
+  // (bases se miden en L, sabores en kg). Al vincular con depósito solo insumos.
+  const fuentes = useMemo(() => {
+    const self = (receta.nombre || '').trim().toLowerCase()
+    const ins = insumos.map(i => ({ id: i.id, nombre: i.nombre, unidad: i.unidad || 'kg', clase: 'insumo' }))
+    const bas = bases.map(b => ({ id: null, nombre: b.nombre, unidad: 'L', clase: 'base' }))
+    const sab = sabores.map(s => ({ id: null, nombre: s.nombre, unidad: 'kg', clase: 'sabor' }))
+    return [...ins, ...bas, ...sab].filter(x => (x.nombre || '').trim().toLowerCase() !== self)
+  }, [insumos, bases, sabores, receta.nombre])
+
   const sugerencias = useMemo(() => {
     if (!busq.trim()) return []
     const q = busq.trim().toLowerCase()
-    return insumos.filter(i => (i.nombre || '').toLowerCase().includes(q)).slice(0, 8)
-  }, [busq, insumos])
+    // Al vincular un ingrediente con el depósito, solo mostramos insumos reales.
+    const fuente = vinculandoKey != null ? fuentes.filter(x => x.clase === 'insumo') : fuentes
+    return fuente.filter(x => (x.nombre || '').toLowerCase().includes(q)).slice(0, 10)
+  }, [busq, fuentes, vinculandoKey])
 
   const ingsConCosto = useMemo(() =>
     ings.map(i => {
@@ -347,17 +359,24 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, i
           {showAC && sugerencias.length > 0 && (
             <div className="absolute top-full left-0 right-0 z-20 mt-1 rounded-lg border shadow-lg overflow-hidden"
               style={{ backgroundColor: colors.surface, borderColor: colors.border }}>
-              {sugerencias.map(ins => (
-                <button key={ins.id ?? ins.nombre}
-                  onMouseDown={() => vinculandoKey != null ? vincular(vinculandoKey, ins) : add(ins)}
-                  className="w-full flex items-center justify-between px-3 py-2 text-sm text-left hover:bg-slate-50 transition-colors"
-                  style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <span style={{ color: colors.textPrimary }}>{ins.nombre}</span>
-                  <span className="text-xs" style={{ color: ins.costo_unitario ? colors.success : colors.warning }}>
-                    {ins.costo_unitario ? `$${pesos(ins.costo_unitario)}/u` : '⚠️ Sin precio'}
-                  </span>
-                </button>
-              ))}
+              {sugerencias.map(ins => {
+                const costo = costeador ? costeador.costoDe(ins.nombre) : 0
+                const badge = ins.clase === 'base' ? { t: '🧱 base', c: colors.info } : ins.clase === 'sabor' ? { t: '🧊 sabor', c: colors.brand } : null
+                return (
+                  <button key={`${ins.clase}-${ins.id ?? ins.nombre}`}
+                    onMouseDown={() => vinculandoKey != null ? vincular(vinculandoKey, ins) : add(ins)}
+                    className="w-full flex items-center justify-between px-3 py-2 text-sm text-left hover:bg-slate-50 transition-colors"
+                    style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <span className="flex items-center gap-1.5" style={{ color: colors.textPrimary }}>
+                      {ins.nombre}
+                      {badge && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ color: badge.c, backgroundColor: `${badge.c}18` }}>{badge.t}</span>}
+                    </span>
+                    <span className="text-xs" style={{ color: costo ? colors.success : colors.warning }}>
+                      {costo ? `$${pesos(costo)}/${ins.unidad}` : '⚠️ Sin precio'}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           )}
         </div>
@@ -925,6 +944,8 @@ export default function Recetas() {
           tipo={editando.tipo}
           rawIngs={editando.rawIngs}
           insumos={insumos}
+          bases={bases}
+          sabores={sabores}
           intermedios={nombresIntermedios}
           costeador={costeador}
           onClose={() => setEditando(null)}

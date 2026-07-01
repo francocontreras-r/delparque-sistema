@@ -291,6 +291,21 @@ export default function Finanzas() {
     return m
   }, [sabores])
 
+  // Rinde/peso por producto para pasar el costo del BATCH a costo POR UNIDAD.
+  // Sabor: kg = litros_base + kg de agregados. Postre: kg = suma de kg de su receta.
+  const rindeKgSabor = useMemo(() => {
+    const extra = {}
+    saborIngredientes.forEach(i => { if ((i.unidad || '').toLowerCase() === 'kg') extra[i.sabor_id] = (extra[i.sabor_id] || 0) + (Number(i.cantidad) || 0) })
+    const m = {}
+    sabores.forEach(s => { m[s.id] = (Number(s.litros_base) || 120) + (extra[s.id] || 0) })
+    return m
+  }, [sabores, saborIngredientes])
+  const pesoKgImpulsivo = useMemo(() => {
+    const m = {}
+    impulsivoIngredientes.forEach(i => { if ((i.unidad || '').toLowerCase() === 'kg') m[i.impulsivo_id] = (m[i.impulsivo_id] || 0) + (Number(i.cantidad) || 0) })
+    return m
+  }, [impulsivoIngredientes])
+
   const secciones = useMemo(() => {
     const ingsDe = (tabla, id) =>
       tabla === 'sabores' ? saborIngredientes.filter(i => i.sabor_id === id)
@@ -302,6 +317,13 @@ export default function Finanzas() {
       const costoMat = ingsDe(tabla, r.id).reduce((a, i) => a + (Number(i.cantidad) || 0) * costeador.costoDe(i.insumo_nombre), 0)
       const cifKg = getCIF ? getCIF(r) : 0
       const costoTotal = costoMat + (r.mano_de_obra || 0)
+      // Divisor y unidad para el costo UNITARIO (así el margen compara con el precio).
+      const esPostre = tabla === 'impulsivos' && tiposMap[(r.nombre || '').toUpperCase()] === 'postre'
+      let divisor = 1, unidad = 'u'
+      if (tabla === 'bases') { divisor = Number(r.litros_batch) || 120; unidad = 'L' }
+      else if (tabla === 'sabores') { divisor = rindeKgSabor[r.id] || 120; unidad = 'kg' }
+      else if (esPostre) { divisor = pesoKgImpulsivo[r.id] || 1; unidad = 'kg' }
+      const costoUnit = divisor > 0 ? (costoTotal + cifKg) / divisor : (costoTotal + cifKg)
       return {
         key: `${prefix}-${r.id}`, id: r.id, tabla, nombre: r.nombre,
         costo_materiales: costoMat,
@@ -309,6 +331,7 @@ export default function Finanzas() {
         costo_total: costoTotal,
         cif_kg: cifKg,
         costo_total_cif: costoTotal + cifKg,
+        divisor, unidad, costo_unit: costoUnit,
         precio_venta: r.precio_venta || 0,
         litros_base: r.litros_base || 0,
       }
@@ -321,7 +344,7 @@ export default function Finanzas() {
       Impulsivos: impsRows.filter(r => (tiposMap[(r.nombre || '').toUpperCase()] || 'impulsivo') === 'impulsivo'),
       Postres:    impsRows.filter(r => tiposMap[(r.nombre || '').toUpperCase()] === 'postre'),
     }
-  }, [bases, sabores, impulsivos, tiposMap, cifPorLitro, litrosBasePorNombre, costeador, saborIngredientes, impulsivoIngredientes, baseIngredientes])
+  }, [bases, sabores, impulsivos, tiposMap, cifPorLitro, litrosBasePorNombre, costeador, saborIngredientes, impulsivoIngredientes, baseIngredientes, rindeKgSabor, pesoKgImpulsivo])
 
   const productos = useMemo(() => (
     [...secciones.Bases, ...secciones.Sabores, ...secciones.Impulsivos, ...secciones.Postres]
@@ -423,8 +446,9 @@ export default function Finanzas() {
   const margenes = useMemo(() => (
     productos.map(p => ({
       ...p,
-      ganancia: (p.precio_venta || 0) - (p.costo_total || 0),
-      margen: margenPct(p.costo_total, p.precio_venta),
+      // Ganancia y margen POR UNIDAD (costo unitario vs precio de venta unitario)
+      ganancia: (p.precio_venta || 0) - (p.costo_unit || 0),
+      margen: margenPct(p.costo_unit, p.precio_venta),
     }))
   ), [productos])
 
@@ -913,6 +937,7 @@ export default function Finanzas() {
                           <Th className="text-right">MOD ($)</Th>
                           <Th className="text-right">CIF ($)</Th>
                           <Th className="text-right">Costo Total ($)</Th>
+                          <Th className="text-right">Costo unit. ($)</Th>
                           <Th className="text-right">Precio venta ($)</Th>
                           <Th className="text-right">Margen %</Th>
                         </Tr>
@@ -920,7 +945,7 @@ export default function Finanzas() {
                       <Tbody>
                         {items.map(p => {
                           const prev = prevSnapshot?.[p.key]
-                          const margen = margenPct(p.costo_total_cif, p.precio_venta)
+                          const margen = margenPct(p.costo_unit, p.precio_venta)
                           const nv = nivelMargen(margen)
                           return (
                             <Tr key={p.key}>
@@ -943,6 +968,10 @@ export default function Finanzas() {
                               <Td className="text-right font-semibold">
                                 ${pesos(p.costo_total_cif)}
                                 {tieneDiff && <DiffBadge actual={p.costo_total} anterior={prev?.costo_total} />}
+                              </Td>
+                              <Td className="text-right font-bold" style={{ color: colors.brand }}>
+                                ${pesos(p.costo_unit)}
+                                <span className="text-xs font-normal" style={{ color: colors.textMuted }}>/{p.unidad}</span>
                               </Td>
                               <Td className="text-right">
                                 <EditableNumber value={p.precio_venta} onCommit={v => actualizarCampo(p, 'precio_venta', v)} />

@@ -157,7 +157,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
         : (costeador ? costeador.costoDe(i.nombre) : (ins?.costo_unitario || 0))
       // "tienePreco": tiene costo real cargado. Insumo con $0 → falta cargar precio.
       const tienePreco = tIng === 'agua' ? true : cu > 0
-      return { ...i, tIng, costoUnit: cu, costoTotal: (Number(i.cantidad) || 0) * cu, tienePreco, vinculado: !!porId }
+      return { ...i, tIng, costoUnit: cu, costoTotal: (Number(i.cantidad) || 0) * cu, tienePreco, vinculado: !!porId, insumoVinc: porId?.nombre || null }
     }),
     [ings, insumoPorNombre, insumoPorId, intermedios, costeador]
   )
@@ -306,7 +306,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
                     ) : (
                       <>
                         {ing.vinculado
-                          ? <span className="flex items-center gap-1" style={{ color: ing.tienePreco ? colors.success : colors.warning }}>🔗 {ing.tienePreco ? 'Vinculado' : 'Vinculado (sin costo)'}</span>
+                          ? <span className="flex items-center gap-1" style={{ color: ing.tienePreco ? colors.success : colors.warning }}>🔗 {ing.tienePreco ? 'Vinculado' : 'Vinculado (sin costo)'}{ing.insumoVinc && ing.insumoVinc.trim().toLowerCase() !== (ing.nombre || '').trim().toLowerCase() ? ` a "${ing.insumoVinc}"` : ''}</span>
                           : <button type="button"
                               onMouseDown={() => { setVinculandoKey(ing._key); setBusq(''); setShowAC(true) }}
                               className="flex items-center gap-1 underline" style={{ color: colors.warning }}>

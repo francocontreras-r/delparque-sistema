@@ -16,6 +16,7 @@ import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { exportarCSV } from '../lib/exportar'
+import { crearCosteador } from '../lib/costeoRecetas'
 import {
   DollarSign, RefreshCw, Warehouse, Thermometer, Percent,
   TrendingUp, TrendingDown, Clock, FileDown, AlertTriangle,
@@ -125,6 +126,7 @@ export default function Finanzas() {
   const [impulsivos, setImpulsivos] = useState([])
   const [impulsivoIngredientes, setImpulsivoIngredientes] = useState([])
   const [bases, setBases]           = useState([])
+  const [baseIngredientes, setBaseIngredientes] = useState([])
   const [insumos, setInsumos]       = useState([])
   const [stockCamaras, setStockCamaras] = useState([])
   const [loading, setLoading]       = useState(true)
@@ -150,7 +152,7 @@ export default function Finanzas() {
     const [
       { data: sab }, { data: sabIng },
       { data: imp }, { data: impIng },
-      { data: bas },
+      { data: bas }, { data: basIng },
       { data: ins }, { data: cam },
       { data: cif },
       { data: prods },
@@ -160,6 +162,7 @@ export default function Finanzas() {
       supabase.from('impulsivos').select('*').order('nombre'),
       supabase.from('impulsivo_ingredientes').select('*'),
       supabase.from('bases').select('*').order('nombre'),
+      supabase.from('base_ingredientes').select('*'),
       supabase.from('insumos').select('nombre,costo_unitario,stock_actual'),
       supabase.from('stock_camaras').select('nombre,tipo_producto').in('tipo_producto', ['impulsivo', 'postre']),
       supabase.from('cif_config').select('*').order('categoria').order('concepto'),
@@ -170,6 +173,7 @@ export default function Finanzas() {
     setImpulsivos(imp || [])
     setImpulsivoIngredientes(impIng || [])
     setBases(bas || [])
+    setBaseIngredientes(basIng || [])
     setInsumos(ins || [])
     setStockCamaras(cam || [])
     // Sembrar CIF predefinidos si la tabla está vacía
@@ -193,6 +197,13 @@ export default function Finanzas() {
     insumos.forEach(i => { m[(i.nombre || '').trim().toLowerCase()] = i })
     return m
   }, [insumos])
+
+  // Costeador con rollup: el costo de un sabor incluye su base; el de un
+  // impulsivo/postre, los sabores que usa. Resuelve intermedios recursivamente.
+  const costeador = useMemo(
+    () => crearCosteador({ insumos, bases, baseIngredientes, sabores, saborIngredientes }),
+    [insumos, bases, baseIngredientes, sabores, saborIngredientes]
+  )
 
   // ── CIF ──────────────────────────────────────────────────────────────────────
   const totalCIF = useMemo(() => cifConfig.filter(c => c.activo).reduce((a, c) => a + (Number(c.monto_mensual) || 0), 0), [cifConfig])
@@ -247,16 +258,23 @@ export default function Finanzas() {
   }, [sabores])
 
   const secciones = useMemo(() => {
+    const ingsDe = (tabla, id) =>
+      tabla === 'sabores' ? saborIngredientes.filter(i => i.sabor_id === id)
+        : tabla === 'impulsivos' ? impulsivoIngredientes.filter(i => i.impulsivo_id === id)
+          : baseIngredientes.filter(i => i.base_id === id)
     const mkRow = (tabla, prefix, getCIF) => (r) => {
+      // Costo de materiales EN VIVO con rollup: un sabor incluye su base; un
+      // impulsivo/postre, los sabores que usa. Ya no queda en $0.
+      const costoMat = ingsDe(tabla, r.id).reduce((a, i) => a + (Number(i.cantidad) || 0) * costeador.costoDe(i.insumo_nombre), 0)
       const cifKg = getCIF ? getCIF(r) : 0
-      const costoTotalConCIF = (r.costo_total || 0) + cifKg
+      const costoTotal = costoMat + (r.mano_de_obra || 0)
       return {
         key: `${prefix}-${r.id}`, id: r.id, tabla, nombre: r.nombre,
-        costo_materiales: r.costo_materiales || 0,
+        costo_materiales: costoMat,
         mano_de_obra: r.mano_de_obra || 0,
-        costo_total: r.costo_total || 0,
+        costo_total: costoTotal,
         cif_kg: cifKg,
-        costo_total_cif: costoTotalConCIF,
+        costo_total_cif: costoTotal + cifKg,
         precio_venta: r.precio_venta || 0,
         litros_base: r.litros_base || 0,
       }
@@ -269,7 +287,7 @@ export default function Finanzas() {
       Impulsivos: impsRows.filter(r => (tiposMap[(r.nombre || '').toUpperCase()] || 'impulsivo') === 'impulsivo'),
       Postres:    impsRows.filter(r => tiposMap[(r.nombre || '').toUpperCase()] === 'postre'),
     }
-  }, [bases, sabores, impulsivos, tiposMap, cifPorLitro, litrosBasePorNombre])
+  }, [bases, sabores, impulsivos, tiposMap, cifPorLitro, litrosBasePorNombre, costeador, saborIngredientes, impulsivoIngredientes, baseIngredientes])
 
   const productos = useMemo(() => (
     [...secciones.Bases, ...secciones.Sabores, ...secciones.Impulsivos, ...secciones.Postres]
@@ -303,11 +321,9 @@ export default function Finanzas() {
   }
 
   function calcCostoIngredientes(ingredientes) {
-    return ingredientes.reduce((acc, ing) => {
-      const ins = insumoPorNombre[(ing.insumo_nombre || '').trim().toLowerCase()]
-      const cu = ins?.costo_unitario ?? ing.costo_unitario ?? 0
-      return acc + (ing.cantidad || 0) * cu
-    }, 0)
+    // Usa el costeador: la base y los sabores intermedios se costean por su
+    // propia receta (no quedan en $0). El agua es gratis.
+    return ingredientes.reduce((acc, ing) => acc + (Number(ing.cantidad) || 0) * costeador.costoDe(ing.insumo_nombre), 0)
   }
 
   async function recalcularTodos() {

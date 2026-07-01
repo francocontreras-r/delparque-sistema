@@ -17,6 +17,7 @@ import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { exportarCSV } from '../lib/exportar'
 import { crearCosteador } from '../lib/costeoRecetas'
+import { cargarHistorialCostos } from '../lib/historialCostos'
 import {
   DollarSign, RefreshCw, Warehouse, Thermometer, Percent,
   TrendingUp, TrendingDown, Clock, FileDown, AlertTriangle,
@@ -28,7 +29,7 @@ import {
 } from 'recharts'
 
 // ── Constantes ─────────────────────────────────────────────────────────────────
-const TABS = ['Costos', 'CIF', 'Márgenes', 'Resumen Ejecutivo']
+const TABS = ['Costos', 'CIF', 'Márgenes', 'Historial', 'Resumen Ejecutivo']
 
 const CIF_PREDEFINIDOS = [
   { concepto: 'Alquiler del local',        categoria: 'fijo',     monto_mensual: 0 },
@@ -141,8 +142,17 @@ export default function Finanzas() {
   const [newCIF, setNewCIF]         = useState({ concepto: '', categoria: 'fijo', monto_mensual: '' })
   const [editingCIF, setEditingCIF] = useState({}) // id → monto
   const [litrosMes, setLitrosMes]   = useState(0)
+  const [historial, setHistorial]   = useState({ disponible: true, rows: [] })
+  const [histLoading, setHistLoading] = useState(false)
 
   useEffect(() => { cargar() }, [])
+
+  // Historial de costos: se carga la primera vez que se abre la pestaña.
+  useEffect(() => {
+    if (tab !== 'Historial' || historial.rows.length > 0 || histLoading) return
+    setHistLoading(true)
+    cargarHistorialCostos().then(r => { setHistorial(r); setHistLoading(false) })
+  }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function cargar() {
     const hoy = new Date()
@@ -362,6 +372,29 @@ export default function Finanzas() {
   const margenesSorted = useMemo(() => (
     [...margenes].sort((a, b) => sortDir === 'desc' ? b.margen - a.margen : a.margen - b.margen)
   ), [margenes, sortDir])
+
+  // Resumen del historial de costos: variación acumulada por insumo + inflación
+  // promedio del período. Ordena de mayor a menor suba.
+  const histResumen = useMemo(() => {
+    const rows = historial.rows || []
+    const conVar = rows.filter(r => r.variacion_pct != null)
+    const inflacionProm = conVar.length
+      ? conVar.reduce((a, r) => a + Number(r.variacion_pct), 0) / conVar.length
+      : 0
+    // Agrupar por insumo (rows vienen desc por fecha → [0] es el más nuevo).
+    const porItem = {}
+    rows.forEach(r => {
+      const k = r.item_nombre
+      if (!porItem[k]) porItem[k] = { nombre: k, tipo: r.tipo, ultimo: r.costo_nuevo, ultimaFecha: r.fecha, primero: r.costo_nuevo, cambios: 0 }
+      porItem[k].primero = r.costo_anterior != null ? r.costo_anterior : r.costo_nuevo
+      porItem[k].cambios += 1
+    })
+    const items = Object.values(porItem).map(it => ({
+      ...it,
+      variacionAcum: it.primero > 0 ? ((it.ultimo - it.primero) / it.primero * 100) : null,
+    })).sort((a, b) => (b.variacionAcum ?? -Infinity) - (a.variacionAcum ?? -Infinity))
+    return { inflacionProm, items, totalRegistros: rows.length, itemsDistintos: items.length }
+  }, [historial])
 
   const chartData = useMemo(() => (
     [...margenes]
@@ -692,7 +725,7 @@ export default function Finanzas() {
               Actualizado: {lastUpdated.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
-          {tab !== 'Resumen Ejecutivo' && (
+          {tab !== 'Resumen Ejecutivo' && tab !== 'Historial' && (
             <Button variant="secondary" onClick={recalcularTodos} loading={recalculando}>
               <RefreshCw size={14} /> Actualizar costos
             </Button>
@@ -1094,6 +1127,118 @@ export default function Finanzas() {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* ══════════════════════════ TAB HISTORIAL ══════════════════════════ */}
+          {tab === 'Historial' && (
+            <div className="space-y-4">
+              {histLoading ? (
+                <div className="flex justify-center py-14"><Spinner size={28} /></div>
+              ) : !historial.disponible ? (
+                <div className="flex items-start gap-2 text-xs px-3 py-3 rounded-lg"
+                  style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                  <span>
+                    El historial de costos todavía no está activo. Corré <b>sql/costos_historicos.sql</b> en
+                    Supabase para empezar a registrar la evolución del costo de la materia prima. A partir de
+                    ahí, cada compra o edición de costo se guarda automáticamente.
+                  </span>
+                </div>
+              ) : historial.rows.length === 0 ? (
+                <EmptyState icon={Clock} title="Sin cambios de costo registrados aún"
+                  subtitle="El historial se irá llenando solo: cada vez que una compra o una edición cambie el costo de un insumo, queda un registro acá para medir la inflación real." />
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <KpiCard label="Inflación promedio (por cambio)" value={`${histResumen.inflacionProm >= 0 ? '+' : ''}${histResumen.inflacionProm.toFixed(1)}%`}
+                      icon={histResumen.inflacionProm >= 0 ? TrendingUp : TrendingDown}
+                      color={histResumen.inflacionProm >= 0 ? colors.danger : colors.success} />
+                    <KpiCard label="Insumos con historial" value={histResumen.itemsDistintos} icon={Warehouse} color={colors.brand} />
+                    <KpiCard label="Cambios registrados" value={histResumen.totalRegistros} icon={Clock} color={colors.textSecondary} />
+                  </div>
+
+                  {/* Variación acumulada por insumo */}
+                  <div className="overflow-hidden" style={SURFACE}>
+                    <div className="px-4 py-2.5" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>📈 Variación acumulada por insumo</span>
+                      <span className="text-xs ml-2" style={{ color: colors.textMuted }}>desde el primer registro</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <Table className="min-w-[720px]">
+                        <Thead>
+                          <Tr>
+                            <Th>Insumo</Th>
+                            <Th className="text-right">Costo inicial ($)</Th>
+                            <Th className="text-right">Costo actual ($)</Th>
+                            <Th className="text-right">Variación</Th>
+                            <Th className="text-right">Cambios</Th>
+                            <Th className="text-right">Último</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {histResumen.items.map(it => (
+                            <Tr key={it.nombre}>
+                              <Td className="font-medium">{it.nombre}</Td>
+                              <Td className="text-right">${pesos(it.primero)}</Td>
+                              <Td className="text-right font-semibold">${pesos(it.ultimo)}</Td>
+                              <Td className="text-right">
+                                {it.variacionAcum == null ? <span style={{ color: colors.textMuted }}>—</span>
+                                  : <span style={{ color: it.variacionAcum > 0 ? colors.danger : it.variacionAcum < 0 ? colors.success : colors.textMuted, fontWeight: 700 }}>
+                                      {it.variacionAcum > 0 ? '▲' : it.variacionAcum < 0 ? '▼' : ''} {it.variacionAcum >= 0 ? '+' : ''}{it.variacionAcum.toFixed(1)}%
+                                    </span>}
+                              </Td>
+                              <Td className="text-right text-xs" style={{ color: colors.textSecondary }}>{it.cambios}</Td>
+                              <Td className="text-right text-xs" style={{ color: colors.textMuted }}>{it.ultimaFecha}</Td>
+                            </Tr>
+                          ))}
+                        </Tbody>
+                      </Table>
+                    </div>
+                  </div>
+
+                  {/* Últimos cambios de costo */}
+                  <div className="overflow-hidden" style={SURFACE}>
+                    <div className="px-4 py-2.5" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>🕑 Últimos cambios</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <Table className="min-w-[720px]">
+                        <Thead>
+                          <Tr>
+                            <Th>Fecha</Th><Th>Insumo</Th>
+                            <Th className="text-right">Anterior ($)</Th>
+                            <Th className="text-right">Nuevo ($)</Th>
+                            <Th className="text-right">Variación</Th>
+                            <Th>Origen</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {historial.rows.slice(0, 60).map(r => (
+                            <Tr key={r.id}>
+                              <Td className="text-xs" style={{ color: colors.textSecondary }}>{r.fecha}</Td>
+                              <Td className="font-medium">{r.item_nombre}</Td>
+                              <Td className="text-right">{r.costo_anterior != null ? `$${pesos(r.costo_anterior)}` : '—'}</Td>
+                              <Td className="text-right font-semibold">${pesos(r.costo_nuevo)}</Td>
+                              <Td className="text-right">
+                                {r.variacion_pct == null ? <span style={{ color: colors.textMuted }}>nuevo</span>
+                                  : <span style={{ color: r.variacion_pct > 0 ? colors.danger : r.variacion_pct < 0 ? colors.success : colors.textMuted, fontWeight: 700 }}>
+                                      {r.variacion_pct >= 0 ? '+' : ''}{Number(r.variacion_pct).toFixed(1)}%
+                                    </span>}
+                              </Td>
+                              <Td>
+                                <Badge variant={r.origen === 'compra' ? 'info' : r.origen === 'edicion_manual' ? 'warning' : 'neutral'}>
+                                  {r.origen === 'compra' ? 'Compra' : r.origen === 'edicion_manual' ? 'Edición' : r.origen || '—'}
+                                </Badge>
+                              </Td>
+                            </Tr>
+                          ))}
+                        </Tbody>
+                      </Table>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           )}

@@ -4,6 +4,7 @@ import { useUser } from '../context/UserContext'
 import { deduplicarOperarios } from '../lib/operarios'
 import { normalizarNombre } from '../lib/texto'
 import { costearProduccion } from '../lib/costeoProduccion'
+import { registrarCambioCosto } from '../lib/historialCostos'
 import { clasificarVencimiento, esAlertaVencimiento, labelDias } from '../lib/vencimientos'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -1162,7 +1163,7 @@ export default function Deposito() {
     if (!insumoMatch) {
       const { data: found } = await supabase
         .from('insumos')
-        .select('id, stock_actual, nombre, peso_por_unidad')
+        .select('id, stock_actual, nombre, peso_por_unidad, costo_unitario')
         .eq('nombre', nombreProducto)
         .maybeSingle()
       console.log('Insumo encontrado (exacto):', found)
@@ -1173,7 +1174,7 @@ export default function Deposito() {
     if (!insumoMatch) {
       const { data: found } = await supabase
         .from('insumos')
-        .select('id, stock_actual, nombre, peso_por_unidad')
+        .select('id, stock_actual, nombre, peso_por_unidad, costo_unitario')
         .ilike('nombre', `%${nombreProducto}%`)
         .limit(1)
         .maybeSingle()
@@ -1196,6 +1197,14 @@ export default function Deposito() {
         console.error('Error actualizando stock:', stockErr)
       } else {
         setInsumos(prev => prev.map(i => i.id === insumoMatch.id ? { ...i, ...updates } : i))
+        // Historial de costos: si la compra cambió el costo unitario, lo registramos.
+        if (modal === 'ingreso' && updates.costo_unitario > 0) {
+          registrarCambioCosto({
+            tipo: 'insumo', itemNombre: insumoMatch.nombre,
+            costoAnterior: insumoMatch.costo_unitario, costoNuevo: updates.costo_unitario,
+            origen: 'compra',
+          })
+        }
       }
     } else {
       console.warn('Insumo no encontrado para actualizar stock:', nombreProducto)
@@ -1275,6 +1284,16 @@ export default function Deposito() {
       costo_unitario: Number(form.costo_unitario) || 0,
     }).eq('id', editInsumo.id)
     if (error) { setSavingInsumo(false); toast2(error.message, 'error'); return }
+
+    // Historial: si la edición cambió el costo unitario, lo registramos.
+    const costoNuevo = Number(form.costo_unitario) || 0
+    if (costoNuevo > 0 && costoNuevo !== (Number(editInsumo.costo_unitario) || 0)) {
+      registrarCambioCosto({
+        tipo: 'insumo', itemNombre: nombreNuevo,
+        costoAnterior: editInsumo.costo_unitario, costoNuevo,
+        origen: 'edicion_manual',
+      })
+    }
 
     if (nombreNuevo !== nombreAntiguo) {
       await supabase.from('movimientos_deposito')

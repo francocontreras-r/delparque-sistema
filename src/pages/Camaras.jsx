@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { deduplicarOperarios } from '../lib/operarios'
 import { exportarCSV } from '../lib/exportar'
 import { registrarConteoStock, nuevoCiclo } from '../lib/conteos'
+import { normalizarNombre } from '../lib/texto'
 import { useUser } from '../context/UserContext'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -27,6 +28,19 @@ const TIPO_PRECIOS = {
   Especial:       { costo_kg: 2000, precio_kg: 4500 },
 }
 const TIPOS = ['Todos', 'Lisa', 'Con Agregado', 'Agua', 'Especial']
+
+// Costo y precio de venta UNIFICADOS: se leen de Finanzas (tablas sabores /
+// impulsivos). Cámara solo los muestra; se editan únicamente desde Finanzas.
+// Helado: por kg. Impulsivo/postre: por unidad. Fallback a TIPO_PRECIOS si no se
+// encuentra el producto (para no romper).
+function valoresDe(item, precioMap = {}) {
+  const m = precioMap[normalizarNombre(item.nombre || '')] || {}
+  const esUnid = item.tipo_producto === 'impulsivo' || item.tipo_producto === 'postre'
+  const costoUnit  = m.costo  || TIPO_PRECIOS[item.tipo]?.costo_kg  || 0
+  const precioUnit = m.precio || TIPO_PRECIOS[item.tipo]?.precio_kg || 0
+  const qty = esUnid ? (item.baldes || 0) : (item.kg || 0)
+  return { costoUnit, precioUnit, valorCosto: qty * costoUnit, valorVenta: qty * precioUnit }
+}
 const TIPO_BADGE = {
   Lisa:           { bg: 'rgba(96,165,250,0.12)',  color: '#60A5FA' },
   'Con Agregado': { bg: 'rgba(139,92,246,0.12)',  color: '#A78BFA' },
@@ -117,7 +131,6 @@ function TarjetaSabor({ item, onClick, showVal, onDelete }) {
     : esPost
       ? TIPO_BADGE['Postre']
       : (TIPO_BADGE[item.tipo] || { bg: 'rgba(100,116,139,0.12)', color: '#94A3B8' })
-  const precioKg = item.precio_kg || TIPO_PRECIOS[item.tipo]?.precio_kg
   const [hov, setHov] = useState(false)
 
   return (
@@ -165,10 +178,11 @@ function TarjetaSabor({ item, onClick, showVal, onDelete }) {
           {new Date(item.ultima_actualizacion).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
         </p>
       )}
-      {showVal && !esImp && !esPost && precioKg && item.kg > 0 && (
-        <p className="text-xs font-bold mb-1.5" style={{ color: colors.brand }}>
-          ${pesos(item.kg * precioKg)}
-        </p>
+      {showVal && (item.valorVenta > 0 || item.valorCosto > 0) && (
+        <div className="mb-1.5 leading-tight">
+          <p className="text-xs font-bold" style={{ color: colors.brand }}>Venta ${pesos(item.valorVenta)}</p>
+          <p className="text-[10px]" style={{ color: colors.textMuted }}>Costo ${pesos(item.valorCosto)}</p>
+        </div>
       )}
       <div className="flex items-center gap-1 flex-wrap">
         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md inline-block"
@@ -194,7 +208,6 @@ function TarjetaSabor({ item, onClick, showVal, onDelete }) {
 
 function FilaLista({ item, onClick, showVal, esImpGrupo, esPostGrupo, onDelete }) {
   const e = estadoSabor(item.baldes)
-  const precioKg = item.precio_kg || TIPO_PRECIOS[item.tipo]?.precio_kg
   const esUnidades = esImpGrupo || esPostGrupo
   return (
     <tr
@@ -235,8 +248,13 @@ function FilaLista({ item, onClick, showVal, esImpGrupo, esPostGrupo, onDelete }
         <td className="py-3 px-4 text-sm" style={{ color: colors.textMuted }}>{Number(item.kg).toFixed(1)} kg</td>
       )}
       {showVal && !esImpGrupo && !esPostGrupo && (
-        <td className="py-3 px-4 text-sm font-semibold" style={{ color: colors.brand }}>
-          {precioKg && item.kg > 0 ? `$${pesos(item.kg * precioKg)}` : '—'}
+        <td className="py-3 px-4 text-sm">
+          {item.valorVenta > 0 || item.valorCosto > 0 ? (
+            <div className="leading-tight">
+              <span className="font-semibold block" style={{ color: colors.brand }}>${pesos(item.valorVenta)}</span>
+              <span className="text-[10px]" style={{ color: colors.textMuted }}>costo ${pesos(item.valorCosto)}</span>
+            </div>
+          ) : '—'}
         </td>
       )}
       <td className="py-3 px-4">
@@ -274,7 +292,7 @@ function GrupoLista({ tipo, items, onSelect, showVal, onDelete }) {
     'Sabor',
     (esImpGrupo || esPostGrupo) ? 'Unidades' : 'Baldes',
     !esImpGrupo && 'KG',
-    showVal && !esImpGrupo && !esPostGrupo && 'Valor venta',
+    showVal && !esImpGrupo && !esPostGrupo && 'Venta / Costo',
     'Estado',
   ].filter(Boolean)
   return (
@@ -1241,11 +1259,17 @@ export default function Camaras() {
 
   useEffect(() => {
     async function cargar() {
-      const [{ data, error }, { data: ops }] = await Promise.all([
+      const [{ data, error }, { data: ops }, { data: sab }, { data: imp }] = await Promise.all([
         supabase.from('stock_camaras').select('*').order('tipo', { ascending: true }),
         supabase.from('operarios').select('id,nombre').eq('activo', true).order('nombre'),
+        supabase.from('sabores').select('nombre,costo_total,precio_venta'),
+        supabase.from('impulsivos').select('nombre,costo_total,precio_venta'),
       ])
       if (error) { setErrorCarga(error.message); setLoading(false); return }
+      // Precios/costos desde Finanzas (fuente única). Cámara solo los lee.
+      const precioMap = {}
+      ;(sab || []).forEach(s => { precioMap[normalizarNombre(s.nombre)] = { costo: Number(s.costo_total) || 0, precio: Number(s.precio_venta) || 0 } })
+      ;(imp || []).forEach(i => { precioMap[normalizarNombre(i.nombre)] = { costo: Number(i.costo_total) || 0, precio: Number(i.precio_venta) || 0 } })
       const agrupados = {}
       ;(data || []).forEach(item => {
         const key = item.nombre.trim().toUpperCase()
@@ -1256,7 +1280,8 @@ export default function Camaras() {
           agrupados[key] = { ...item }
         }
       })
-      setStock(Object.values(agrupados))
+      const arr = Object.values(agrupados).map(item => ({ ...item, ...valoresDe(item, precioMap) }))
+      setStock(arr)
       setOperarios(deduplicarOperarios(ops))
       setLoading(false)
     }
@@ -1649,8 +1674,8 @@ export default function Camaras() {
   const conStock    = stockTipo.filter(s => s.baldes > 3).length
   const pocoStock   = stockTipo.filter(s => s.baldes >= 1 && s.baldes <= 3).length
   const agotados    = stockTipo.filter(s => s.baldes === 0).length
-  const costoTotal  = showVal ? stockTipo.reduce((a, s) => a + s.kg * (s.costo_kg || TIPO_PRECIOS[s.tipo]?.costo_kg || 0), 0) : 0
-  const valorVenta  = showVal ? stockTipo.reduce((a, s) => a + s.kg * (s.precio_kg || TIPO_PRECIOS[s.tipo]?.precio_kg || 0), 0) : 0
+  const costoTotal  = showVal ? stockTipo.reduce((a, s) => a + (s.valorCosto || 0), 0) : 0
+  const valorVenta  = showVal ? stockTipo.reduce((a, s) => a + (s.valorVenta || 0), 0) : 0
 
   const filtrado = useMemo(() => {
     let arr = stockTipo.filter(s => {
@@ -1833,11 +1858,15 @@ export default function Camaras() {
     // Tabla helados por categoría
     y = saltarSiNecesario(y)
     y = dibujarSeccion(doc, pw, 'Detalle helados', y)
+    const cH = helados.reduce((a, s) => a + (s.valorCosto || 0), 0)
+    const vH = helados.reduce((a, s) => a + (s.valorVenta || 0), 0)
     autoTable(doc, {
       startY: y, headStyles: HS, bodyStyles: BS, alternateRowStyles: AS, styles: LI,
       margin: { left: 14, right: 14 },
-      head: [['PRODUCTO', 'TIPO', 'BALDES', 'KG']],
-      body: helados.map(s => [s.nombre || '—', s.tipoCam || '—', String(s.baldes || 0), `${(s.kg || 0).toFixed(1)} kg`]),
+      head: [['PRODUCTO', 'TIPO', 'BALDES', 'KG', 'COSTO $', 'VENTA $']],
+      body: helados.map(s => [s.nombre || '—', s.tipoCam || s.tipo || '—', String(s.baldes || 0), `${(s.kg || 0).toFixed(1)} kg`, `$${pesos(s.valorCosto || 0)}`, `$${pesos(s.valorVenta || 0)}`]),
+      foot: [['', '', '', 'TOTAL', `$${pesos(cH)}`, `$${pesos(vH)}`]],
+      footStyles: { ...HS, halign: 'left' },
     })
     y = doc.lastAutoTable.finalY + 8
 
@@ -1845,13 +1874,26 @@ export default function Camaras() {
     if (impulsivos.length > 0) {
       y = saltarSiNecesario(y)
       y = dibujarSeccion(doc, pw, 'Impulsivos', y)
+      const cI = impulsivos.reduce((a, s) => a + (s.valorCosto || 0), 0)
+      const vI = impulsivos.reduce((a, s) => a + (s.valorVenta || 0), 0)
       autoTable(doc, {
         startY: y, headStyles: HS, bodyStyles: BS, alternateRowStyles: AS, styles: LI,
         margin: { left: 14, right: 14 },
-        head: [['PRODUCTO', 'UNIDADES']],
-        body: impulsivos.map(s => [s.nombre || '—', String(s.baldes || 0)]),
+        head: [['PRODUCTO', 'UNIDADES', 'COSTO $', 'VENTA $']],
+        body: impulsivos.map(s => [s.nombre || '—', String(s.baldes || 0), `$${pesos(s.valorCosto || 0)}`, `$${pesos(s.valorVenta || 0)}`]),
+        foot: [['', 'TOTAL', `$${pesos(cI)}`, `$${pesos(vI)}`]],
+        footStyles: { ...HS, halign: 'left' },
       })
+      y = doc.lastAutoTable.finalY + 8
     }
+
+    // Total valorizado de la cámara (costo y venta potencial)
+    y = saltarSiNecesario(y, 16)
+    const cTot = stock.reduce((a, s) => a + (s.valorCosto || 0), 0)
+    const vTot = stock.reduce((a, s) => a + (s.valorVenta || 0), 0)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...N)
+    doc.text(`Valor total en cámara — Costo: $${pesos(cTot)}   ·   Venta potencial: $${pesos(vTot)}`, 14, y + 2)
+    y += 8
 
     // Firmas (al final del contenido; salta de hoja solo si no entran)
     dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, 'Cámaras', hoy, ['Responsable Cámaras', 'Jefe de Producción'])

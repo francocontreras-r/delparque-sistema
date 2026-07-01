@@ -1,0 +1,70 @@
+import { describe, it, expect } from 'vitest'
+import { esDiscrepancia, resumenSemanal, UMBRAL_CONTEO } from './conteos'
+
+describe('esDiscrepancia', () => {
+  it('sin diferencia → false', () => {
+    expect(esDiscrepancia(100, 100)).toBe(false)
+  })
+  it('diferencia menor al umbral → false', () => {
+    expect(esDiscrepancia(100, 103)).toBe(false) // 3% < 5%
+  })
+  it('diferencia mayor al umbral → true', () => {
+    expect(esDiscrepancia(100, 90)).toBe(true) // 10% > 5%
+  })
+  it('sistema 0 y físico >0 → discrepancia', () => {
+    expect(esDiscrepancia(0, 5)).toBe(true)
+  })
+  it('sistema 0 y físico 0 → sin discrepancia', () => {
+    expect(esDiscrepancia(0, 0)).toBe(false)
+  })
+  it('físico no numérico → false', () => {
+    expect(esDiscrepancia(100, '')).toBe(false)
+  })
+  it('umbral configurable', () => {
+    expect(esDiscrepancia(100, 108, 0.1)).toBe(false) // 8% < 10%
+    expect(esDiscrepancia(100, 108, 0.05)).toBe(true)
+  })
+})
+
+describe('resumenSemanal', () => {
+  const rows = [
+    // más nuevo primero (como viene de la query desc por created_at)
+    { tipo: 'camara', producto_nombre: 'Dulce de Leche', diferencia: -2, valor_impacto: -1000, created_at: '2026-07-03' },
+    { tipo: 'camara', producto_nombre: 'dulce de leche', diferencia: -5, valor_impacto: -2500, created_at: '2026-07-01' }, // duplicado viejo → se ignora
+    { tipo: 'deposito', producto_nombre: 'Azúcar', diferencia: 3, valor_impacto: 900, created_at: '2026-07-02' },
+    { tipo: 'deposito', producto_nombre: 'Harina', diferencia: 0, valor_impacto: 0, created_at: '2026-07-02' },
+  ]
+
+  it('deduplica por área+producto quedándose con el más nuevo', () => {
+    const r = resumenSemanal(rows)
+    expect(r.totalContados).toBe(3) // DDL (1, el nuevo), Azúcar, Harina
+    const ddl = r.faltantes.find(f => f.producto_nombre === 'Dulce de Leche')
+    expect(ddl.diferencia).toBe(-2) // el nuevo, no el -5 viejo
+  })
+
+  it('separa faltantes y sobrantes y valoriza', () => {
+    const r = resumenSemanal(rows)
+    expect(r.faltantes).toHaveLength(1)
+    expect(r.sobrantes).toHaveLength(1)
+    expect(r.valorFaltante).toBe(1000)
+    expect(r.valorSobrante).toBe(900)
+    expect(r.impactoNeto).toBe(-100)
+  })
+
+  it('cuenta por área', () => {
+    const r = resumenSemanal(rows)
+    expect(r.porArea.camara.faltantes).toBe(1)
+    expect(r.porArea.deposito.sobrantes).toBe(1)
+    expect(r.porArea.deposito.contados).toBe(2)
+  })
+
+  it('sin filas → totales en cero', () => {
+    const r = resumenSemanal([])
+    expect(r.totalContados).toBe(0)
+    expect(r.valorFaltante).toBe(0)
+  })
+})
+
+describe('UMBRAL_CONTEO', () => {
+  it('es 5%', () => expect(UMBRAL_CONTEO).toBe(0.05))
+})

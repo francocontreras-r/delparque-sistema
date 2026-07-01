@@ -5,6 +5,7 @@ import { deduplicarOperarios } from '../lib/operarios'
 import { normalizarNombre } from '../lib/texto'
 import { costearProduccion } from '../lib/costeoProduccion'
 import { registrarCambioCosto } from '../lib/historialCostos'
+import { registrarConteoStock, cargarConteosPeriodo, resumenSemanal, nuevoCiclo } from '../lib/conteos'
 import { clasificarVencimiento, esAlertaVencimiento, labelDias } from '../lib/vencimientos'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -1000,6 +1001,8 @@ export default function Deposito() {
   const [conteoFilasCam, setConteoFilasCam]     = useState([]) // [{id,nombre,tipo,stockKg,stockBaldes,fisKg,fisBaldes}]
   const [modalAjustes, setModalAjustes]         = useState(false)
   const [generandoPDFconteo, setGenerandoPDFconteo] = useState(false)
+  const [conteoCiego, setConteoCiego]           = useState(true) // no muestra el stock del sistema → no se "dibuja"
+  const [generandoInformeSem, setGenerandoInformeSem] = useState(false)
 
   const { isAdmin, profile, user } = useUser()
   const showVal = isAdmin
@@ -1440,23 +1443,26 @@ export default function Deposito() {
   async function guardarConteoFormal() {
     setSavingConteo(true)
     const tipo = seccionCS
+    const modo = conteoCiego ? 'ciego' : 'normal'
+    // Valorizamos el impacto de cada diferencia (diferencia × costo unitario).
     const filas = tipo === 'deposito'
-      ? conteoFilasDepo.filter(f => f.stockFisico !== '').map(f => ({
-          tipo, producto_nombre: f.nombre, stock_sistema: f.stockSistema,
-          stock_fisico: parseFloat(f.stockFisico),
-          diferencia: parseFloat(f.stockFisico) - f.stockSistema,
-          responsable: conteoResponsable,
-        }))
+      ? conteoFilasDepo.filter(f => f.stockFisico !== '').map(f => {
+          const dif = parseFloat(f.stockFisico) - f.stockSistema
+          return {
+            producto_nombre: f.nombre, stock_sistema: f.stockSistema,
+            stock_fisico: parseFloat(f.stockFisico),
+            valor_impacto: dif * (Number(f.costo_unitario) || 0),
+          }
+        })
       : conteoFilasCam.filter(c => c.fisKg !== '' || c.fisBaldes !== '').map(c => ({
-          tipo, producto_nombre: c.nombre, stock_sistema: c.stockKg,
+          producto_nombre: c.nombre, stock_sistema: c.stockKg,
           stock_fisico: parseFloat(c.fisKg) || c.stockKg,
-          diferencia: (parseFloat(c.fisKg) || c.stockKg) - c.stockKg,
-          responsable: conteoResponsable,
+          valor_impacto: null,
         }))
     if (filas.length === 0) { setSavingConteo(false); toast2('Sin datos de conteo para guardar', 'error'); return }
-    const { error } = await supabase.from('conteos_stock').insert(filas)
+    const r = await registrarConteoStock({ area: tipo, filas, responsable: conteoResponsable, modo, cicloId: nuevoCiclo() })
     setSavingConteo(false)
-    if (error) { toast2(error.message, 'error'); return }
+    if (!r.ok) { toast2('No se pudo guardar el conteo', 'error'); return }
     setConteoEstado('COMPLETADO')
     toast2(`Conteo guardado — ${filas.length} producto${filas.length !== 1 ? 's' : ''} registrado${filas.length !== 1 ? 's' : ''}`)
   }
@@ -1493,6 +1499,22 @@ export default function Deposito() {
         const fb = c.fisBaldes !== '' ? parseInt(c.fisBaldes, 10) : c.stockBaldes
         await supabase.from('stock_camaras').update({ kg: fk, baldes: fb }).eq('id', c.id)
       }
+      // Refrescamos el conteo unificado con los motivos aprobados (el informe
+      // semanal lee de acá). El dedup por área+producto deja esta versión final.
+      const cicloAprob = nuevoCiclo()
+      if (filasDepo.length > 0) {
+        await registrarConteoStock({
+          area: 'deposito', responsable: conteoResponsable, modo: conteoCiego ? 'ciego' : 'normal', cicloId: cicloAprob,
+          filas: filasDepo.map(f => {
+            const fis = parseFloat(f.stockFisico)
+            return {
+              producto_nombre: f.nombre, stock_sistema: f.stockSistema, stock_fisico: fis,
+              motivo: motivos[f.nombre] || 'Ajuste de inventario',
+              valor_impacto: (fis - f.stockSistema) * (Number(f.costo_unitario) || 0),
+            }
+          }),
+        })
+      }
       const total = filasDepo.length + filasCAM.length
       setConteoEstado('APROBADO')
       setModalAjustes(false)
@@ -1502,6 +1524,97 @@ export default function Deposito() {
       toast2(err.message, 'error')
     } finally {
       setSavingConteo(false)
+    }
+  }
+
+  // ── Informe semanal consolidado (depósito + cámara) ─────────────────────────
+  // Lee la fuente de verdad (conteos_stock) del período elegido, deduplica por
+  // área+producto (última versión) y arma el PDF: faltó / sobró / porqués / $.
+  async function generarInformeSemanalConteo() {
+    setGenerandoInformeSem(true)
+    try {
+      const desde = `${rangoCS.desde}T00:00:00`
+      const hasta = `${rangoCS.hasta}T23:59:59`
+      const rows = await cargarConteosPeriodo({ desde, hasta })
+      const R = resumenSemanal(rows)
+
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+      const pw  = doc.internal.pageSize.getWidth()
+      const ph  = doc.internal.pageSize.getHeight()
+      const hoy = new Date().toLocaleString('es-AR')
+      const MOD = 'DEPÓSITO'
+      const TIT = 'CONTROL SEMANAL DE STOCK'
+      const EST = getEstiloInforme()
+      const peri = `${fmtFecha(rangoCS.desde)} – ${fmtFecha(rangoCS.hasta)}`
+      const areaLbl = a => a === 'camara' ? 'Cámara' : 'Depósito'
+      const fmtDif = r => `${(Number(r.diferencia) || 0) > 0 ? '+' : ''}${(Number(r.diferencia) || 0).toFixed(2)}`
+      const fmtVal = r => r.valor_impacto == null ? '—' : `$${pesos(Math.abs(Number(r.valor_impacto)))}`
+
+      // P1 — Portada
+      dibujarPortada(doc, pw, ph, MOD, TIT, peri, hoy)
+
+      // P2 — Resumen ejecutivo
+      doc.addPage()
+      dibujarEncabezado(doc, pw, MOD, TIT, hoy)
+      let y = PDF_CONTENT_Y
+      y = dibujarSeccion(doc, pw, 'Resumen de la semana', y)
+      const cont = R.porArea
+      const resumenTxt =
+        `En el período ${peri.toLowerCase()} se contaron ${R.totalContados} productos ` +
+        `(${cont.deposito.contados} en depósito, ${cont.camara.contados} en cámara). ` +
+        `Se detectaron ${R.faltantes.length} faltante${R.faltantes.length !== 1 ? 's' : ''} y ` +
+        `${R.sobrantes.length} sobrante${R.sobrantes.length !== 1 ? 's' : ''}. ` +
+        `Impacto valorizado en depósito: faltante $${pesos(R.valorFaltante)}, sobrante $${pesos(R.valorSobrante)} ` +
+        `(neto ${R.impactoNeto >= 0 ? '+' : '-'}$${pesos(Math.abs(R.impactoNeto))}). ` +
+        `Las pérdidas de cámara quedan valorizadas en Mermas.`
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...PDF_NEGRO)
+      const lines = doc.splitTextToSize(resumenTxt, pw - 28)
+      doc.text(lines, 14, y + 2)
+      y += lines.length * 5 + 8
+
+      if (R.totalContados === 0) {
+        doc.setTextColor(...PDF_GRIS_OSC)
+        doc.text('No hay conteos registrados en el período. Realizá un conteo en Depósito o Cámara para generar el informe.', 14, y + 4)
+        dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+        doc.save(`control_stock_${rangoCS.desde}_a_${rangoCS.hasta}.pdf`)
+        setGenerandoInformeSem(false)
+        return
+      }
+      dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+
+      // P3 — Faltantes (lo que faltó, con el porqué)
+      const drawTabla = (titulo, filas, headColor) => {
+        doc.addPage()
+        dibujarEncabezado(doc, pw, MOD, TIT, hoy)
+        autoTable(doc, {
+          ...EST,
+          startY: PDF_CONTENT_Y,
+          head: [['ÁREA', 'PRODUCTO', 'SISTEMA', 'FÍSICO', 'DIF.', 'VALOR', 'RESPONSABLE', 'MOTIVO']],
+          headStyles: { ...(EST.headStyles || {}), fillColor: headColor },
+          body: filas.map(r => [
+            areaLbl(r.tipo), r.producto_nombre,
+            (Number(r.stock_sistema) || 0).toFixed(2), (Number(r.stock_fisico) || 0).toFixed(2),
+            fmtDif(r), fmtVal(r), r.responsable || '—', r.motivo || '—',
+          ]),
+          columnStyles: { 7: { cellWidth: 42 } },
+          didDrawPage: () => {
+            dibujarEncabezado(doc, pw, MOD, TIT, hoy)
+            dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+          },
+        })
+        let yy = (doc.lastAutoTable?.finalY || PDF_CONTENT_Y) + 4
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...PDF_NEGRO)
+        doc.text(titulo, 14, yy)
+      }
+
+      if (R.faltantes.length > 0) drawTabla(`Total faltante valorizado (depósito): $${pesos(R.valorFaltante)}`, R.faltantes, PDF_SEM_CRIT)
+      if (R.sobrantes.length > 0) drawTabla(`Total sobrante valorizado (depósito): $${pesos(R.valorSobrante)}`, R.sobrantes, PDF_SEM_OK)
+
+      doc.save(`control_stock_${rangoCS.desde}_a_${rangoCS.hasta}.pdf`)
+    } catch (err) {
+      toast2(err.message || 'No se pudo generar el informe', 'error')
+    } finally {
+      setGenerandoInformeSem(false)
     }
   }
 
@@ -3496,11 +3609,20 @@ export default function Deposito() {
                       <option value="">— Responsable —</option>
                       {operariosUnicos.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
                     </Select>
+                    {conteoEstado !== 'APROBADO' && (
+                      <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none" style={{ color: colors.textSecondary }}>
+                        <input type="checkbox" checked={conteoCiego} onChange={e => setConteoCiego(e.target.checked)} />
+                        🙈 A ciegas
+                      </label>
+                    )}
                     {conteoEstado === 'SIN_INICIAR' && (
                       <Button variant="primary" size="sm" onClick={iniciarConteo}>
                         <ClipboardCheck size={13} /> Iniciar conteo
                       </Button>
                     )}
+                    <Button variant="secondary" size="sm" onClick={generarInformeSemanalConteo} loading={generandoInformeSem}>
+                      <FileDown size={13} /> Informe semanal
+                    </Button>
                     {conteoEstado === 'EN_PROCESO' && (
                       <Button variant="success" size="sm" onClick={guardarConteoFormal} loading={savingConteo}>
                         Guardar conteo
@@ -3601,13 +3723,17 @@ export default function Deposito() {
                           const pct = diff !== null && f.stockSistema > 0 ? Math.abs(diff / f.stockSistema) * 100 : 0
                           const estColor = !hasFis ? colors.textMuted : diff === 0 ? colors.success : pct > 5 ? colors.danger : colors.warning
                           const estLabel = !hasFis ? '—' : diff === 0 ? '✓ OK' : pct > 5 ? '⚠ CRÍTICA' : '△ MENOR'
-                          const rowBg = hasFis && diff !== 0 ? (pct > 5 ? 'rgba(239,68,68,0.07)' : 'rgba(245,158,11,0.07)') : 'transparent'
+                          // A ciegas: no revelamos sistema/diferencia/estado hasta aprobar.
+                          const oculto = conteoCiego && conteoEstado !== 'APROBADO'
+                          const rowBg = !oculto && hasFis && diff !== 0 ? (pct > 5 ? 'rgba(239,68,68,0.07)' : 'rgba(245,158,11,0.07)') : 'transparent'
                           return (
                             <Tr key={f.id} style={{ backgroundColor: rowBg }}>
                               <Td className="font-medium text-sm" style={{ color: colors.textPrimary }}>{f.nombre}</Td>
                               <Td className="text-xs" style={{ color: colors.textMuted }}>{f.categoria}</Td>
                               <Td className="text-xs">{f.unidad}</Td>
-                              <Td className="text-right font-semibold">{f.stockSistema.toFixed(2)}</Td>
+                              <Td className="text-right font-semibold" style={{ color: oculto ? colors.textMuted : colors.textPrimary }}>
+                                {oculto ? '•••' : f.stockSistema.toFixed(2)}
+                              </Td>
                               <Td className="text-right">
                                 {conteoEstado === 'APROBADO' ? (
                                   <span className="font-semibold" style={{ color: colors.textPrimary }}>{hasFis ? fis.toFixed(2) : '—'}</span>
@@ -3615,18 +3741,18 @@ export default function Deposito() {
                                   <input type="number" step="0.01" min="0"
                                     value={f.stockFisico}
                                     onChange={e => setConteoFilasDepo(prev => prev.map((r, i) => i === idx ? { ...r, stockFisico: e.target.value } : r))}
-                                    placeholder={f.stockSistema.toFixed(2)}
+                                    placeholder={oculto ? '—' : f.stockSistema.toFixed(2)}
                                     className="w-24 text-right rounded-md border px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
                                     style={{ borderColor: colors.border, backgroundColor: colors.bg, color: colors.textPrimary }}
                                   />
                                 )}
                               </Td>
                               <Td className="text-right font-semibold"
-                                style={{ color: diff === null ? colors.textMuted : diff === 0 ? colors.success : pct > 5 ? colors.danger : colors.warning }}>
-                                {diff !== null ? `${diff > 0 ? '+' : ''}${diff.toFixed(2)}` : '—'}
+                                style={{ color: oculto || diff === null ? colors.textMuted : diff === 0 ? colors.success : pct > 5 ? colors.danger : colors.warning }}>
+                                {oculto ? '·' : diff !== null ? `${diff > 0 ? '+' : ''}${diff.toFixed(2)}` : '—'}
                               </Td>
                               <Td>
-                                <span className="text-xs font-semibold" style={{ color: estColor }}>{estLabel}</span>
+                                <span className="text-xs font-semibold" style={{ color: oculto ? colors.textMuted : estColor }}>{oculto ? '·' : estLabel}</span>
                               </Td>
                             </Tr>
                           )

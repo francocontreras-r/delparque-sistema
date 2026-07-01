@@ -3,6 +3,7 @@ import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown, FileDown, Plus, 
 import { supabase } from '../lib/supabase'
 import { deduplicarOperarios } from '../lib/operarios'
 import { exportarCSV } from '../lib/exportar'
+import { registrarConteoStock, nuevoCiclo } from '../lib/conteos'
 import { useUser } from '../context/UserContext'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -1079,23 +1080,31 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
 }
 
 function ModalConteoCamara({ stock, operarios, onClose, onApply }) {
-  const [valores, setValores] = useState(() => Object.fromEntries(stock.map(s => [s.id, String(s.baldes ?? 0)])))
+  // Conteo a ciegas por defecto: se arranca con el campo VACÍO y sin mostrar el
+  // stock del sistema, para que el operario cuente de verdad y no lo copie.
+  const [valores, setValores] = useState(() => Object.fromEntries(stock.map(s => [s.id, ''])))
+  const [motivos, setMotivos] = useState({})
   const [operario, setOperario] = useState('')
+  const [ciego, setCiego] = useState(true)
   const [saving, setSaving] = useState(false)
   const upd = (id, v) => setValores(p => ({ ...p, [id]: v }))
+  const updMotivo = (id, v) => setMotivos(p => ({ ...p, [id]: v }))
 
   const cambios = stock.map(s => {
-    const f = parseInt(valores[s.id])
+    const raw = valores[s.id]
+    const contado = raw !== '' && !isNaN(parseInt(raw))
     const sistema = s.baldes || 0
-    const fisico = isNaN(f) ? sistema : f
-    return { id: s.id, nombre: s.nombre, esImp: (s.tipo_producto || 'helado') === 'impulsivo', sistema, fisico, diff: fisico - sistema }
+    const fisico = contado ? parseInt(raw) : sistema
+    return { id: s.id, nombre: s.nombre, esImp: (s.tipo_producto || 'helado') === 'impulsivo', sistema, fisico, contado, diff: contado ? fisico - sistema : 0 }
   })
-  const conDif = cambios.filter(c => c.diff !== 0)
+  const conDif = cambios.filter(c => c.contado && c.diff !== 0)
   const hayFaltante = conDif.some(c => c.diff < 0)
+  const faltanMotivo = conDif.filter(c => !(motivos[c.id] || '').trim())
+  const contados = cambios.filter(c => c.contado).length
 
   async function confirmar() {
     setSaving(true)
-    await onApply(conDif.map(c => ({ id: c.id, fisico: c.fisico })), operario)
+    await onApply(conDif.map(c => ({ id: c.id, fisico: c.fisico, sistema: c.sistema, motivo: (motivos[c.id] || '').trim() })), operario, ciego ? 'ciego' : 'normal')
     setSaving(false)
   }
 
@@ -1104,45 +1113,70 @@ function ModalConteoCamara({ stock, operarios, onClose, onApply }) {
       footer={
         <>
           <Button variant="secondary" onClick={onClose} className="flex-1" disabled={saving}>Cancelar</Button>
-          <Button variant="primary" onClick={confirmar} loading={saving} disabled={conDif.length === 0} className="flex-1">
+          <Button variant="primary" onClick={confirmar} loading={saving} disabled={conDif.length === 0 || faltanMotivo.length > 0} className="flex-1">
             Ajustar{conDif.length > 0 ? ` (${conDif.length})` : ''}
           </Button>
         </>
       }>
       <div className="space-y-3">
         <p className="text-xs" style={{ color: colors.textMuted }}>
-          Ingresá el conteo real (baldes/unidades). Las diferencias ajustan el stock; los <b style={{ color: colors.danger }}>faltantes se registran en Mermas</b> valorizados.
+          Ingresá el conteo real (baldes/unidades). Las diferencias ajustan el stock; los <b style={{ color: colors.danger }}>faltantes se registran en Mermas</b> valorizados. Toda diferencia exige un <b>motivo</b>.
         </p>
-        <Select label="Operario que cuenta" value={operario} onChange={e => setOperario(e.target.value)}>
-          <option value="">— Opcional —</option>
-          {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
-        </Select>
+        <div className="flex items-center justify-between gap-3">
+          <Select label="Operario que cuenta" value={operario} onChange={e => setOperario(e.target.value)} className="flex-1">
+            <option value="">— Opcional —</option>
+            {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+          </Select>
+          <label className="flex items-center gap-2 text-xs cursor-pointer select-none whitespace-nowrap mt-4" style={{ color: colors.textSecondary }}>
+            <input type="checkbox" checked={ciego} onChange={e => setCiego(e.target.checked)} />
+            🙈 Conteo a ciegas
+          </label>
+        </div>
         <div className="overflow-x-auto" style={{ maxHeight: 380, overflowY: 'auto', border: `1px solid ${colors.border}`, borderRadius: radius.md }}>
           <table className="w-full">
             <thead>
               <tr style={{ backgroundColor: colors.bg, position: 'sticky', top: 0 }}>
-                {['Producto', 'Sistema', 'Físico', 'Dif.'].map(h => (
+                {['Producto', ...(ciego ? [] : ['Sistema']), 'Físico', 'Dif.', 'Motivo'].map(h => (
                   <th key={h} className="py-2 px-3 text-left font-semibold uppercase" style={{ fontSize: 10, color: colors.textMuted }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {cambios.map(c => (
-                <tr key={c.id} style={{ borderTop: `1px solid ${colors.border}` }}>
-                  <td className="py-1.5 px-3 text-sm" style={{ color: colors.textPrimary }}>{c.nombre}</td>
-                  <td className="py-1.5 px-3 text-sm" style={{ color: colors.textSecondary }}>{c.sistema}</td>
-                  <td className="py-1.5 px-3">
-                    <input type="number" min="0" value={valores[c.id]} onChange={e => upd(c.id, e.target.value)}
-                      className="w-20 rounded-md border text-sm px-2 py-1 outline-none"
-                      style={{ borderColor: colors.border, backgroundColor: colors.bg, color: colors.textPrimary }} />
-                  </td>
-                  <td className="py-1.5 px-3 text-sm font-bold" style={{ color: c.diff < 0 ? colors.danger : c.diff > 0 ? colors.success : colors.textMuted }}>
-                    {c.diff > 0 ? '+' : ''}{c.diff || '—'}
-                  </td>
-                </tr>
-              ))}
+              {cambios.map(c => {
+                const necesitaMotivo = c.contado && c.diff !== 0
+                const faltaMotivo = necesitaMotivo && !(motivos[c.id] || '').trim()
+                return (
+                  <tr key={c.id} style={{ borderTop: `1px solid ${colors.border}` }}>
+                    <td className="py-1.5 px-3 text-sm" style={{ color: colors.textPrimary }}>{c.nombre}</td>
+                    {!ciego && <td className="py-1.5 px-3 text-sm" style={{ color: colors.textSecondary }}>{c.sistema}</td>}
+                    <td className="py-1.5 px-3">
+                      <input type="number" min="0" value={valores[c.id]} onChange={e => upd(c.id, e.target.value)}
+                        placeholder={ciego ? '—' : String(c.sistema)}
+                        className="w-20 rounded-md border text-sm px-2 py-1 outline-none"
+                        style={{ borderColor: colors.border, backgroundColor: colors.bg, color: colors.textPrimary }} />
+                    </td>
+                    <td className="py-1.5 px-3 text-sm font-bold" style={{ color: c.diff < 0 ? colors.danger : c.diff > 0 ? colors.success : colors.textMuted }}>
+                      {c.contado ? (c.diff > 0 ? `+${c.diff}` : c.diff || '—') : '·'}
+                    </td>
+                    <td className="py-1.5 px-3">
+                      {necesitaMotivo && (
+                        <input type="text" value={motivos[c.id] || ''} onChange={e => updMotivo(c.id, e.target.value)}
+                          placeholder="¿Por qué?"
+                          className="w-40 rounded-md border text-sm px-2 py-1 outline-none"
+                          style={{ borderColor: faltaMotivo ? colors.danger : colors.border, backgroundColor: colors.bg, color: colors.textPrimary }} />
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span style={{ color: colors.textMuted }}>{contados} de {stock.length} contados · {conDif.length} con diferencia</span>
+          {faltanMotivo.length > 0 && (
+            <span className="font-semibold" style={{ color: colors.danger }}>Faltan {faltanMotivo.length} motivo{faltanMotivo.length !== 1 ? 's' : ''}</span>
+          )}
         </div>
         {hayFaltante && (
           <p className="text-xs font-semibold" style={{ color: colors.warning }}>
@@ -1260,9 +1294,11 @@ export default function Camaras() {
 
   // Conteo físico: ajusta el stock al conteo real y registra el faltante como
   // movimiento de ajuste + merma valorizada (causa "Faltante de conteo").
-  async function aplicarConteoCamara(cambios, operario) {
+  async function aplicarConteoCamara(cambios, operario, modo = 'normal') {
     const hoy = new Date().toISOString().split('T')[0]
     const now = new Date().toISOString()
+    const cicloId = nuevoCiclo()
+    const filasConteo = []
     let ajustados = 0, faltantes = 0
     for (const c of cambios) {
       const item = stock.find(s => s.id === c.id)
@@ -1270,6 +1306,8 @@ export default function Camaras() {
       const fisico = parseInt(c.fisico)
       const sistema = item.baldes || 0
       if (isNaN(fisico) || fisico < 0 || fisico === sistema) continue
+      // Fila para el conteo unificado (fuente de verdad del informe semanal).
+      filasConteo.push({ producto_nombre: item.nombre, stock_sistema: sistema, stock_fisico: fisico, motivo: c.motivo || null, valor_impacto: null })
       const diff = fisico - sistema
       const esImp = (item.tipo_producto || 'helado') === 'impulsivo'
       const kgPorBalde = sistema > 0 ? (item.kg || 0) / sistema : 0
@@ -1312,12 +1350,16 @@ export default function Camaras() {
           fecha: hoy, sabor_nombre: item.nombre, operario_nombre: operario || null,
           kg_teoricos: faltKg, kg_reales: 0, diferencia: faltKg, porcentaje: faltKg > 0 ? 100 : 0,
           causa: 'Faltante de conteo',
-          observaciones: `${Math.abs(diff)} ${esUnidad ? 'unidades' : 'baldes'} faltantes en conteo físico`,
+          observaciones: `${Math.abs(diff)} ${esUnidad ? 'unidades' : 'baldes'} faltantes en conteo físico${c.motivo ? ` — ${c.motivo}` : ''}`,
           usuario_email: user?.email || null,
           ...(esUnidad ? { unidades: Math.abs(diff) } : {}),
         })
       }
       ajustados++
+    }
+    // Registrar todo el conteo en la fuente de verdad unificada (informe semanal).
+    if (filasConteo.length > 0) {
+      await registrarConteoStock({ area: 'camara', filas: filasConteo, responsable: operario || 'Sistema', modo, cicloId })
     }
     setModalConteo(false)
     await recargarStock()

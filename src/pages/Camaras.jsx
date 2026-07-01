@@ -51,6 +51,7 @@ function categoriaMotivo(m) {
   if (s.startsWith('Baja'))       return 'Baja'
   if (s.startsWith('Merma'))      return 'Merma'
   if (s.startsWith('Transferencia')) return 'Transferencia'
+  if (s.startsWith('Devolución') || s.startsWith('Devolucion')) return 'Devolución'
   if (s.startsWith('Ajuste'))     return 'Ajuste'
   return 'Otros'
 }
@@ -1079,9 +1080,10 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
   )
 }
 
-function ModalConteoCamara({ stock, operarios, onClose, onApply }) {
+function ModalConteoCamara({ stock, operarios, onClose, onApply, permiteVerSistema = false }) {
   // Conteo a ciegas por defecto: se arranca con el campo VACÍO y sin mostrar el
   // stock del sistema, para que el operario cuente de verdad y no lo copie.
+  // Solo un admin puede desactivarlo (para un recuento de verificación).
   const [valores, setValores] = useState(() => Object.fromEntries(stock.map(s => [s.id, ''])))
   const [motivos, setMotivos] = useState({})
   const [operario, setOperario] = useState('')
@@ -1127,10 +1129,16 @@ function ModalConteoCamara({ stock, operarios, onClose, onApply }) {
             <option value="">— Opcional —</option>
             {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
           </Select>
-          <label className="flex items-center gap-2 text-xs cursor-pointer select-none whitespace-nowrap mt-4" style={{ color: colors.textSecondary }}>
-            <input type="checkbox" checked={ciego} onChange={e => setCiego(e.target.checked)} />
-            🙈 Conteo a ciegas
-          </label>
+          {permiteVerSistema ? (
+            <label className="flex items-center gap-2 text-xs cursor-pointer select-none whitespace-nowrap mt-4" style={{ color: colors.textSecondary }}>
+              <input type="checkbox" checked={ciego} onChange={e => setCiego(e.target.checked)} />
+              🙈 Conteo a ciegas
+            </label>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs whitespace-nowrap mt-4" style={{ color: colors.textMuted }}>
+              🙈 Conteo a ciegas
+            </span>
+          )}
         </div>
         <div className="overflow-x-auto" style={{ maxHeight: 380, overflowY: 'auto', border: `1px solid ${colors.border}`, borderRadius: radius.md }}>
           <table className="w-full">
@@ -2452,6 +2460,7 @@ export default function Camaras() {
         <ModalConteoCamara
           stock={stock}
           operarios={operarios}
+          permiteVerSistema={isAdmin}
           onClose={() => setModalConteo(false)}
           onApply={aplicarConteoCamara}
         />

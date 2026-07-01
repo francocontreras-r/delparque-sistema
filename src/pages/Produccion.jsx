@@ -442,6 +442,7 @@ export default function Produccion() {
         kg:     kgItem,
         baldes: unidades,
         lote:            item.lote || null,
+        motivo:          'Producción', // ingreso por elaboración → sino cae en "Otros"
         operario_nombre: item.operario_nombre || null,
         fecha:           new Date().toISOString().split('T')[0],
         created_at:      new Date().toISOString(),

@@ -3596,10 +3596,14 @@ export default function Deposito() {
                       {operariosUnicos.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
                     </Select>
                     {conteoEstado !== 'APROBADO' && (
-                      <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none" style={{ color: colors.textSecondary }}>
-                        <input type="checkbox" checked={conteoCiego} onChange={e => setConteoCiego(e.target.checked)} />
-                        🙈 A ciegas
-                      </label>
+                      isAdmin ? (
+                        <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none" style={{ color: colors.textSecondary }}>
+                          <input type="checkbox" checked={conteoCiego} onChange={e => setConteoCiego(e.target.checked)} />
+                          🙈 A ciegas
+                        </label>
+                      ) : (
+                        <span className="flex items-center gap-1.5 text-xs" style={{ color: colors.textMuted }}>🙈 A ciegas</span>
+                      )
                     )}
                     {conteoEstado === 'SIN_INICIAR' && (
                       <Button variant="primary" size="sm" onClick={iniciarConteo}>

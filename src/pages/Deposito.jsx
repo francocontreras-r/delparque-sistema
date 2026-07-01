@@ -1002,6 +1002,7 @@ export default function Deposito() {
   const [modalAjustes, setModalAjustes]         = useState(false)
   const [generandoPDFconteo, setGenerandoPDFconteo] = useState(false)
   const [conteoCiego, setConteoCiego]           = useState(true) // no muestra el stock del sistema → no se "dibuja"
+  const [conteoCicloId, setConteoCicloId]       = useState(null) // ciclo del conteo en curso (para no duplicar al aprobar)
   const [generandoInformeSem, setGenerandoInformeSem] = useState(false)
 
   const { isAdmin, profile, user } = useUser()
@@ -1433,6 +1434,7 @@ export default function Deposito() {
       costo_unitario: i.costo_unitario || 0, stockFisico: '',
     })))
     setConteoFilasCam([]) // la cámara se cuenta en su propio módulo (evita duplicar)
+    setConteoCicloId(null)
     setConteoEstado('EN_PROCESO')
     toast2('Conteo iniciado — ingresá los stocks físicos')
   }
@@ -1457,9 +1459,11 @@ export default function Deposito() {
           valor_impacto: null,
         }))
     if (filas.length === 0) { setSavingConteo(false); toast2('Sin datos de conteo para guardar', 'error'); return }
-    const r = await registrarConteoStock({ area: tipo, filas, responsable: conteoResponsable, modo, cicloId: nuevoCiclo() })
+    const ciclo = nuevoCiclo()
+    const r = await registrarConteoStock({ area: tipo, filas, responsable: conteoResponsable, modo, cicloId: ciclo })
     setSavingConteo(false)
     if (!r.ok) { toast2('No se pudo guardar el conteo', 'error'); return }
+    setConteoCicloId(ciclo)
     setConteoEstado('COMPLETADO')
     toast2(`Conteo guardado — ${filas.length} producto${filas.length !== 1 ? 's' : ''} registrado${filas.length !== 1 ? 's' : ''}`)
   }
@@ -1496,21 +1500,17 @@ export default function Deposito() {
         const fb = c.fisBaldes !== '' ? parseInt(c.fisBaldes, 10) : c.stockBaldes
         await supabase.from('stock_camaras').update({ kg: fk, baldes: fb }).eq('id', c.id)
       }
-      // Refrescamos el conteo unificado con los motivos aprobados (el informe
-      // semanal lee de acá). El dedup por área+producto deja esta versión final.
-      const cicloAprob = nuevoCiclo()
-      if (filasDepo.length > 0) {
-        await registrarConteoStock({
-          area: 'deposito', responsable: conteoResponsable, modo: conteoCiego ? 'ciego' : 'normal', cicloId: cicloAprob,
-          filas: filasDepo.map(f => {
-            const fis = parseFloat(f.stockFisico)
-            return {
-              producto_nombre: f.nombre, stock_sistema: f.stockSistema, stock_fisico: fis,
-              motivo: motivos[f.nombre] || 'Ajuste de inventario',
-              valor_impacto: (fis - f.stockSistema) * (Number(f.costo_unitario) || 0),
-            }
-          }),
-        })
+      // ACTUALIZAMOS (no insertamos) las filas ya guardadas con los motivos
+      // aprobados, para no duplicar el conteo en conteos_stock. El informe lee
+      // de acá. Si faltan las columnas nuevas, el update simplemente no aplica.
+      if (conteoCicloId && filasDepo.length > 0) {
+        for (const f of filasDepo) {
+          const fis = parseFloat(f.stockFisico)
+          await supabase.from('conteos_stock').update({
+            motivo: motivos[f.nombre] || 'Ajuste de inventario',
+            valor_impacto: (fis - f.stockSistema) * (Number(f.costo_unitario) || 0),
+          }).eq('ciclo_id', conteoCicloId).eq('producto_nombre', f.nombre)
+        }
       }
       const total = filasDepo.length + filasCAM.length
       setConteoEstado('APROBADO')

@@ -151,10 +151,12 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
       // Prioridad: vínculo por ID; si no hay, cae al nombre (compatibilidad)
       const porId = i.insumo_id != null ? insumoPorId[i.insumo_id] : null
       const ins = porId || insumoPorNombre[(i.nombre || '').trim().toLowerCase()]
-      // El costo de un intermedio sale de su propia receta (rollup).
-      const cu = costeador ? costeador.costoDe(i.nombre) : (ins?.costo_unitario || 0)
-      // "tienePreco": insumo → vinculado con costo; intermedio → su receta da costo.
-      const tienePreco = tIng === 'agua' ? true : tIng === 'intermedio' ? cu > 0 : !!ins
+      // Costo: si es un insumo vinculado, sale de ESE insumo del depósito (aunque
+      // el nombre no matchee el costeador). Intermedios y no vinculados: rollup por nombre.
+      const cu = (tIng === 'insumo' && ins) ? (Number(ins.costo_unitario) || 0)
+        : (costeador ? costeador.costoDe(i.nombre) : (ins?.costo_unitario || 0))
+      // "tienePreco": tiene costo real cargado. Insumo con $0 → falta cargar precio.
+      const tienePreco = tIng === 'agua' ? true : cu > 0
       return { ...i, tIng, costoUnit: cu, costoTotal: (Number(i.cantidad) || 0) * cu, tienePreco, vinculado: !!porId }
     }),
     [ings, insumoPorNombre, insumoPorId, intermedios, costeador]
@@ -304,7 +306,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
                     ) : (
                       <>
                         {ing.vinculado
-                          ? <span className="flex items-center gap-1" style={{ color: colors.success }}>🔗 Vinculado</span>
+                          ? <span className="flex items-center gap-1" style={{ color: ing.tienePreco ? colors.success : colors.warning }}>🔗 {ing.tienePreco ? 'Vinculado' : 'Vinculado (sin costo)'}</span>
                           : <button type="button"
                               onMouseDown={() => { setVinculandoKey(ing._key); setBusq(''); setShowAC(true) }}
                               className="flex items-center gap-1 underline" style={{ color: colors.warning }}>
@@ -312,7 +314,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
                             </button>}
                         {ing.tienePreco
                           ? <span style={{ color: colors.textMuted }}>${pesos(ing.costoUnit)}/{ing.unidad || 'u'} · ${pesos(ing.costoTotal)}</span>
-                          : <span style={{ color: colors.warning }}>sin precio</span>}
+                          : <span style={{ color: colors.warning }}>⚠️ cargá el costo en Depósito</span>}
                       </>
                     )}
                   </div>
@@ -496,7 +498,6 @@ export default function Recetas() {
       const nombre = i[nombreField]
       const tIng = costeador.tipoDe(nombre)
       const cu = costeador.costoDe(nombre) // incluye rollup de intermedios
-      const ins = insumoPorNombre[(nombre || '').trim().toLowerCase()]
       return {
         insumo: nombre,
         cantidad: i.cantidad,
@@ -504,8 +505,8 @@ export default function Recetas() {
         tIng,
         costoUnit: cu,
         costoTotal: (Number(i.cantidad) || 0) * cu,
-        // "sin precio" solo para MP cruda no costeada; agua/intermedios no aplican
-        tienePreco: tIng === 'agua' ? true : tIng === 'intermedio' ? cu > 0 : !!ins,
+        // tiene costo real: agua siempre; el resto necesita costo > 0 (insumo $0 = falta precio)
+        tienePreco: tIng === 'agua' ? true : cu > 0,
       }
     })
   }

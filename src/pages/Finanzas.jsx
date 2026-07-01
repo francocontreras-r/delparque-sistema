@@ -142,6 +142,7 @@ export default function Finanzas() {
   const [newCIF, setNewCIF]         = useState({ concepto: '', categoria: 'fijo', monto_mensual: '' })
   const [editingCIF, setEditingCIF] = useState({}) // id → monto
   const [litrosMes, setLitrosMes]   = useState(0)
+  const [seccionCostos, setSeccionCostos] = useState('Todos') // filtro Bases/Sabores/Impulsivos/Postres
   const [historial, setHistorial]   = useState({ disponible: true, rows: [] })
   const [histLoading, setHistLoading] = useState(false)
 
@@ -785,12 +786,27 @@ export default function Finanzas() {
                   Costos recalculados. Los badges muestran variación vs. estado anterior.
                 </div>
               )}
+              {/* Filtro por sección */}
+              <div className="flex gap-1.5 flex-wrap">
+                {['Todos', 'Bases', 'Sabores', 'Impulsivos', 'Postres'].map(s => (
+                  <button key={s} onClick={() => setSeccionCostos(s)}
+                    className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border"
+                    style={{
+                      backgroundColor: seccionCostos === s ? colors.brand : 'transparent',
+                      borderColor: seccionCostos === s ? colors.brand : colors.border,
+                      color: seccionCostos === s ? 'white' : colors.textSecondary,
+                    }}>
+                    {s === 'Todos' ? 'Todos' : s === 'Bases' ? '🧱 Bases' : s === 'Sabores' ? '🧊 Sabores' : s === 'Impulsivos' ? '📦 Impulsivos' : '🍰 Postres'}
+                  </button>
+                ))}
+              </div>
               {[
                 { key: 'Bases',      label: '🧱 BASES',      items: secciones.Bases      },
                 { key: 'Sabores',    label: '🧊 SABORES',    items: secciones.Sabores    },
                 { key: 'Impulsivos', label: '📦 IMPULSIVOS', items: secciones.Impulsivos },
                 { key: 'Postres',    label: '🍰 POSTRES',    items: secciones.Postres    },
-              ].map(({ key, label, items }) => items.length > 0 && (
+              ].filter(({ key }) => seccionCostos === 'Todos' || seccionCostos === key)
+                .map(({ key, label, items }) => items.length > 0 && (
                 <div key={key} className="overflow-hidden" style={SURFACE}>
                   <div className="px-4 py-2.5" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
                     <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>{label}</span>

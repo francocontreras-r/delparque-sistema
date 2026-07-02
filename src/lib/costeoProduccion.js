@@ -76,6 +76,19 @@ export function costearProduccion(movsIngreso, ctx) {
     }
   }
 
+  // Explota una BASE (en litros) → MP cruda de su receta, prorrateada por batch.
+  // Sirve para planificar producción de bases (ej. "quiero hacer 240 L de Neutra").
+  const explotarBase = (base, litros) => {
+    if (!(litros > 0)) return
+    const bings = baseIngredientes.filter(i => i.base_id === base.id)
+    const litrosBatch = Number(base.litros_batch) || LITROS_BATCH
+    if (litrosBatch <= 0) return
+    bings.forEach(i => {
+      if (esAgua(i.insumo_nombre)) return // agua: gratis, no se almacena
+      addInsumo(i.insumo_nombre, (Number(i.cantidad) || 0) / litrosBatch * litros)
+    })
+  }
+
   // Explota un impulsivo/postre (en unidades) → solo MP cruda; omite intermedios
   const explotarUnidad = (ings, unidades) => {
     if (!(unidades > 0)) return
@@ -94,6 +107,10 @@ export function costearProduccion(movsIngreso, ctx) {
       const sabor = saborPorNombre[norm(nombre)]
       if (!sabor) { sinReceta.add(nombre); return }
       explotarSabor(sabor, Number(m.kg) || 0)
+    } else if (tp === 'base') {
+      const base = basePorNombre[norm(nombre)]
+      if (!base) { sinReceta.add(nombre); return }
+      explotarBase(base, Number(m.kg) || Number(m.litros) || 0)
     } else {
       const unidades = Number(m.baldes) || 0
       const imp = impPorNombre[norm(nombre)]

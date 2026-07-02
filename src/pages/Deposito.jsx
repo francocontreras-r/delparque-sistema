@@ -1872,11 +1872,12 @@ export default function Deposito() {
   // ── Mini-MRP: catálogo de productos y cálculo del plan de compras ───────────
   // Catálogo para agregar a mano (sabores = helado, impulsivos y postres = unidad).
   const catalogoProductos = useMemo(() => {
+    const bases = (recetasCosteo.bases || []).map(b => ({ nombre: (b.nombre || '').toUpperCase(), tipo_producto: 'base', grupo: 'BASES' }))
     const helados = (recetasCosteo.sabores || []).map(s => ({ nombre: (s.nombre || '').toUpperCase(), tipo_producto: 'helado', grupo: 'HELADOS' }))
     const imps = (recetasCosteo.impulsivos || []).map(i => ({ nombre: (i.nombre || '').toUpperCase(), tipo_producto: 'impulsivo', grupo: 'IMPULSIVOS' }))
     const postres = POSTRES.map(p => ({ nombre: (p.nombre || '').toUpperCase(), tipo_producto: 'postre', grupo: 'POSTRES' }))
     const vistos = new Set()
-    return [...helados, ...imps, ...postres].filter(p => {
+    return [...bases, ...helados, ...imps, ...postres].filter(p => {
       const k = `${p.tipo_producto}:${normalizarNombre(p.nombre)}`
       if (vistos.has(k)) return false; vistos.add(k); return true
     }).sort((a, b) => a.grupo.localeCompare(b.grupo) || a.nombre.localeCompare(b.nombre))
@@ -4322,7 +4323,7 @@ export default function Deposito() {
                     <div className="flex-1 min-w-[180px]">
                       <Select label="Producto" value={planNuevo.nombre} onChange={e => setPlanNuevo(p => ({ ...p, nombre: e.target.value }))}>
                         <option value="">— Elegir producto —</option>
-                        {['HELADOS', 'IMPULSIVOS', 'POSTRES'].map(g => (
+                        {['BASES', 'HELADOS', 'IMPULSIVOS', 'POSTRES'].map(g => (
                           <optgroup key={g} label={g}>
                             {catalogoProductos.filter(p => p.grupo === g).map(p => <option key={`${p.grupo}-${p.nombre}`} value={p.nombre}>{p.nombre}</option>)}
                           </optgroup>
@@ -4331,7 +4332,7 @@ export default function Deposito() {
                     </div>
                     <div className="w-28">
                       <Input label="Cantidad" type="number" min="0" value={planNuevo.cantidad}
-                        onChange={e => setPlanNuevo(p => ({ ...p, cantidad: e.target.value }))} placeholder="kg / u" />
+                        onChange={e => setPlanNuevo(p => ({ ...p, cantidad: e.target.value }))} placeholder="kg / L / u" />
                     </div>
                     <Button variant="primary" size="sm" onClick={agregarItemPlan}><Plus size={13} /> Agregar</Button>
                   </div>
@@ -4346,7 +4347,7 @@ export default function Deposito() {
                           {planItems.map((it, idx) => (
                             <Tr key={`${it.tipo_producto}-${it.nombre}-${idx}`}>
                               <Td className="font-medium">{it.nombre}</Td>
-                              <Td className="text-xs" style={{ color: colors.textMuted }}>{it.tipo_producto === 'helado' ? '🧊 helado (kg)' : it.tipo_producto === 'postre' ? '🍰 postre (u)' : '📦 impulsivo (u)'}</Td>
+                              <Td className="text-xs" style={{ color: colors.textMuted }}>{it.tipo_producto === 'helado' ? '🧊 helado (kg)' : it.tipo_producto === 'base' ? '🥛 base (L)' : it.tipo_producto === 'postre' ? '🍰 postre (u)' : '📦 impulsivo (u)'}</Td>
                               <Td className="text-right">
                                 <input type="number" min="0" value={it.cantidad}
                                   onChange={e => setCantidadPlan(idx, e.target.value)}

@@ -20,6 +20,11 @@ export function planAMovs(planItems) {
       if (tp === 'helado') {
         return { sabor_nombre: nombre, producto_nombre: nombre, tipo_producto: 'helado', kg: Number(p.cantidad) || 0, baldes: 0 }
       }
+      // Las BASES se planifican en litros; van en kg (mismo campo) porque el
+      // batch de la base está expresado en litros_batch.
+      if (tp === 'base') {
+        return { sabor_nombre: nombre, producto_nombre: nombre, tipo_producto: 'base', kg: Number(p.cantidad) || 0, baldes: 0 }
+      }
       return { sabor_nombre: nombre, producto_nombre: nombre, tipo_producto: tp, kg: 0, baldes: Number(p.cantidad) || 0 }
     })
 }

@@ -12,6 +12,12 @@ describe('planAMovs', () => {
     expect(movs[0]).toMatchObject({ tipo_producto: 'helado', kg: 10, baldes: 0 })
     expect(movs[1]).toMatchObject({ tipo_producto: 'impulsivo', kg: 0, baldes: 20 })
   })
+
+  it('base → litros van en kg (batch en litros_batch)', () => {
+    const movs = planAMovs([{ nombre: 'NEUTRA LECHE', tipo_producto: 'base', cantidad: 240 }])
+    expect(movs).toHaveLength(1)
+    expect(movs[0]).toMatchObject({ tipo_producto: 'base', kg: 240, baldes: 0 })
+  })
 })
 
 describe('pendienteDeOrden', () => {
@@ -76,5 +82,32 @@ describe('calcularPlanCompras', () => {
     const r = calcularPlanCompras({ planItems: [], ctx })
     expect(r.totalCompra).toBe(0)
     expect(r.aComprar).toHaveLength(0)
+  })
+
+  it('explota una BASE en litros hasta su materia prima', () => {
+    const ctxBase = {
+      sabores: [], saborIngredientes: [],
+      bases: [{ id: 9, nombre: 'NEUTRA LECHE', litros_batch: 120 }],
+      baseIngredientes: [
+        { base_id: 9, insumo_nombre: 'LECHE', cantidad: 100, unidad: 'L' },
+        { base_id: 9, insumo_nombre: 'AZUCAR', cantidad: 24, unidad: 'kg' },
+      ],
+      impulsivos: [], impulsivoIngredientes: [],
+      insumos: [
+        { nombre: 'LECHE', stock_actual: 50, costo_unitario: 2, unidad: 'L' },
+        { nombre: 'AZUCAR', stock_actual: 0, costo_unitario: 10, unidad: 'kg' },
+      ],
+    }
+    // 240 L = 2 batches de 120 → 200 L leche y 48 kg azúcar
+    const r = calcularPlanCompras({
+      planItems: [{ nombre: 'NEUTRA LECHE', tipo_producto: 'base', cantidad: 240 }],
+      ctx: ctxBase,
+    })
+    const leche = r.items.find(i => i.nombre === 'LECHE')
+    const azucar = r.items.find(i => i.nombre === 'AZUCAR')
+    expect(leche.necesario).toBe(200)
+    expect(leche.faltante).toBe(150)   // 200 - 50
+    expect(azucar.necesario).toBe(48)
+    expect(azucar.costoCompra).toBe(480) // 48 × 10
   })
 })

@@ -179,6 +179,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
   })
   const [showResumen, setShowResumen] = useState(false)
   const [showMarcaAC, setShowMarcaAC] = useState(false)
+  const [showProdAC, setShowProdAC]   = useState(false)
   const [localError, setLocalError] = useState('')
   const [proveedores, setProveedores] = useState([])
   const [mostrarNuevoProveedor, setMostrarNuevoProveedor] = useState(false)
@@ -249,6 +250,20 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
     const q = form.marca.trim().toLowerCase()
     return Array.from(set).filter(b => !q || b.toLowerCase().includes(q)).slice(0, 5)
   }, [form.producto_nombre, form.marca, movimientos])
+
+  // Predicción de productos: filtra los insumos ya cargados por lo que se va
+  // escribiendo (ignora acentos/mayúsculas/espacios). Prioriza los que empiezan
+  // con el texto. Así el operario elige en vez de tipear y no hay errores.
+  const productosSugeridos = useMemo(() => {
+    const q = normalizarNombre(form.producto_nombre)
+    const lista = [...insumos].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
+    if (!q) return lista.slice(0, 8) // sin texto: mostramos los primeros como guía
+    const scored = lista
+      .map(i => ({ i, n: normalizarNombre(i.nombre) }))
+      .filter(x => x.n.includes(q))
+      .sort((a, b) => (a.n.startsWith(q) === b.n.startsWith(q) ? 0 : a.n.startsWith(q) ? -1 : 1))
+    return scored.slice(0, 8).map(x => x.i)
+  }, [form.producto_nombre, insumos])
 
   const cantidad = parseFloat(form.cantidad) || 0
   const pesoPorUnidad = parseFloat(form.peso_por_unidad) || 0
@@ -353,15 +368,30 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
         <div className="space-y-3">
           <Input label="Fecha *" type="date" value={form.fecha} onChange={e => upd('fecha', e.target.value)} />
 
-          {/* Producto */}
+          {/* Producto — predicción de insumos ya cargados */}
           {esIngreso ? (
-            <div>
-              <Input label="Producto *" type="text" list="insumos-datalist" value={form.producto_nombre}
-                onChange={e => { upd('producto_nombre', e.target.value); upd('peso_por_unidad', '') }}
+            <div className="relative">
+              <Input label="Producto *" type="text" value={form.producto_nombre} autoComplete="off"
+                onChange={e => { upd('producto_nombre', e.target.value); upd('peso_por_unidad', ''); setShowProdAC(true) }}
+                onFocus={() => setShowProdAC(true)}
+                onBlur={() => setTimeout(() => setShowProdAC(false), 150)}
                 placeholder="Buscar o escribir un producto nuevo…" />
-              <datalist id="insumos-datalist">
-                {insumos.map(i => <option key={i.id} value={i.nombre} />)}
-              </datalist>
+              {showProdAC && productosSugeridos.length > 0 && (
+                <div className="absolute top-full left-0 right-0 z-30 mt-1 rounded-lg border shadow-lg overflow-hidden max-h-64 overflow-y-auto"
+                  style={{ backgroundColor: colors.surface, borderColor: colors.border }}>
+                  {productosSugeridos.map(i => (
+                    <button key={i.id} type="button"
+                      onMouseDown={() => { upd('producto_nombre', i.nombre); upd('peso_por_unidad', ''); setShowProdAC(false) }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-[#334155] border-b last:border-0 transition-colors flex items-center justify-between gap-2"
+                      style={{ borderColor: colors.border, color: colors.textPrimary }}>
+                      <span className="truncate">{i.nombre}</span>
+                      <span className="text-xs shrink-0" style={{ color: colors.textMuted }}>
+                        {(i.stock_actual || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 })} {i.unidad || 'u'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
               {stockInfo && (
                 <p className="text-xs mt-1 font-medium" style={{ color: colors.success }}>{stockInfo}</p>
               )}
@@ -1337,7 +1367,17 @@ export default function Deposito() {
       await supabase.from('movimientos_deposito')
         .update({ producto_nombre: nombreNuevo })
         .eq('producto_nombre', nombreAntiguo)
-      toast2('Producto renombrado y actualizado en movimientos')
+      // Propagamos el nombre nuevo a las RECETAS. El costeo busca el insumo por
+      // NOMBRE (insumo_nombre), así que si no lo actualizamos acá, la receta
+      // seguiría apuntando al nombre viejo y el ingrediente quedaría en $0.
+      // Actualizamos por insumo_id (vínculo firme) y por insumo_nombre (filas
+      // viejas sin id). Si una tabla no tiene la columna, el error se ignora.
+      const tablasIng = ['base_ingredientes', 'sabor_ingredientes', 'impulsivo_ingredientes']
+      for (const t of tablasIng) {
+        await supabase.from(t).update({ insumo_nombre: nombreNuevo }).eq('insumo_id', editInsumo.id)
+        await supabase.from(t).update({ insumo_nombre: nombreNuevo }).eq('insumo_nombre', nombreAntiguo)
+      }
+      toast2('Producto renombrado — actualizado en movimientos y recetas')
       await cargarMovimientosFiltrados(filtroMovDesde, filtroMovHasta)
     } else {
       toast2('Insumo actualizado')

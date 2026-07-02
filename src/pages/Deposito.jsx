@@ -5,7 +5,8 @@ import { deduplicarOperarios } from '../lib/operarios'
 import { normalizarNombre } from '../lib/texto'
 import { costearProduccion } from '../lib/costeoProduccion'
 import { registrarCambioCosto } from '../lib/historialCostos'
-import { registrarConteoStock, cargarConteosPeriodo, resumenSemanal, nuevoCiclo } from '../lib/conteos'
+import { registrarConteoStock, cargarConteosPeriodo, resumenSemanal, nuevoCiclo, cargarConteosCiclo, cargarCiclos } from '../lib/conteos'
+import { generarComprobanteConteo } from '../lib/comprobanteConteo'
 import { calcularPlanCompras, pendienteDeOrden } from '../lib/mrp'
 import { POSTRES } from '../lib/postres'
 import { clasificarVencimiento, esAlertaVencimiento, labelDias } from '../lib/vencimientos'
@@ -1005,6 +1006,11 @@ export default function Deposito() {
   const [generandoPDFconteo, setGenerandoPDFconteo] = useState(false)
   const [conteoCiego, setConteoCiego]           = useState(true) // no muestra el stock del sistema → no se "dibuja"
   const [conteoCicloId, setConteoCicloId]       = useState(null) // ciclo del conteo en curso (para no duplicar al aprobar)
+  const [generandoComprob, setGenerandoComprob] = useState(false)
+  const [modalHistorial, setModalHistorial]     = useState(false)
+  const [ciclosHistorial, setCiclosHistorial]   = useState([])
+  const [cargandoHistorial, setCargandoHistorial] = useState(false)
+  const [reimprimiendo, setReimprimiendo]       = useState(null) // clave del ciclo que se está reimprimiendo
   // ── Mini-MRP / Plan de compras ──────────────────────────────────────────────
   const [ordenesAbiertas, setOrdenesAbiertas]   = useState([])
   const [planItems, setPlanItems]               = useState([]) // [{nombre, tipo_producto, cantidad}]
@@ -1542,6 +1548,56 @@ export default function Deposito() {
       toast2(err.message, 'error')
     } finally {
       setSavingConteo(false)
+    }
+  }
+
+  // ── Comprobante de conteo (del ciclo en curso) ──────────────────────────────
+  // Genera el PDF del conteo puntual: contados, faltantes y sobrantes con su
+  // motivo y su costo. Lee las filas ya guardadas en conteos_stock (misma fuente
+  // que se reimprime desde el Historial), así el comprobante es idéntico siempre.
+  async function generarComprobanteActual() {
+    if (!conteoCicloId) { toast2('Guardá el conteo antes de emitir el comprobante', 'error'); return }
+    setGenerandoComprob(true)
+    try {
+      const rows = await cargarConteosCiclo(conteoCicloId)
+      if (!rows.length) { toast2('No se encontraron datos de este conteo', 'error'); return }
+      const fecha = new Date().toISOString().split('T')[0]
+      generarComprobanteConteo({ rows, area: 'deposito', fecha, responsable: conteoResponsable })
+        .save(`comprobante_conteo_deposito_${fecha}.pdf`)
+      toast2('Comprobante generado')
+    } catch (err) {
+      toast2(err.message || 'No se pudo generar el comprobante', 'error')
+    } finally {
+      setGenerandoComprob(false)
+    }
+  }
+
+  // ── Historial de conteos ────────────────────────────────────────────────────
+  // Lista los conteos pasados (depósito y cámara) del período elegido. Cada uno
+  // se puede reimprimir: el comprobante se regenera desde conteos_stock, así que
+  // aunque el PDF no se guarde como archivo, el conteo queda para consultar.
+  async function abrirHistorial() {
+    setModalHistorial(true)
+    setCargandoHistorial(true)
+    try {
+      const lista = await cargarCiclos({ desde: rangoCS.desde, hasta: rangoCS.hasta })
+      setCiclosHistorial(lista)
+    } catch { setCiclosHistorial([]) }
+    finally { setCargandoHistorial(false) }
+  }
+
+  async function reimprimirComprobante(ciclo) {
+    if (!ciclo.ciclo_id) { toast2('Este conteo es anterior al historial y no se puede reimprimir', 'error'); return }
+    setReimprimiendo(ciclo.clave)
+    try {
+      const rows = await cargarConteosCiclo(ciclo.ciclo_id)
+      if (!rows.length) { toast2('No se encontraron datos de este conteo', 'error'); return }
+      generarComprobanteConteo({ rows, area: ciclo.area, fecha: ciclo.fecha, responsable: ciclo.responsable })
+        .save(`comprobante_conteo_${ciclo.area}_${ciclo.fecha}.pdf`)
+    } catch (err) {
+      toast2(err.message || 'No se pudo reimprimir', 'error')
+    } finally {
+      setReimprimiendo(null)
     }
   }
 
@@ -3874,6 +3930,14 @@ export default function Deposito() {
                     <Button variant="secondary" size="sm" onClick={generarInformeSemanalConteo} loading={generandoInformeSem}>
                       <FileDown size={13} /> Informe semanal
                     </Button>
+                    <Button variant="secondary" size="sm" onClick={abrirHistorial}>
+                      <ClipboardCheck size={13} /> Historial
+                    </Button>
+                    {(conteoEstado === 'COMPLETADO' || conteoEstado === 'APROBADO') && conteoCicloId && (
+                      <Button variant="secondary" size="sm" onClick={generarComprobanteActual} loading={generandoComprob}>
+                        <FileDown size={13} /> Comprobante
+                      </Button>
+                    )}
                     {conteoEstado === 'EN_PROCESO' && (
                       <Button variant="success" size="sm" onClick={guardarConteoFormal} loading={savingConteo}>
                         Guardar conteo
@@ -4402,6 +4466,56 @@ export default function Deposito() {
           />
         )
       })()}
+
+      {modalHistorial && (
+        <Modal open onClose={() => setModalHistorial(false)} title="Historial de conteos" maxWidth="max-w-3xl" disableBackdropClose={false}>
+          <div className="space-y-3">
+            <p className="text-xs" style={{ color: colors.textMuted }}>
+              Conteos de <b style={{ color: colors.textSecondary }}>depósito y cámara</b> del período seleccionado ({fmtFecha(rangoCS.desde)} – {fmtFecha(rangoCS.hasta)}). El comprobante se regenera con los datos guardados — podés reimprimirlo cuando quieras.
+            </p>
+            {cargandoHistorial ? (
+              <p className="text-sm py-6 text-center" style={{ color: colors.textMuted }}>Cargando…</p>
+            ) : ciclosHistorial.length === 0 ? (
+              <p className="text-sm py-6 text-center" style={{ color: colors.textMuted }}>No hay conteos registrados en este período.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table className="min-w-[640px]">
+                  <Thead>
+                    <Tr>
+                      <Th>FECHA</Th><Th>ÁREA</Th><Th>RESPONSABLE</Th><Th>PRODUCTOS</Th>
+                      <Th>FALTANTES</Th><Th>SOBRANTES</Th><Th>FALTANTE $</Th><Th></Th>
+                    </Tr>
+                  </Thead>
+                  <Tbody>
+                    {ciclosHistorial.map(c => (
+                      <Tr key={c.clave}>
+                        <Td className="text-xs whitespace-nowrap">{fmtFecha(c.fecha)}</Td>
+                        <Td className="text-xs">
+                          <span className="px-2 py-0.5 rounded-full font-semibold"
+                            style={{ backgroundColor: c.area === 'camara' ? 'rgba(59,130,246,0.12)' : 'rgba(16,185,129,0.12)', color: c.area === 'camara' ? colors.info : colors.success }}>
+                            {c.area === 'camara' ? 'Cámara' : 'Depósito'}
+                          </span>
+                          {c.modo === 'ciego' && <span className="ml-1" title="A ciegas">🙈</span>}
+                        </Td>
+                        <Td className="text-xs" style={{ color: colors.textSecondary }}>{c.responsable || '—'}</Td>
+                        <Td className="text-right text-xs">{c.n}</Td>
+                        <Td className="text-right text-xs font-semibold" style={{ color: c.faltantes > 0 ? colors.danger : colors.textMuted }}>{c.faltantes}</Td>
+                        <Td className="text-right text-xs font-semibold" style={{ color: c.sobrantes > 0 ? colors.warning : colors.textMuted }}>{c.sobrantes}</Td>
+                        <Td className="text-right text-xs" style={{ color: c.valorFaltante > 0 ? colors.danger : colors.textMuted }}>{c.valorFaltante > 0 ? `$${pesos(c.valorFaltante)}` : '—'}</Td>
+                        <Td className="text-right">
+                          <Button variant="secondary" size="sm" onClick={() => reimprimirComprobante(c)} loading={reimprimiendo === c.clave} disabled={!c.ciclo_id}>
+                            <FileDown size={12} /> Comprobante
+                          </Button>
+                        </Td>
+                      </Tr>
+                    ))}
+                  </Tbody>
+                </Table>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
 
       {/* Gráfico oculto top diferencias Control Semanal — captura PDF */}
       {(() => {

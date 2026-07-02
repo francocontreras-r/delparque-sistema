@@ -90,6 +90,33 @@ export async function cargarConteosPeriodo({ desde, hasta }) {
   }
 }
 
+// Trae las filas de UN ciclo de conteo (para reimprimir su comprobante).
+export async function cargarConteosCiclo(cicloId) {
+  if (!cicloId) return []
+  try {
+    const { supabase } = await import('./supabase')
+    const { data, error } = await supabase.from('conteos_stock').select('*').eq('ciclo_id', cicloId)
+    if (error) { console.warn('cargarConteosCiclo:', error.message); return [] }
+    return data || []
+  } catch (e) { console.warn('cargarConteosCiclo:', e.message); return [] }
+}
+
+// Lista los conteos (agrupados por ciclo) de un período, para el Historial.
+export async function cargarCiclos({ desde = null, hasta = null } = {}) {
+  const rows = await cargarConteosPeriodo({ desde, hasta })
+  const porCiclo = {}
+  rows.forEach(r => {
+    const k = r.ciclo_id || `${r.fecha}-${r.tipo}-${r.responsable}` // respaldo si no hay ciclo
+    if (!porCiclo[k]) porCiclo[k] = { ciclo_id: r.ciclo_id || null, clave: k, fecha: r.fecha, area: r.tipo, responsable: r.responsable, modo: r.modo, n: 0, faltantes: 0, sobrantes: 0, valorFaltante: 0 }
+    const g = porCiclo[k]; g.n++
+    const d = Number(r.diferencia) || 0
+    if (d < 0) { g.faltantes++; g.valorFaltante += Math.abs(Number(r.valor_impacto) || 0) }
+    else if (d > 0) g.sobrantes++
+    if (r.fecha > g.fecha) g.fecha = r.fecha
+  })
+  return Object.values(porCiclo).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))
+}
+
 // Consolida los conteos de la semana: se queda con el ÚLTIMO conteo por
 // (área, producto) para no duplicar si algo se contó en dos lugares, y separa
 // faltantes (dif<0) de sobrantes (dif>0). Devuelve totales valorizados.

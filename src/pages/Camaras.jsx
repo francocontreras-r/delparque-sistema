@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { deduplicarOperarios } from '../lib/operarios'
 import { exportarCSV } from '../lib/exportar'
 import { registrarConteoStock, nuevoCiclo } from '../lib/conteos'
+import { generarComprobanteConteo } from '../lib/comprobanteConteo'
 import { normalizarNombre } from '../lib/texto'
 import { useUser } from '../context/UserContext'
 import jsPDF from 'jspdf'
@@ -1349,10 +1350,12 @@ export default function Camaras() {
       const sistema = item.baldes || 0
       if (isNaN(fisico) || fisico < 0 || fisico === sistema) continue
       // Fila para el conteo unificado (fuente de verdad del informe semanal).
-      filasConteo.push({ producto_nombre: item.nombre, stock_sistema: sistema, stock_fisico: fisico, motivo: c.motivo || null, valor_impacto: null })
       const diff = fisico - sistema
       const esImp = (item.tipo_producto || 'helado') === 'impulsivo'
       const kgPorBalde = sistema > 0 ? (item.kg || 0) / sistema : 0
+      // Valor del faltante/sobrante: impulsivo por unidad; helado/postre por kg.
+      const valorImpacto = esImp ? diff * (item.costoUnit || 0) : (kgPorBalde * diff) * (item.costoUnit || 0)
+      filasConteo.push({ producto_nombre: item.nombre, stock_sistema: sistema, stock_fisico: fisico, diferencia: diff, motivo: c.motivo || null, valor_impacto: valorImpacto })
 
       // Filas reales del producto (puede tener varios lotes); ajustamos sobre ellas
       const { data: filas } = await supabase.from('stock_camaras')
@@ -1402,6 +1405,11 @@ export default function Camaras() {
     // Registrar todo el conteo en la fuente de verdad unificada (informe semanal).
     if (filasConteo.length > 0) {
       await registrarConteoStock({ area: 'camara', filas: filasConteo, responsable: operario || 'Sistema', modo, cicloId })
+      // Comprobante del conteo (se puede reimprimir desde el Historial)
+      try {
+        generarComprobanteConteo({ rows: filasConteo.map(f => ({ ...f, tipo: 'camara' })), area: 'camara', fecha: hoy, responsable: operario })
+          .save(`comprobante_conteo_camara_${hoy}.pdf`)
+      } catch (e) { console.warn('comprobante:', e) }
     }
     setModalConteo(false)
     await recargarStock()

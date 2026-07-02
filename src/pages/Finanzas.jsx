@@ -323,10 +323,10 @@ export default function Finanzas() {
       if (tabla === 'bases') { divisor = Number(r.litros_batch) || 120; unidad = 'L' }
       else if (tabla === 'sabores') { divisor = rindeKgSabor[r.id] || 120; unidad = 'kg' }
       else if (esPostre) { divisor = pesoKgImpulsivo[r.id] || 1; unidad = 'kg' }
-      // Costo unitario para el margen: materia prima + mano de obra, por unidad
-      // (mismo cálculo que lib/costoUnitario → Finanzas e Informes coinciden).
-      // El CIF queda como columna informativa aparte, no entra al margen.
-      const costoUnit = divisor > 0 ? costoTotal / divisor : costoTotal
+      // COSTO FINAL por unidad = (materia prima + mano de obra + CIF) / rinde.
+      // Este es el costo que Finanzas "manda" a Cámara e Informes (se guarda en
+      // costo_final al Actualizar costos). El margen se calcula contra este.
+      const costoUnit = divisor > 0 ? (costoTotal + cifKg) / divisor : (costoTotal + cifKg)
       const tipoLabel = tabla === 'bases' ? 'Base'
         : tabla === 'sabores' ? `Helado · ${tierDeSabor(r.nombre)}`
         : esPostre ? 'Postre' : 'Impulsivo'
@@ -430,19 +430,34 @@ export default function Finanzas() {
     setRecalculando(true)
     const snap = {}
     productos.forEach(p => {
-      snap[p.key] = { costo_total: p.costo_total, margen: margenPct(p.costo_total, p.precio_venta) }
+      snap[p.key] = { costo_total: p.costo_total, margen: margenPct(p.costo_unit, p.precio_venta) }
     })
+    // Costo FINAL por unidad (incl. CIF) que Finanzas guarda para que lo lean los
+    // demás módulos. Lo tomamos de las filas ya calculadas (secciones).
+    const finalPorId = {}
+    ;[...secciones.Sabores, ...secciones.Impulsivos, ...secciones.Postres].forEach(p => {
+      finalPorId[`${p.tabla}:${p.id}`] = { costo_final: p.costo_unit, costo_unidad: p.unidad }
+    })
+    // Si las columnas costo_final aún no existen, seguimos sin ellas (degradación).
+    let finalOk = true
+    const actualizar = async (tabla, id, base) => {
+      const fin = finalPorId[`${tabla}:${id}`]
+      if (finalOk && fin) {
+        const { error } = await supabase.from(tabla).update({ ...base, ...fin }).eq('id', id)
+        if (!error) return
+        if (error.code === '42703') finalOk = false // columna inexistente → sin costo_final
+      }
+      await supabase.from(tabla).update(base).eq('id', id)
+    }
     for (const s of sabores) {
       const ings = saborIngredientes.filter(si => si.sabor_id === s.id)
       const costoMat = calcCostoIngredientes(ings)
-      const costoTotal = costoMat + (s.mano_de_obra || 0)
-      await supabase.from('sabores').update({ costo_materiales: costoMat, costo_total: costoTotal }).eq('id', s.id)
+      await actualizar('sabores', s.id, { costo_materiales: costoMat, costo_total: costoMat + (s.mano_de_obra || 0) })
     }
     for (const i of impulsivos) {
       const ings = impulsivoIngredientes.filter(ii => ii.impulsivo_id === i.id)
       const costoMat = calcCostoIngredientes(ings)
-      const costoTotal = costoMat + (i.mano_de_obra || 0)
-      await supabase.from('impulsivos').update({ costo_materiales: costoMat, costo_total: costoTotal }).eq('id', i.id)
+      await actualizar('impulsivos', i.id, { costo_materiales: costoMat, costo_total: costoMat + (i.mano_de_obra || 0) })
     }
     await cargar()
     setPrevSnapshot(snap)

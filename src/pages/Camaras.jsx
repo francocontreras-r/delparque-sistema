@@ -1262,23 +1262,23 @@ export default function Camaras() {
       const [{ data, error }, { data: ops }, { data: sab }, { data: imp }, { data: sabIng }] = await Promise.all([
         supabase.from('stock_camaras').select('*').order('tipo', { ascending: true }),
         supabase.from('operarios').select('id,nombre').eq('activo', true).order('nombre'),
-        supabase.from('sabores').select('id,nombre,costo_total,precio_venta,litros_base'),
-        supabase.from('impulsivos').select('nombre,costo_total,precio_venta'),
+        supabase.from('sabores').select('id,nombre,costo_total,costo_final,precio_venta,litros_base'),
+        supabase.from('impulsivos').select('nombre,costo_total,costo_final,precio_venta'),
         supabase.from('sabor_ingredientes').select('sabor_id,cantidad,unidad'),
       ])
       if (error) { setErrorCarga(error.message); setLoading(false); return }
-      // Precios/costos desde Finanzas (fuente única). Cámara solo los lee.
-      // Helado: el costo_total es del BATCH → lo pasamos a POR KG dividiendo por el
-      // rinde estimado (litros_base + kg de agregados de la receta). El precio ya es por kg.
+      // Costo/precio desde Finanzas (fuente única). Preferimos el COSTO FINAL por
+      // unidad que guarda Finanzas (MP+MO+CIF). Si no está, respaldo: costo_total
+      // del batch / rinde estimado (litros_base + kg de agregados).
       const extraKg = {}
       ;(sabIng || []).forEach(i => { if ((i.unidad || '').toLowerCase() === 'kg') extraKg[i.sabor_id] = (extraKg[i.sabor_id] || 0) + (Number(i.cantidad) || 0) })
       const precioMap = {}
       ;(sab || []).forEach(s => {
         const rinde = (Number(s.litros_base) || 120) + (extraKg[s.id] || 0)
-        const costoKg = rinde > 0 ? (Number(s.costo_total) || 0) / rinde : 0
+        const costoKg = Number(s.costo_final) > 0 ? Number(s.costo_final) : (rinde > 0 ? (Number(s.costo_total) || 0) / rinde : 0)
         precioMap[normalizarNombre(s.nombre)] = { costo: costoKg, precio: Number(s.precio_venta) || 0 }
       })
-      ;(imp || []).forEach(i => { precioMap[normalizarNombre(i.nombre)] = { costo: Number(i.costo_total) || 0, precio: Number(i.precio_venta) || 0 } })
+      ;(imp || []).forEach(i => { precioMap[normalizarNombre(i.nombre)] = { costo: Number(i.costo_final) > 0 ? Number(i.costo_final) : (Number(i.costo_total) || 0), precio: Number(i.precio_venta) || 0 } })
       const agrupados = {}
       ;(data || []).forEach(item => {
         const key = item.nombre.trim().toUpperCase()

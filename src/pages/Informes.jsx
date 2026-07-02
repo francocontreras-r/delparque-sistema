@@ -457,12 +457,20 @@ export default function Informes() {
     insumos.reduce((a, i) => a + (i.stock_actual || 0) * (i.costo_unitario || 0), 0)
   ), [insumos])
 
-  const valorCamaras = useMemo(() => (
-    stockCamaras.reduce((a, c) => {
-      const costoKg = c.costo_kg ?? TIPO_PRECIOS[c.tipo]?.costo_kg ?? 0
+  // Valuación de cámara con el COSTO FINAL de Finanzas (mismo criterio que el
+  // módulo Cámaras). Helado/postre por kg; impulsivo por unidad. Respaldo: TIPO_PRECIOS.
+  const valorCamaras = useMemo(() => {
+    const cf = {}
+    sabores.forEach(s => { cf[normalizarNombre(s.nombre)] = Number(s.costo_final) || 0 })
+    impulsivos.forEach(i => { cf[normalizarNombre(i.nombre)] = Number(i.costo_final) || 0 })
+    return stockCamaras.reduce((a, c) => {
+      const costo = cf[normalizarNombre(c.nombre)] || 0
+      const esUnid = c.tipo_producto === 'impulsivo'
+      if (costo > 0) return a + (esUnid ? (c.baldes || 0) : (c.kg || 0)) * costo
+      const costoKg = c.costo_kg ?? TIPO_PRECIOS[c.tipo]?.costo_kg ?? 0 // respaldo
       return a + (c.kg || 0) * costoKg
     }, 0)
-  ), [stockCamaras])
+  }, [stockCamaras, sabores, impulsivos])
 
   // Tipo de precio de sabor (Lisa/Con Agregado/Agua/Especial + Pistacho/Rocher)
   const tipoSaborMap = useMemo(() => {
@@ -487,11 +495,12 @@ export default function Informes() {
   const productosFinancieros = useMemo(() => {
     const vistos = new Set()
     const filas = []
-    const push = (nombre, precio, tipoGrupo, subtipo) => {
+    const push = (nombre, precio, tipoGrupo, subtipo, costoFinal) => {
       const clave = `${tipoGrupo}::${normalizarNombre(nombre)}`
       if (vistos.has(clave)) return // evita duplicados (ej. Pomelo Rosado 2 veces)
       vistos.add(clave)
-      const costo = costoUnitario.costoUnitDe(nombre)
+      // Preferimos el COSTO FINAL que guarda Finanzas (MP+MO+CIF). Respaldo: cálculo en vivo.
+      const costo = Number(costoFinal) > 0 ? Number(costoFinal) : costoUnitario.costoUnitDe(nombre)
       const pv = Number(precio) || 0
       filas.push({
         key: clave, nombre, tipo: tipoGrupo, subtipo,
@@ -499,10 +508,10 @@ export default function Informes() {
         ganancia: pv - costo, margen: margenPct(costo, pv),
       })
     }
-    sabores.forEach(s => push(s.nombre, s.precio_venta, 'Helado', tierDeSabor(s.nombre)))
+    sabores.forEach(s => push(s.nombre, s.precio_venta, 'Helado', tierDeSabor(s.nombre), s.costo_final))
     impulsivos.forEach(i => {
       const esPostre = (tipoProductoMap[(i.nombre || '').toUpperCase()]) === 'postre'
-      push(i.nombre, i.precio_venta, esPostre ? 'Postre' : 'Impulsivo', esPostre ? 'Postre' : 'Impulsivo')
+      push(i.nombre, i.precio_venta, esPostre ? 'Postre' : 'Impulsivo', esPostre ? 'Postre' : 'Impulsivo', i.costo_final)
     })
     return filas
   }, [sabores, impulsivos, costoUnitario, tipoProductoMap]) // eslint-disable-line react-hooks/exhaustive-deps

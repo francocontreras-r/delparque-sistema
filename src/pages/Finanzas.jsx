@@ -968,6 +968,11 @@ export default function Finanzas() {
                   <div className="px-4 py-2.5" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
                     <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>{label}</span>
                     <span className="text-xs ml-2" style={{ color: colors.textMuted }}>{items.length} producto{items.length !== 1 ? 's' : ''}</span>
+                    {key === 'Sabores' && (
+                      <p className="text-[10px] mt-0.5" style={{ color: colors.textMuted }}>
+                        MP · MOD · CIF · Costo Total son de la <b>tanda</b> (120 L de base ≈ el rinde en kg). <b>Costo unit.</b> = Costo Total ÷ Rinde = el costo real por kg.
+                      </p>
+                    )}
                   </div>
                   <div className="overflow-x-auto">
                     <Table className="min-w-[820px]">
@@ -977,6 +982,7 @@ export default function Finanzas() {
                           <Th className="text-right">MOD ($)</Th>
                           <Th className="text-right">CIF ($)</Th>
                           <Th className="text-right">Costo Total ($)</Th>
+                          <Th className="text-right">Rinde</Th>
                           <Th className="text-right">Costo unit. ($)</Th>
                           <Th className="text-right">Precio venta ($)</Th>
                           <Th className="text-right">Margen %</Th>
@@ -1008,6 +1014,9 @@ export default function Finanzas() {
                               <Td className="text-right font-semibold">
                                 ${pesos(p.costo_total_cif)}
                                 {tieneDiff && <DiffBadge actual={p.costo_total} anterior={prev?.costo_total} />}
+                              </Td>
+                              <Td className="text-right text-xs" style={{ color: colors.textSecondary }}>
+                                {p.divisor > 1 ? `${(Number(p.divisor) || 0).toLocaleString('es-AR', { maximumFractionDigits: 1 })} ${p.unidad}` : `1 ${p.unidad}`}
                               </Td>
                               <Td className="text-right font-bold" style={{ color: colors.brand }}>
                                 ${pesos(p.costo_unit)}

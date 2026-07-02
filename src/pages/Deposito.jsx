@@ -976,6 +976,7 @@ export default function Deposito() {
   const [modalMovsDet, setModalMovsDet]     = useState(null)
   const [modalEvolCS, setModalEvolCS]       = useState(null)
   const [generandoPDFstock, setGenerandoPDFstock] = useState(false)
+  const [generandoPDFValuacion, setGenerandoPDFValuacion] = useState(false)
   const [generandoPDFInforme, setGenerandoPDFInforme] = useState(false)
   const [filtroMovDesde, setFiltroMovDesde] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().split('T')[0]
@@ -2347,6 +2348,121 @@ export default function Deposito() {
   }
 
 
+  // ── Informe de VALUACIÓN de stock de depósito (profesional, B&N) ────────────
+  async function generarPDFValuacion() {
+    setGenerandoPDFValuacion(true)
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const pw = doc.internal.pageSize.getWidth()
+      const ph = doc.internal.pageSize.getHeight()
+      const hoy = new Date().toLocaleString('es-AR')
+      const MOD = 'DEPÓSITO', TIT = 'VALUACIÓN DE STOCK'
+      const N = [20, 20, 20]
+      const money = n => `$${(Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      const num = n => (Number(n) || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 })
+      const encab = () => dibujarEncabezado(doc, pw, MOD, TIT, hoy)
+      const BW_HEAD = { fillColor: [35, 35, 35], textColor: [255, 255, 255], halign: 'center', fontStyle: 'bold', lineWidth: 0.1, lineColor: [180, 180, 180] }
+      const BW_BODY = { textColor: [25, 25, 25], halign: 'center', lineWidth: 0.1, lineColor: [210, 210, 210] }
+      const tabla = (opts) => autoTable(doc, {
+        headStyles: BW_HEAD, bodyStyles: BW_BODY, alternateRowStyles: { fillColor: [244, 244, 244] }, footStyles: BW_HEAD,
+        styles: { fontSize: 7.5, cellPadding: 1.8, halign: 'center', valign: 'middle' },
+        margin: { top: PDF_CONTENT_Y, left: 14, right: 14 }, didDrawPage: encab, ...opts,
+      })
+
+      // Datos
+      const items = [...insumos].map(i => ({
+        nombre: i.nombre || '—', categoria: i.categoria || 'SIN CATEGORÍA', unidad: i.unidad || 'u',
+        stock: Number(i.stock_actual) || 0, min: Number(i.stock_minimo) || 0, max: Number(i.stock_maximo) || 0,
+        costo: Number(i.costo_unitario) || 0,
+      })).map(i => ({ ...i, valor: i.stock * i.costo, bajo: i.min > 0 && i.stock < i.min, sinCosto: i.costo <= 0 }))
+      const valorTotal = items.reduce((a, i) => a + i.valor, 0)
+      const bajoMin = items.filter(i => i.bajo).length
+      const sinCosto = items.filter(i => i.sinCosto).length
+      const cats = {}
+      items.forEach(i => { (cats[i.categoria] || (cats[i.categoria] = { items: 0, valor: 0 })); cats[i.categoria].items++; cats[i.categoria].valor += i.valor })
+      const catList = Object.entries(cats).map(([k, v]) => ({ categoria: k, ...v })).sort((a, b) => b.valor - a.valor)
+
+      // P1 — Portada
+      dibujarPortada(doc, pw, ph, MOD, 'Informe de Valuación de Stock', 'Materia prima e insumos', hoy)
+
+      // P2 — Resumen ejecutivo
+      doc.addPage(); encab()
+      let y = PDF_CONTENT_Y
+      y = dibujarSeccion(doc, pw, 'Resumen ejecutivo', y)
+      const kw = (pw - 28 - 6) / 4
+      dibujarKpi(doc, 14,            y, kw, 20, 'Artículos', String(items.length))
+      dibujarKpi(doc, 14 + (kw+2),   y, kw, 20, 'Categorías', String(catList.length))
+      dibujarKpi(doc, 14 + (kw+2)*2, y, kw, 20, 'Bajo mínimo', String(bajoMin))
+      dibujarKpi(doc, 14 + (kw+2)*3, y, kw, 20, 'Sin costo', String(sinCosto))
+      y += 28
+      // Valuación total destacada
+      doc.setFillColor(35, 35, 35); doc.roundedRect(14, y, pw - 28, 16, 2, 2, 'F')
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(255, 255, 255)
+      doc.text('VALUACIÓN TOTAL DEL DEPÓSITO', 20, y + 6.5)
+      doc.setFontSize(14); doc.text(money(valorTotal), pw - 20, y + 10, { align: 'right' })
+      y += 24
+
+      // Barra: valuación por categoría (grayscale, B&N)
+      y = dibujarSeccion(doc, pw, 'Valuación por categoría', y)
+      const top = catList.slice(0, 8)
+      const maxV = Math.max(...top.map(c => c.valor), 1)
+      const barX = 52, barW = pw - 14 - barX - 40
+      top.forEach((c, i) => {
+        const by = y + i * 8
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...N)
+        doc.text(c.categoria.length > 18 ? c.categoria.slice(0, 17) + '…' : c.categoria, 14, by + 3.5)
+        doc.setFillColor(225, 225, 225); doc.roundedRect(barX, by, barW, 4.5, 0.8, 0.8, 'F')
+        doc.setFillColor(60, 60, 60); doc.roundedRect(barX, by, Math.max(1, barW * (c.valor / maxV)), 4.5, 0.8, 0.8, 'F')
+        doc.setTextColor(...N); doc.text(money(c.valor), barX + barW + 2, by + 3.5)
+      })
+      y += top.length * 8 + 6
+
+      // Tabla resumen por categoría
+      if (y + 30 > ph - 20) { doc.addPage(); encab(); y = PDF_CONTENT_Y }
+      y = dibujarSeccion(doc, pw, 'Resumen por categoría', y)
+      tabla({
+        startY: y,
+        head: [['CATEGORÍA', 'ARTÍCULOS', 'VALUACIÓN', '% DEL TOTAL']],
+        body: catList.map(c => [c.categoria, String(c.items), money(c.valor), `${valorTotal > 0 ? (c.valor / valorTotal * 100).toFixed(1) : '0'}%`]),
+        foot: [['TOTAL', String(items.length), money(valorTotal), '100%']],
+      })
+      y = doc.lastAutoTable.finalY + 8
+
+      // Detalle completo por artículo (ordenado por categoría y nombre)
+      if (y + 30 > ph - 20) { doc.addPage(); encab(); y = PDF_CONTENT_Y }
+      y = dibujarSeccion(doc, pw, 'Detalle por artículo', y)
+      const det = [...items].sort((a, b) => a.categoria.localeCompare(b.categoria) || a.nombre.localeCompare(b.nombre))
+      tabla({
+        startY: y,
+        head: [['PRODUCTO', 'CATEGORÍA', 'UN.', 'STOCK', 'MÍN', 'MÁX', 'COSTO UNIT', 'VALUACIÓN', 'ESTADO']],
+        body: det.map(i => [
+          i.nombre, i.categoria, i.unidad, num(i.stock), num(i.min), num(i.max),
+          i.sinCosto ? 's/costo' : money(i.costo), money(i.valor),
+          i.sinCosto ? 'sin costo' : i.bajo ? 'BAJO MÍN.' : i.stock <= 0 ? 'sin stock' : 'OK',
+        ]),
+        foot: [['', '', '', '', '', '', 'TOTAL', money(valorTotal), '']],
+        columnStyles: { 0: { halign: 'left' } },
+        didParseCell: (d) => {
+          if (d.section !== 'body') return
+          const r = det[d.row.index]; if (!r) return
+          if (r.bajo && d.column.index === 8) { d.cell.styles.textColor = [190, 30, 30]; d.cell.styles.fontStyle = 'bold' }
+        },
+      })
+      y = doc.lastAutoTable.finalY + 8
+
+      // Firmas
+      if (y + 24 > ph - 20) { doc.addPage(); encab(); y = PDF_CONTENT_Y }
+      dibujarFirmas(doc, pw, ph, y, MOD, hoy, ['Responsable Depósito', 'Administración'])
+      const totalPag = doc.internal.getNumberOfPages()
+      for (let p = 2; p <= totalPag; p++) { doc.setPage(p); dibujarPie(doc, pw, ph, p) }
+      doc.save(`valuacion-deposito-${new Date().toISOString().slice(0, 10)}.pdf`)
+    } catch (err) {
+      toast2(err.message || 'No se pudo generar la valuación', 'error')
+    } finally {
+      setGenerandoPDFValuacion(false)
+    }
+  }
+
   async function generarPDFStock() {
     setGenerandoPDFstock(true)
     try {
@@ -2993,6 +3109,11 @@ export default function Deposito() {
                 <ArrowDown size={14} /> Egreso
               </Button>
             </>
+          )}
+          {tab === 'Stock' && (
+            <Button variant="primary" onClick={generarPDFValuacion} loading={generandoPDFValuacion}>
+              <FileDown size={15} /> Valuación PDF
+            </Button>
           )}
           {tab === 'Trazabilidad' && (
             <>

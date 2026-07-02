@@ -323,9 +323,15 @@ export default function Finanzas() {
       if (tabla === 'bases') { divisor = Number(r.litros_batch) || 120; unidad = 'L' }
       else if (tabla === 'sabores') { divisor = rindeKgSabor[r.id] || 120; unidad = 'kg' }
       else if (esPostre) { divisor = pesoKgImpulsivo[r.id] || 1; unidad = 'kg' }
-      const costoUnit = divisor > 0 ? (costoTotal + cifKg) / divisor : (costoTotal + cifKg)
+      // Costo unitario para el margen: materia prima + mano de obra, por unidad
+      // (mismo cálculo que lib/costoUnitario → Finanzas e Informes coinciden).
+      // El CIF queda como columna informativa aparte, no entra al margen.
+      const costoUnit = divisor > 0 ? costoTotal / divisor : costoTotal
+      const tipoLabel = tabla === 'bases' ? 'Base'
+        : tabla === 'sabores' ? `Helado · ${tierDeSabor(r.nombre)}`
+        : esPostre ? 'Postre' : 'Impulsivo'
       return {
-        key: `${prefix}-${r.id}`, id: r.id, tabla, nombre: r.nombre,
+        key: `${prefix}-${r.id}`, id: r.id, tabla, nombre: r.nombre, tipo: tipoLabel,
         costo_materiales: costoMat,
         mano_de_obra: r.mano_de_obra || 0,
         costo_total: costoTotal,
@@ -337,10 +343,12 @@ export default function Finanzas() {
       }
     }
     const cifSabor = (r) => cifPorLitro * (litrosBasePorNombre[(r.nombre || '').toUpperCase()] || 0)
-    const impsRows = impulsivos.map(mkRow('impulsivos', 'impulsivo', null))
+    // Deduplica por nombre (evita que un producto cargado 2 veces aparezca repetido)
+    const dedupe = (arr) => { const seen = new Set(); return arr.filter(x => { const k = normalizarNombre(x.nombre || ''); if (seen.has(k)) return false; seen.add(k); return true }) }
+    const impsRows = dedupe(impulsivos).map(mkRow('impulsivos', 'impulsivo', null))
     return {
-      Bases:      bases.map(mkRow('bases', 'base', null)),
-      Sabores:    sabores.map(mkRow('sabores', 'sabor', cifSabor)),
+      Bases:      dedupe(bases).map(mkRow('bases', 'base', null)),
+      Sabores:    dedupe(sabores).map(mkRow('sabores', 'sabor', cifSabor)),
       Impulsivos: impsRows.filter(r => (tiposMap[(r.nombre || '').toUpperCase()] || 'impulsivo') === 'impulsivo'),
       Postres:    impsRows.filter(r => tiposMap[(r.nombre || '').toUpperCase()] === 'postre'),
     }
@@ -534,6 +542,12 @@ export default function Finanzas() {
 
     const conPrecio = margenes.filter(p => p.precio_venta > 0)
     const ordenado = [...conPrecio].sort((a, b) => b.margen - a.margen)
+    // Detalle completo: TODOS los productos (con y sin precio), los sin precio al final.
+    const detalle = [...margenes].sort((a, b) => {
+      const ap = a.precio_venta > 0, bp = b.precio_venta > 0
+      if (ap !== bp) return ap ? -1 : 1
+      return b.margen - a.margen
+    })
 
     // Color y etiqueta semántica por margen — usa la MISMA escala que la pantalla
     // (nivelMargen) para que Estado coincida exactamente entre app y PDF.
@@ -675,12 +689,18 @@ export default function Finanzas() {
     autoTable(doc, {
       ...EST,
       startY: PDF_CONTENT_Y,
-      head: [['Producto', 'Tipo', 'Costo total', 'Precio venta', 'Ganancia', 'Margen', 'Estado']],
-      body: ordenado.map(p => [
-        p.nombre, p.tipo || '—',
-        `$${pesos(p.costo_total)}`, `$${pesos(p.precio_venta)}`, `$${pesos(p.ganancia)}`,
-        `${p.margen.toFixed(1)}%`, nivelStr(p.margen),
-      ]),
+      head: [['Producto', 'Tipo', 'Costo unit.', 'Precio venta', 'Ganancia', 'Margen', 'Estado']],
+      body: detalle.map(p => {
+        const cp = p.precio_venta > 0
+        return [
+          p.nombre, p.tipo || '—',
+          `$${pesos(p.costo_unit)}/${p.unidad}`,
+          cp ? `$${pesos(p.precio_venta)}` : '—',
+          cp ? `$${pesos(p.ganancia)}` : '—',
+          cp ? `${p.margen.toFixed(1)}%` : '—',
+          cp ? nivelStr(p.margen) : 'sin precio',
+        ]
+      }),
       columnStyles: {
         0: { cellWidth: 46 },
         2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' },
@@ -688,7 +708,9 @@ export default function Finanzas() {
       },
       didParseCell: d => {
         if (d.section !== 'body') return
-        const m = ordenado[d.row.index]?.margen ?? 0
+        const row = detalle[d.row.index]
+        if (!row || !(row.precio_venta > 0)) return // sin precio: sin color
+        const m = row.margen ?? 0
         const col = semColor(m)
         if (d.column.index === 5) {          // Margen %: texto en color + fondo tenue de la banda
           d.cell.styles.textColor = col
@@ -820,7 +842,9 @@ export default function Finanzas() {
                 { header: 'Tipo', get: p => p.tipo || '' },
                 { header: 'Costo MP', get: p => Math.round(p.costo_materiales || 0) },
                 { header: 'Mano de obra', get: p => Math.round(p.mano_de_obra || 0) },
-                { header: 'Costo total', get: p => Math.round(p.costo_total || 0) },
+                { header: 'Costo total (batch)', get: p => Math.round(p.costo_total || 0) },
+                { header: 'Costo unit.', get: p => Math.round(p.costo_unit || 0) },
+                { header: 'Unidad', get: p => p.unidad || '' },
                 { header: 'Precio venta', get: p => Math.round(p.precio_venta || 0) },
                 { header: 'Ganancia', get: p => Math.round(p.ganancia || 0) },
                 { header: 'Margen %', get: p => (p.margen || 0).toFixed(1) },
@@ -1155,9 +1179,10 @@ export default function Finanzas() {
                     <Thead>
                       <Tr>
                         <Th>Producto</Th>
+                        <Th>Tipo</Th>
                         <Th>Costo MP</Th>
                         <Th>MO</Th>
-                        <Th>Costo total</Th>
+                        <Th>Costo unit.</Th>
                         <Th>
                           <span>Precio venta</span>
                           <span className="ml-1 text-[10px] font-normal" style={{ color: colors.textMuted }}>(editable)</span>
@@ -1181,11 +1206,11 @@ export default function Finanzas() {
                         return (
                           <Tr key={p.key} style={{ backgroundColor: nv.rowBg }}>
                             <Td className="font-medium max-w-[140px] truncate">{p.nombre}</Td>
+                            <Td className="text-xs" style={{ color: colors.textMuted }}>{p.tipo}</Td>
                             <Td className="text-right text-xs">${pesos(p.costo_materiales)}</Td>
                             <Td className="text-right text-xs">${pesos(p.mano_de_obra)}</Td>
                             <Td className="text-right font-semibold">
-                              ${pesos(p.costo_total)}
-                              {tieneDiff && <DiffBadge actual={p.costo_total} anterior={prevSnapshot?.[p.key]?.costo_total} />}
+                              ${pesos(p.costo_unit)}<span className="text-[10px] font-normal" style={{ color: colors.textMuted }}>/{p.unidad}</span>
                             </Td>
                             <Td className="text-right">
                               <EditableNumber value={p.precio_venta} onCommit={v => actualizarCampo(p, 'precio_venta', v)} />

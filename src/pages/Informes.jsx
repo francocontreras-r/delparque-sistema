@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { crearCostoUnitario } from '../lib/costoUnitario'
+import { normalizarNombre } from '../lib/texto'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import html2canvas from 'html2canvas'
@@ -176,6 +178,10 @@ export default function Informes() {
   const [impulsivos, setImpulsivos]     = useState([])
   const [insumos, setInsumos]           = useState([])
   const [stockCamaras, setStockCamaras] = useState([])
+  const [bases, setBases]               = useState([])
+  const [baseIngredientes, setBaseIngredientes]     = useState([])
+  const [saborIngredientes, setSaborIngredientes]   = useState([])
+  const [impulsivoIngredientes, setImpulsivoIngredientes] = useState([])
 
   const rango = useMemo(() => {
     try {
@@ -214,6 +220,7 @@ export default function Informes() {
       { data: merAct }, { data: merAnt },
       { data: pp }, { data: sab }, { data: imp }, { data: ins }, { data: cam },
       { data: movCamAct }, { data: movCamAnt },
+      { data: bas }, { data: basIng }, { data: sabIng }, { data: impIng },
     ] = await Promise.all([
       supabase.from('producciones').select('*').gte('fecha', desde).lte('fecha', hasta),
       supabase.from('producciones').select('*').gte('fecha', antDesde).lte('fecha', antHasta),
@@ -229,6 +236,10 @@ export default function Informes() {
         .gte('created_at', desde + 'T00:00:00').lte('created_at', hasta + 'T23:59:59'),
       supabase.from('movimientos_camara').select('*').eq('tipo', 'ingreso').not('motivo', 'is', null)
         .gte('created_at', antDesde + 'T00:00:00').lte('created_at', antHasta + 'T23:59:59'),
+      supabase.from('bases').select('id,nombre,litros_batch,mano_de_obra'),
+      supabase.from('base_ingredientes').select('base_id,insumo_nombre,cantidad,unidad'),
+      supabase.from('sabor_ingredientes').select('sabor_id,insumo_nombre,cantidad,unidad'),
+      supabase.from('impulsivo_ingredientes').select('impulsivo_id,insumo_nombre,cantidad,unidad'),
     ])
     setProduccionesActual([...(prodAct || []), ...(movCamAct || []).map(normalizarMovCamara)])
     setProduccionesAnterior([...(prodAnt || []), ...(movCamAnt || []).map(normalizarMovCamara)])
@@ -239,6 +250,10 @@ export default function Informes() {
     setImpulsivos(imp || [])
     setInsumos(ins || [])
     setStockCamaras(cam || [])
+    setBases(bas || [])
+    setBaseIngredientes(basIng || [])
+    setSaborIngredientes(sabIng || [])
+    setImpulsivoIngredientes(impIng || [])
     setLoading(false)
   }
 
@@ -449,46 +464,71 @@ export default function Informes() {
     }, 0)
   ), [stockCamaras])
 
-  const productosFinancieros = useMemo(() => {
-    const a = sabores.map(s => ({
-      key: `sabor-${s.id}`, nombre: s.nombre, tipo: 'Helado',
-      costo_total: s.costo_total || 0, precio_venta: s.precio_venta || 0,
-    }))
-    const b = impulsivos.map(i => ({
-      key: `impulsivo-${i.id}`, nombre: i.nombre, tipo: 'Impulsivo/Postre',
-      costo_total: i.costo_total || 0, precio_venta: i.precio_venta || 0,
-    }))
-    return [...a, ...b].map(p => ({
-      ...p,
-      ganancia: (p.precio_venta || 0) - (p.costo_total || 0),
-      margen: margenPct(p.costo_total, p.precio_venta),
-    }))
-  }, [sabores, impulsivos])
+  // Tipo de precio de sabor (Lisa/Con Agregado/Agua/Especial + Pistacho/Rocher)
+  const tipoSaborMap = useMemo(() => {
+    const m = {}; stockCamaras.forEach(c => { if (c.tipo) m[(c.nombre || '').toUpperCase()] = c.tipo }); return m
+  }, [stockCamaras])
+  const tipoProductoMap = useMemo(() => {
+    const m = {}; stockCamaras.forEach(c => { m[(c.nombre || '').toUpperCase()] = c.tipo_producto }); return m
+  }, [stockCamaras])
+  const tierDeSabor = (nombre) => {
+    const n = (nombre || '').toLowerCase()
+    if (n.includes('pistacho')) return 'Pistacho'
+    if (n.includes('rocher')) return 'Rocher'
+    return tipoSaborMap[(nombre || '').toUpperCase()] || '—'
+  }
 
+  // Costo UNITARIO real (misma fuente que Finanzas → los márgenes coinciden)
+  const costoUnitario = useMemo(() => crearCostoUnitario({
+    insumos, bases, baseIngredientes, sabores, saborIngredientes,
+    impulsivos, impulsivoIngredientes, tiposMap: tipoProductoMap,
+  }), [insumos, bases, baseIngredientes, sabores, saborIngredientes, impulsivos, impulsivoIngredientes, tipoProductoMap])
+
+  const productosFinancieros = useMemo(() => {
+    const vistos = new Set()
+    const filas = []
+    const push = (nombre, precio, tipoGrupo, subtipo) => {
+      const clave = `${tipoGrupo}::${normalizarNombre(nombre)}`
+      if (vistos.has(clave)) return // evita duplicados (ej. Pomelo Rosado 2 veces)
+      vistos.add(clave)
+      const costo = costoUnitario.costoUnitDe(nombre)
+      const pv = Number(precio) || 0
+      filas.push({
+        key: clave, nombre, tipo: tipoGrupo, subtipo,
+        costo_unit: costo, precio_venta: pv,
+        ganancia: pv - costo, margen: margenPct(costo, pv),
+      })
+    }
+    sabores.forEach(s => push(s.nombre, s.precio_venta, 'Helado', tierDeSabor(s.nombre)))
+    impulsivos.forEach(i => {
+      const esPostre = (tipoProductoMap[(i.nombre || '').toUpperCase()]) === 'postre'
+      push(i.nombre, i.precio_venta, esPostre ? 'Postre' : 'Impulsivo', esPostre ? 'Postre' : 'Impulsivo')
+    })
+    return filas
+  }, [sabores, impulsivos, costoUnitario, tipoProductoMap]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Más rentables: solo productos con precio Y costo cargados (evita "100%" falso de un costo $0)
   const masRentables = useMemo(() => (
-    [...productosFinancieros].filter(p => p.precio_venta > 0).sort((a, b) => b.margen - a.margen).slice(0, 5)
+    [...productosFinancieros].filter(p => p.precio_venta > 0 && p.costo_unit > 0).sort((a, b) => b.margen - a.margen).slice(0, 5)
   ), [productosFinancieros])
 
   const margenPromedio = useMemo(() => {
-    const conPrecio = productosFinancieros.filter(p => p.precio_venta > 0)
-    if (conPrecio.length === 0) return 0
-    return conPrecio.reduce((a, p) => a + p.margen, 0) / conPrecio.length
+    // Solo productos con precio y costo reales (un costo $0 daría 100% falso)
+    const conDatos = productosFinancieros.filter(p => p.precio_venta > 0 && p.costo_unit > 0)
+    if (conDatos.length === 0) return 0
+    return conDatos.reduce((a, p) => a + p.margen, 0) / conDatos.length
   }, [productosFinancieros])
 
   const costoProduccionPeriodo = useMemo(() => {
-    const costoPorNombre = {}
-    productosFinancieros.forEach(p => { costoPorNombre[p.nombre.trim().toLowerCase()] = p.costo_total })
+    // Helado: kg producidos × costo/kg. Impulsivo/postre: unidades × costo/unidad (stored).
+    const impCostoUnit = {}; impulsivos.forEach(i => { impCostoUnit[normalizarNombre(i.nombre)] = Number(i.costo_total) || 0 })
     return produccionesActual.reduce((acc, r) => {
       const tipo = clasificarRegistro(r)
-      const nombre = (r.producto_nombre || '').trim().toLowerCase()
-      if (tipo !== 'helado') {
-        const costoUnit = costoPorNombre[nombre] || 0
-        return acc + unidadesDe(r) * costoUnit
-      }
-      const costoKg = costoPorNombre[nombre] ?? costoKgPorProducto[nombre] ?? 0
-      return acc + (r.peso_kg || 0) * costoKg
+      const nombre = r.producto_nombre || ''
+      if (tipo !== 'helado') return acc + unidadesDe(r) * (impCostoUnit[normalizarNombre(nombre)] || 0)
+      return acc + (r.peso_kg || 0) * costoUnitario.costoUnitDe(nombre)
     }, 0)
-  }, [produccionesActual, productosFinancieros, clasificarRegistro, costoKgPorProducto])
+  }, [produccionesActual, impulsivos, costoUnitario, clasificarRegistro])
 
   // ── Exportación PDF ───────────────────────────────────────────────────────
   function periodoLabel() {
@@ -714,7 +754,7 @@ export default function Informes() {
         autoTable(doc, {
           ...EST, startY: y,
           head: [['PRODUCTO', 'TIPO', 'COSTO', 'PRECIO VENTA', 'GANANCIA', 'MARGEN %']],
-          body: masRentables.map(p => [p.nombre, p.tipo, `$${pesos(p.costo_total)}`, `$${pesos(p.precio_venta)}`, `$${pesos(p.ganancia)}`, `${fmtNum(p.margen)}%`]),
+          body: masRentables.map(p => [p.nombre, p.tipo === 'Helado' ? `Helado · ${p.subtipo}` : p.tipo, `$${pesos(p.costo_unit)}`, `$${pesos(p.precio_venta)}`, `$${pesos(p.ganancia)}`, `${fmtNum(p.margen)}%`]),
           columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' } },
           didParseCell: d => {
             if (d.section === 'body' && d.column.index === 5) d.cell.styles.textColor = semMargen(masRentables[d.row.index]?.margen ?? 0)
@@ -1107,8 +1147,8 @@ export default function Informes() {
                     {masRentables.map(p => (
                       <Tr key={p.key}>
                         <Td className="font-medium">{p.nombre}</Td>
-                        <Td><Badge variant="neutral">{p.tipo}</Badge></Td>
-                        <Td className="text-right">${pesos(p.costo_total)}</Td>
+                        <Td><Badge variant="neutral">{p.tipo === 'Helado' ? `Helado · ${p.subtipo}` : p.tipo}</Badge></Td>
+                        <Td className="text-right">${pesos(p.costo_unit)}</Td>
                         <Td className="text-right">${pesos(p.precio_venta)}</Td>
                         <Td className="text-right font-semibold" style={{ color: p.ganancia >= 0 ? colors.success : colors.danger }}>${pesos(p.ganancia)}</Td>
                         <Td><Badge variant={margenVariant(p.margen)}>{fmtNum(p.margen)}%</Badge></Td>

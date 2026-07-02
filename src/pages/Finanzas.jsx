@@ -17,6 +17,7 @@ import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { exportarCSV } from '../lib/exportar'
 import { crearCosteador } from '../lib/costeoRecetas'
+import { normalizarNombre } from '../lib/texto'
 import { cargarHistorialCostos } from '../lib/historialCostos'
 import {
   DollarSign, RefreshCw, Warehouse, Thermometer, Percent,

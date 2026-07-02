@@ -598,37 +598,30 @@ export default function Informes() {
           ['Operarios activos', String(actual.porOperario.length),           PDF_NEGRO],
         ], y)
 
-        // Gráfico Top sabores por kg
-        if (chartRefProd.current && chartProduccion.length > 0) {
-          try {
-            const canvas = await html2canvas(chartRefProd.current, { backgroundColor: '#1e293b', scale: 2, logging: false, useCORS: true })
-            const imgData = canvas.toDataURL('image/png')
-            y = saltarSiNecesario(y + 2)
-            const imgH = (canvas.height * (pw - 28)) / canvas.width
-            doc.setDrawColor(51, 65, 85); doc.setLineWidth(0.3)
-            doc.rect(14, y, pw - 28, imgH)
-            doc.addImage(imgData, 'PNG', 14, y, pw - 28, imgH)
-            doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139)
-            doc.text('Top sabores — kg producidos en el período', 14, y + imgH + 3)
-            y += imgH + 8
-          } catch (e) { console.warn('chart prod:', e) }
+        // Gráfico NATIVO de barras (reemplaza las capturas de pantalla)
+        const barras = (titulo, rows, color) => {
+          if (!rows.length) return
+          y = saltarSiNecesario(y)
+          y = dibujarSeccion(doc, pw, titulo, y)
+          const maxV = Math.max(...rows.map(r => r.v), 1)
+          const bx = 62, bw = pw - 14 - bx - 34
+          rows.forEach((r, i) => {
+            const by = y + i * 8
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...PDF_NEGRO)
+            doc.text(r.nombre.length > 26 ? r.nombre.slice(0, 25) + '…' : r.nombre, 14, by + 3.5)
+            doc.setFillColor(230, 230, 230); doc.roundedRect(bx, by, bw, 4.5, 0.8, 0.8, 'F')
+            doc.setFillColor(...color); doc.roundedRect(bx, by, Math.max(1, bw * (r.v / maxV)), 4.5, 0.8, 0.8, 'F')
+            doc.setTextColor(...PDF_NEGRO); doc.text(r.txt, bx + bw + 2, by + 3.5)
+          })
+          y += rows.length * 8 + 8
         }
-
-        // Gráfico producción por operario
-        if (chartRefOp.current && actual.porOperario.length > 0) {
-          try {
-            y = saltarSiNecesario(y + 2)
-            const canvas2 = await html2canvas(chartRefOp.current, { backgroundColor: '#1e293b', scale: 2, logging: false, useCORS: true })
-            const imgData2 = canvas2.toDataURL('image/png')
-            const imgH2 = (canvas2.height * (pw - 28)) / canvas2.width
-            doc.setDrawColor(51, 65, 85); doc.setLineWidth(0.3)
-            doc.rect(14, y, pw - 28, imgH2)
-            doc.addImage(imgData2, 'PNG', 14, y, pw - 28, imgH2)
-            doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139)
-            doc.text('Producción por operario — kg en el período', 14, y + imgH2 + 3)
-            y += imgH2 + 8
-          } catch (e) { console.warn('chart op:', e) }
-        }
+        const topProd = [...actual.porProducto].filter(p => p.tipo !== 'base')
+          .map(p => ({ nombre: p.nombre, v: p.tipo === 'helado' ? p.kg : p.unidades, txt: `${fmtNum(p.tipo === 'helado' ? p.kg : p.unidades, p.tipo === 'helado' ? 1 : 0)} ${p.tipo === 'helado' ? 'kg' : 'u'}` }))
+          .sort((a, b) => b.v - a.v).slice(0, 8)
+        barras('Top productos — cantidad producida', topProd, [212, 82, 26])
+        const topOps = [...actual.porOperario].map(o => ({ nombre: o.nombre, v: o.kgSabores, txt: `${fmtNum(o.kgSabores, 1)} kg` }))
+          .sort((a, b) => b.v - a.v).slice(0, 8)
+        barras('Producción por operario — kg', topOps, [59, 130, 246])
 
         y = saltarSiNecesario(y)
         y = dibujarSeccion(doc, pw, 'Resumen general', y)

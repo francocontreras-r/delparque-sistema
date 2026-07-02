@@ -1919,7 +1919,7 @@ export default function Camaras() {
         head: [['PRODUCTO', 'UNIDADES', 'KG', 'COSTO', 'VENTA']],
         body: [...postres].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
           .map(s => [s.nombre || '—', String(s.baldes || 0), (s.kg || 0).toFixed(1), money(s.valorCosto), money(s.valorVenta)]),
-        foot: [['TOTAL POSTRES', String(uP), '', money(cP), money(vP)]],
+        foot: [['TOTAL POSTRES', String(uP), `${sum(postres, s => s.kg).toFixed(1)} kg`, money(cP), money(vP)]],
       })
       y = doc.lastAutoTable.finalY + 8
     }

@@ -410,39 +410,46 @@ export default function Informes() {
   }
 
   const mermasInforme = useMemo(() => {
+    // Clasificación por tipo, no por texto de causa:
+    //  - RENDIMIENTO: hubo producción real (kg_reales > 0). El % (faltante/teórico)
+    //    es una TASA con sentido → se puede colorear por %.
+    //  - PÉRDIDA directa: faltante de conteo / merma-baja de cámara (kg_reales = 0).
+    //    No tiene tasa (sería 100% siempre) → se mide en cantidad y $, sin %.
     function analizar(lista) {
-      // Solo contabilizar mermas reales (diferencia > 0). Diferencia < 0 = sobrante.
-      const soloMermas = lista.filter(m => (m.diferencia || 0) > 0)
-      const totalDif  = soloMermas.reduce((a, m) => a + m.diferencia, 0)
-      const totalTeo  = soloMermas.reduce((a, m) => a + (m.kg_teoricos || 0), 0)
-      const pctGlobal  = totalTeo > 0 ? (totalDif / totalTeo) * 100 : 0
-      const costoTotal = soloMermas.reduce((a, m) => a + costoMerma(m), 0)
+      const mermas = lista.filter(m => (m.diferencia || 0) > 0)
+      const rendimiento = mermas.filter(m => (m.kg_reales || 0) > 0)
+      const perdidas    = mermas.filter(m => (m.kg_reales || 0) <= 0)
 
-      const porProducto = {}
-      const porOperario  = {}
-      const porCausa     = {}
-      soloMermas.forEach(m => {
-        const prod = m.sabor_nombre || 'Sin especificar'
-        if (!porProducto[prod]) porProducto[prod] = { nombre: prod, dif: 0, teo: 0 }
-        porProducto[prod].dif += m.diferencia
-        porProducto[prod].teo += m.kg_teoricos || 0
+      // Rendimiento (tasa %)
+      const totalDifR = rendimiento.reduce((a, m) => a + m.diferencia, 0)
+      const totalTeoR = rendimiento.reduce((a, m) => a + (m.kg_teoricos || 0), 0)
+      const pctGlobal = totalTeoR > 0 ? (totalDifR / totalTeoR) * 100 : 0
+      const costoR    = rendimiento.reduce((a, m) => a + costoMerma(m), 0)
+      const agrup = (arr, key) => {
+        const g = {}
+        arr.forEach(m => { const k = m[key] || (key === 'operario_nombre' ? 'Sin asignar' : 'Sin especificar')
+          if (!g[k]) g[k] = { nombre: k, dif: 0, teo: 0 }; g[k].dif += m.diferencia; g[k].teo += m.kg_teoricos || 0 })
+        return Object.values(g).map(x => ({ ...x, pct: x.teo > 0 ? (x.dif / x.teo) * 100 : 0 }))
+      }
 
-        const op = m.operario_nombre || 'Sin asignar'
-        if (!porOperario[op]) porOperario[op] = { nombre: op, dif: 0, teo: 0 }
-        porOperario[op].dif += m.diferencia
-        porOperario[op].teo += m.kg_teoricos || 0
+      // Pérdidas directas (cantidad + $, por causa)
+      const costoP = perdidas.reduce((a, m) => a + costoMerma(m), 0)
+      const porCausa = {}
+      perdidas.forEach(m => { const c = m.causa || 'Sin especificar'
+        if (!porCausa[c]) porCausa[c] = { causa: c, dif: 0, costo: 0, cnt: 0 }
+        porCausa[c].dif += m.diferencia; porCausa[c].costo += costoMerma(m); porCausa[c].cnt++ })
 
-        const causa = m.causa || 'Sin especificar'
-        if (!porCausa[causa]) porCausa[causa] = { causa, dif: 0, costo: 0, cnt: 0 }
-        porCausa[causa].dif += m.diferencia
-        porCausa[causa].costo += costoMerma(m)
-        porCausa[causa].cnt++
-      })
+      const perdidasKgTot = perdidas.reduce((a, m) => a + m.diferencia, 0)
       return {
-        totalDif, totalTeo, pctGlobal, costoTotal,
-        porProducto: Object.values(porProducto).filter(p => p.dif > 0).map(p => ({ ...p, pct: p.teo > 0 ? (p.dif / p.teo) * 100 : 0 })).sort((a, b) => b.dif - a.dif),
-        porOperario: Object.values(porOperario).filter(o => o.dif > 0).map(o => ({ ...o, pct: o.teo > 0 ? (o.dif / o.teo) * 100 : 0 })).sort((a, b) => b.pct - a.pct),
-        porCausa: Object.values(porCausa).filter(c => c.dif > 0).sort((a, b) => b.dif - a.dif),
+        // "Kg merma total" = pérdida física total (rendimiento + pérdidas directas)
+        totalDif: totalDifR + perdidasKgTot, totalTeo: totalTeoR, pctGlobal, costoRend: costoR,
+        porProducto: agrup(rendimiento, 'sabor_nombre').filter(p => p.dif > 0).sort((a, b) => b.dif - a.dif),
+        porOperario: agrup(rendimiento, 'operario_nombre').filter(o => o.dif > 0).sort((a, b) => b.pct - a.pct),
+        // pérdidas
+        perdidasKg: perdidas.reduce((a, m) => a + m.diferencia, 0), costoPerdidas: costoP,
+        porCausa: Object.values(porCausa).sort((a, b) => b.costo - a.costo),
+        // total valorizado (para KPI)
+        costoTotal: costoR + costoP,
       }
     }
     return { actual: analizar(mermasActual), anterior: analizar(mermasAnterior) }

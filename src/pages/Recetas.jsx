@@ -13,6 +13,7 @@ import { BookOpen, Search, Edit2, RefreshCw, X, AlertTriangle, ChevronDown, Chev
 import { POSTRES } from '../lib/postres'
 import { normalizarNombre } from '../lib/texto'
 import { crearCosteador } from '../lib/costeoRecetas'
+import { crearCostoUnitario } from '../lib/costoUnitario'
 
 // Un ingrediente de receta puede ser materia prima cruda (depósito), un
 // intermedio (base/sabor, del proceso anterior) o agua (no se almacena, gratis).
@@ -493,6 +494,18 @@ export default function Recetas() {
     [insumos, bases, baseIngs, sabores, saborIngs]
   )
 
+  // Costo UNITARIO exacto (mismo motor que Finanzas): sabor $/kg = (MP del batch
+  // con la base rolleada + mano de obra) / rinde; impulsivo $/u; postre $/kg.
+  // Es "el precio exacto de cada kg que vendo" del sabor. tiposMap marca cuáles
+  // impulsivos son en realidad postres (se costean por kg y no por unidad).
+  const costoUnitario = useMemo(() => {
+    const tiposMap = {}; postres.forEach(p => { tiposMap[(p.nombre || '').toUpperCase()] = 'postre' })
+    return crearCostoUnitario({
+      insumos, bases, baseIngredientes: baseIngs, sabores, saborIngredientes: saborIngs,
+      impulsivos, impulsivoIngredientes: impIngs, tiposMap,
+    })
+  }, [insumos, bases, baseIngs, sabores, saborIngs, impulsivos, impIngs, postres])
+
   function enrichIngs(rawList, nombreField = 'insumo_nombre') {
     return rawList.map(i => {
       const nombre = i[nombreField]
@@ -529,11 +542,14 @@ export default function Recetas() {
       Bases: bases.map(b => {
         const ings = enrichIngs(baseIngsPor[b.id] || [])
         const subtotalMP = ings.reduce((a, i) => a + i.costoTotal, 0)
+        const litrosBatch = b.litros_batch || 0
+        const costoUnit = litrosBatch > 0 ? (subtotalMP + (b.mano_de_obra || 0)) / litrosBatch : 0
         return {
           id: b.id, nombre: (b.nombre || '').toUpperCase(), tipo: 'Base',
           litros_batch: b.litros_batch || 0,
           manoDeObra: b.mano_de_obra || 0,
           costoTotal: b.costo_total || 0,
+          costoUnit, unidadUnit: 'L',
           subtotalMP, ingredientes: ings,
           sinPrecio: ings.some(i => i.tIng === 'insumo' && !i.tienePreco),
           updatedAt: b.updated_at,
@@ -542,6 +558,7 @@ export default function Recetas() {
       Sabores: sabores.map(s => {
         const ings = enrichIngs(saborIngsPor[s.id] || [])
         const subtotalMP = ings.reduce((a, i) => a + i.costoTotal, 0)
+        const info = costoUnitario.infoDe(s.nombre) // $/kg exacto (MP rolleada + MOD / rinde)
         return {
           id: s.id, nombre: (s.nombre || '').toUpperCase(),
           tipo: tipoPorNombre[s.nombre] || 'Sabor',
@@ -550,6 +567,7 @@ export default function Recetas() {
           notas: s.notas,
           manoDeObra: s.mano_de_obra || 0,
           costoTotal: s.costo_total || 0,
+          costoUnit: info.costo, unidadUnit: 'kg',
           subtotalMP, ingredientes: ings,
           sinPrecio: ings.some(i => i.tIng === 'insumo' && !i.tienePreco),
           updatedAt: s.updated_at,
@@ -558,11 +576,13 @@ export default function Recetas() {
       Impulsivos: impulsivos.filter(i => !postreNombres.has((i.nombre || '').trim().toLowerCase())).map(i => {
         const ings = enrichIngs(impIngsPor[i.id] || [])
         const subtotalMP = ings.reduce((a, i2) => a + i2.costoTotal, 0)
+        const info = costoUnitario.infoDe(i.nombre)
         return {
           id: i.id, nombre: (i.nombre || '').toUpperCase(), tipo: 'Impulsivo',
           litros_batch: 0,
           manoDeObra: i.mano_de_obra || 0,
           costoTotal: i.costo_total || 0,
+          costoUnit: info.costo, unidadUnit: info.unidad,
           subtotalMP, ingredientes: ings,
           sinPrecio: ings.some(i2 => i2.tIng === 'insumo' && !i2.tienePreco),
           updatedAt: i.updated_at,
@@ -577,15 +597,17 @@ export default function Recetas() {
           ? enrichIngs(dbIngs)
           : enrichIngs(postresLibMap[key] || [], 'nombre')
         const subtotalMP = ings.reduce((a, i) => a + i.costoTotal, 0)
+        const info = costoUnitario.infoDe(p.nombre)
         return {
           id: p.id, nombre: (p.nombre || '').toUpperCase(), tipo: 'Postre',
           litros_batch: 0, manoDeObra: imp?.mano_de_obra || 0, costoTotal: imp?.costo_total || 0,
+          costoUnit: info.costo, unidadUnit: info.unidad || 'kg',
           subtotalMP, ingredientes: ings,
           sinPrecio: ings.some(i => i.tIng === 'insumo' && !i.tienePreco),
         }
       }),
     }
-  }, [bases, baseIngs, sabores, saborIngs, stockCamaras, impulsivos, impIngs, postres, insumoPorNombre])
+  }, [bases, baseIngs, sabores, saborIngs, stockCamaras, impulsivos, impIngs, postres, insumoPorNombre, costoUnitario])
 
   const recetasTab = useMemo(() => {
     const lista = datosActivos[tab] || []
@@ -606,30 +628,23 @@ export default function Recetas() {
     setRecalculando(true)
     let n = 0
     try {
+      // Usamos el costeador (rollup): así el costo de materiales de un SABOR
+      // incluye su base explotada, y no queda subvaluado por ignorar el intermedio.
       for (const s of sabores) {
         const ings = saborIngs.filter(si => si.sabor_id === s.id)
-        const costoMat = ings.reduce((a, i) => {
-          const cu = insumoPorNombre[(i.insumo_nombre || '').trim().toLowerCase()]?.costo_unitario || 0
-          return a + (i.cantidad || 0) * cu
-        }, 0)
+        const costoMat = ings.reduce((a, i) => a + (Number(i.cantidad) || 0) * costeador.costoDe(i.insumo_nombre), 0)
         await supabase.from('sabores').update({ costo_materiales: costoMat, costo_total: costoMat + (s.mano_de_obra || 0) }).eq('id', s.id)
         n++
       }
       for (const b of bases) {
         const ings = baseIngs.filter(bi => bi.base_id === b.id)
-        const costoMat = ings.reduce((a, i) => {
-          const cu = insumoPorNombre[(i.insumo_nombre || '').trim().toLowerCase()]?.costo_unitario || 0
-          return a + (i.cantidad || 0) * cu
-        }, 0)
+        const costoMat = ings.reduce((a, i) => a + (Number(i.cantidad) || 0) * costeador.costoDe(i.insumo_nombre), 0)
         await supabase.from('bases').update({ costo_materiales: costoMat, costo_total: costoMat + (b.mano_de_obra || 0) }).eq('id', b.id)
         n++
       }
       for (const i of impulsivos) {
         const ings = impIngs.filter(ii => ii.impulsivo_id === i.id)
-        const costoMat = ings.reduce((a, ing) => {
-          const cu = insumoPorNombre[(ing.insumo_nombre || '').trim().toLowerCase()]?.costo_unitario || 0
-          return a + (ing.cantidad || 0) * cu
-        }, 0)
+        const costoMat = ings.reduce((a, ing) => a + (Number(ing.cantidad) || 0) * costeador.costoDe(ing.insumo_nombre), 0)
         await supabase.from('impulsivos').update({ costo_materiales: costoMat, costo_total: costoMat + (i.mano_de_obra || 0) }).eq('id', i.id)
         n++
       }
@@ -765,7 +780,8 @@ export default function Recetas() {
             const key = `${tab}-${r.id}`
             const abierta = expandida === key
             const ings = r.ingredientes
-            const costoKg = r.litros_batch > 0 ? r.costoTotal / r.litros_batch : null
+            const costoUnit = r.costoUnit || 0          // $/kg (sabor/postre), $/L (base), $/u (impulsivo)
+            const unidadUnit = r.unidadUnit || 'u'
             const partes = []
             if (r.litros_batch > 0) partes.push(`${r.litros_batch} L/batch`)
             if (r.baseNombre) partes.push(`Base: ${r.baseNombre}`)
@@ -792,10 +808,10 @@ export default function Recetas() {
                       {partes.length > 0 && (
                         <p className="text-xs" style={{ color: colors.textMuted }}>{partes.join(' · ')}</p>
                       )}
-                      {r.costoTotal > 0 && (
-                        <p className="text-xs font-semibold" style={{ color: colors.brand }}>
-                          Costo: ${pesos(r.costoTotal)}
-                          {costoKg != null && <span style={{ color: colors.textMuted }}> · ${pesos(costoKg)}/L</span>}
+                      {costoUnit > 0 && (
+                        <p className="text-xs font-bold" style={{ color: colors.brand }}>
+                          ${pesos(costoUnit)}/{unidadUnit}
+                          <span className="font-normal" style={{ color: colors.textMuted }}> · costo por {unidadUnit === 'kg' ? 'kg' : unidadUnit === 'L' ? 'litro' : 'unidad'}</span>
                         </p>
                       )}
                     </div>
@@ -886,39 +902,25 @@ export default function Recetas() {
                           <span style={{ color: colors.textSecondary }}>${pesos(r.manoDeObra)}</span>
                         </div>
                       )}
-                      <div className="flex justify-between text-base font-bold pt-1.5" style={{ borderTop: `1px solid #fed7aa` }}>
-                        <span style={{ color: colors.textPrimary }}>COSTO TOTAL</span>
-                        <span style={{ color: colors.brand }}>${pesos(r.costoTotal)}</span>
-                      </div>
-                      {(() => {
-                        const costoGuardadoMP = r.costoTotal - r.manoDeObra
-                        const difiere = Math.abs(r.subtotalMP - costoGuardadoMP) > 1
-                        if (!difiere) return null
-                        return (
-                          <div className="mt-2 pt-2 space-y-1" style={{ borderTop: '1px solid #fed7aa' }}>
-                            <div className="flex justify-between text-xs">
-                              <span style={{ color: colors.textMuted }}>Costo calculado desde insumos</span>
-                              <span style={{ color: colors.success, fontWeight: '600' }}>${pesos(r.subtotalMP)}</span>
-                            </div>
-                            <div className="flex justify-between text-xs">
-                              <span style={{ color: colors.textMuted }}>Costo guardado</span>
-                              <span style={{ color: colors.textSecondary }}>${pesos(costoGuardadoMP)}</span>
-                            </div>
-                            <div className="flex items-center gap-1.5 pt-1">
-                              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
-                                style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#d97706', border: '1px solid rgba(245,158,11,0.3)' }}>
-                                ⚠️ Costo desactualizado — abrí la receta para recalcular
-                              </span>
-                            </div>
-                          </div>
-                        )
-                      })()}
-                      {costoKg != null && (
+                      {r.litros_batch > 0 && (
                         <div className="flex justify-between text-xs">
-                          <span style={{ color: colors.textMuted }}>Costo por litro</span>
-                          <span style={{ color: colors.textSecondary }}>${pesos(costoKg)}/L</span>
+                          <span style={{ color: colors.textMuted }}>
+                            Costo del batch {costoUnit > 0 && `(rinde ≈ ${(((r.subtotalMP + r.manoDeObra) / costoUnit) || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })} ${unidadUnit})`}
+                          </span>
+                          <span style={{ color: colors.textSecondary }}>${pesos(r.subtotalMP + r.manoDeObra)}</span>
                         </div>
                       )}
+                      {costoUnit > 0 && (
+                        <div className="flex justify-between items-center text-base font-bold pt-1.5 mt-1" style={{ borderTop: `1px solid #fed7aa` }}>
+                          <span style={{ color: colors.textPrimary }}>
+                            COSTO POR {unidadUnit === 'kg' ? 'KG' : unidadUnit === 'L' ? 'LITRO' : 'UNIDAD'}
+                          </span>
+                          <span style={{ color: colors.brand }}>${pesos(costoUnit)}/{unidadUnit}</span>
+                        </div>
+                      )}
+                      <p className="text-[10px] pt-1" style={{ color: colors.textMuted }}>
+                        Costo receta = materia prima + mano de obra. Los CIF se suman en Finanzas para el costo final.
+                      </p>
                       {r.updatedAt && (
                         <p className="text-[10px] pt-1" style={{ color: colors.textMuted }}>
                           Última actualización: {fmtFecha(r.updatedAt)}

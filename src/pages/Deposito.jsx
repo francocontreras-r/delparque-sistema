@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, Fragment } from 'react'
 import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
 import { deduplicarOperarios } from '../lib/operarios'
@@ -27,7 +27,7 @@ import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
-import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, ClipboardCheck, AlertTriangle, TrendingUp, BarChart2, ChevronRight, Plus, Trash2, Clock } from 'lucide-react'
+import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, ClipboardCheck, AlertTriangle, TrendingUp, BarChart2, ChevronRight, ChevronUp, ChevronDown, Plus, Trash2, Clock } from 'lucide-react'
 const logoUrl = '/logo-byn.png'
 import {
   getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
@@ -1063,6 +1063,7 @@ export default function Deposito() {
   const [ordenesAbiertas, setOrdenesAbiertas]   = useState([])
   const [planItems, setPlanItems]               = useState([]) // [{nombre, tipo_producto, cantidad}]
   const [planNuevo, setPlanNuevo]               = useState({ nombre: '', cantidad: '' })
+  const [planItemExpandido, setPlanItemExpandido] = useState(null) // idx del ítem cuya receta se ve
   const [generandoPDFcompras, setGenerandoPDFcompras] = useState(false)
   const [proveedorPorInsumo, setProveedorPorInsumo] = useState({}) // normNombre → último proveedor
   const [generandoInformeSem, setGenerandoInformeSem] = useState(false)
@@ -1794,19 +1795,19 @@ export default function Deposito() {
       doc.text(`Total estimado a comprar: $${pesos(planCompras.totalCompra)}`, 14, y + 2)
       y += 8
 
-      planCompras.grupos.forEach(g => {
+      if (planCompras.aComprar.length > 0) {
         autoTable(doc, {
           ...EST, startY: y,
-          head: [[`PROVEEDOR: ${g.proveedor}`, 'NECESITA', 'HAY', 'COMPRAR', 'COSTO $']],
-          body: g.items.map(i => [
+          head: [['INSUMO', 'NECESITA', 'HAY', 'COMPRAR', 'COSTO $']],
+          body: planCompras.aComprar.map(i => [
             i.nombre, `${i.necesario.toFixed(2)} ${i.unidad}`, `${i.disponible.toFixed(2)} ${i.unidad}`,
             `${i.faltante.toFixed(2)} ${i.unidad}`, i.sinCosto ? 's/costo' : `$${pesos(i.costoCompra)}`,
           ]),
-          foot: [['', '', '', 'Subtotal', `$${pesos(g.total)}`]],
+          foot: [['', '', '', 'TOTAL', `$${pesos(planCompras.totalCompra)}`]],
           didDrawPage: () => { dibujarEncabezado(doc, pw, MOD, TIT, hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber) },
         })
         y = (doc.lastAutoTable?.finalY || y) + 6
-      })
+      }
       if (planCompras.aComprar.length === 0) {
         doc.setTextColor(...PDF_GRIS_OSC)
         doc.text('El stock actual cubre todo el plan. No hay que comprar nada.', 14, y + 4)
@@ -1888,6 +1889,17 @@ export default function Deposito() {
     ctx: { ...recetasCosteo, insumos },
     ultimoProveedor: proveedorPorInsumo,
   }), [planItems, recetasCosteo, insumos, proveedorPorInsumo])
+
+  // Explosión de UN producto del plan: su receta hasta la materia prima cruda,
+  // con lo que hay y lo que falta para producir la cantidad pedida. Es "la receta
+  // y lo que me falta" que se ve al desplegar cada ítem.
+  const explosionItem = useMemo(() => {
+    if (planItemExpandido == null) return null
+    const it = planItems[planItemExpandido]
+    if (!it) return null
+    const r = calcularPlanCompras({ planItems: [it], ctx: { ...recetasCosteo, insumos } })
+    return r.items // [{ nombre, unidad, necesario, disponible, faltante, costoUnitario, costoCompra, cubierto, sinCosto }]
+  }, [planItemExpandido, planItems, recetasCosteo, insumos])
 
   const entregasPorOperario = useMemo(() => {
     const grupos = {}
@@ -4344,9 +4356,18 @@ export default function Deposito() {
                       <Table className="min-w-[520px]">
                         <Thead><Tr><Th>Producto</Th><Th>Tipo</Th><Th className="text-right">Cantidad</Th><Th></Th></Tr></Thead>
                         <Tbody>
-                          {planItems.map((it, idx) => (
-                            <Tr key={`${it.tipo_producto}-${it.nombre}-${idx}`}>
-                              <Td className="font-medium">{it.nombre}</Td>
+                          {planItems.map((it, idx) => {
+                            const abierto = planItemExpandido === idx
+                            return (
+                            <Fragment key={`${it.tipo_producto}-${it.nombre}-${idx}`}>
+                            <Tr>
+                              <Td className="font-medium">
+                                <button onClick={() => setPlanItemExpandido(abierto ? null : idx)}
+                                  className="inline-flex items-center gap-1.5 text-left hover:opacity-80">
+                                  {abierto ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                  {it.nombre}
+                                </button>
+                              </Td>
                               <Td className="text-xs" style={{ color: colors.textMuted }}>{it.tipo_producto === 'helado' ? '🧊 helado (kg)' : it.tipo_producto === 'base' ? '🥛 base (L)' : it.tipo_producto === 'postre' ? '🍰 postre (u)' : '📦 impulsivo (u)'}</Td>
                               <Td className="text-right">
                                 <input type="number" min="0" value={it.cantidad}
@@ -4356,7 +4377,46 @@ export default function Deposito() {
                               </Td>
                               <Td className="text-right"><button onClick={() => quitarItemPlan(idx)} style={{ color: colors.danger }}><Trash2 size={14} /></button></Td>
                             </Tr>
-                          ))}
+                            {abierto && (
+                              <Tr>
+                                <Td colSpan={4} style={{ backgroundColor: colors.bg, padding: 0 }}>
+                                  <div className="px-3 py-2">
+                                    <p className="text-[10px] font-bold uppercase tracking-wide mb-1.5" style={{ color: colors.textMuted }}>
+                                      Receta explotada — materia prima para {it.cantidad || 0} {it.tipo_producto === 'helado' ? 'kg' : it.tipo_producto === 'base' ? 'L' : 'u'}
+                                    </p>
+                                    {(!explosionItem || explosionItem.length === 0) ? (
+                                      <p className="text-xs py-1" style={{ color: colors.textMuted }}>Sin receta cargada para este producto (no se puede explotar).</p>
+                                    ) : (
+                                      <table className="w-full text-xs">
+                                        <thead>
+                                          <tr style={{ color: colors.textMuted }}>
+                                            <th className="text-left font-semibold py-1">Insumo</th>
+                                            <th className="text-right font-semibold">Necesita</th>
+                                            <th className="text-right font-semibold">Hay</th>
+                                            <th className="text-right font-semibold">Falta</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {explosionItem.map(mp => (
+                                            <tr key={mp.nombre} style={{ borderTop: `1px solid ${colors.border}` }}>
+                                              <td className="py-1" style={{ color: colors.textSecondary }}>{mp.nombre}</td>
+                                              <td className="text-right tabular-nums">{mp.necesario.toFixed(2)} {mp.unidad}</td>
+                                              <td className="text-right tabular-nums" style={{ color: colors.textMuted }}>{mp.disponible.toFixed(2)}</td>
+                                              <td className="text-right tabular-nums font-semibold" style={{ color: mp.faltante > 0 ? colors.danger : colors.success }}>
+                                                {mp.faltante > 0 ? `${mp.faltante.toFixed(2)} ${mp.unidad}` : '✓'}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    )}
+                                  </div>
+                                </Td>
+                              </Tr>
+                            )}
+                            </Fragment>
+                            )
+                          })}
                         </Tbody>
                       </Table>
                     </div>
@@ -4389,30 +4449,28 @@ export default function Deposito() {
                 <EmptyState icon={ClipboardCheck} title={planItems.length === 0 ? 'Cargá el plan para ver qué comprar' : 'El stock cubre todo el plan'}
                   subtitle={planItems.length === 0 ? 'Traé órdenes abiertas o agregá productos.' : 'No hace falta comprar materia prima para esta producción.'} />
               ) : (
-                planCompras.grupos.map(g => (
-                  <div key={g.proveedor} className="overflow-hidden" style={SURFACE}>
-                    <div className="px-4 py-2.5 flex items-center justify-between" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>🏭 {g.proveedor}</span>
-                      <span className="text-xs font-bold" style={{ color: colors.danger }}>${pesos(g.total)}</span>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <Table className="min-w-[600px]">
-                        <Thead><Tr><Th>Insumo</Th><Th className="text-right">Necesita</Th><Th className="text-right">Hay</Th><Th className="text-right">Comprar</Th><Th className="text-right">Costo $</Th></Tr></Thead>
-                        <Tbody>
-                          {g.items.map(i => (
-                            <Tr key={i.nombre}>
-                              <Td className="font-medium">{i.nombre}</Td>
-                              <Td className="text-right text-xs">{i.necesario.toFixed(2)} {i.unidad}</Td>
-                              <Td className="text-right text-xs" style={{ color: colors.textMuted }}>{i.disponible.toFixed(2)} {i.unidad}</Td>
-                              <Td className="text-right font-semibold" style={{ color: colors.danger }}>{i.faltante.toFixed(2)} {i.unidad}</Td>
-                              <Td className="text-right">{i.sinCosto ? <span className="text-xs" style={{ color: colors.warning }}>s/costo</span> : `$${pesos(i.costoCompra)}`}</Td>
-                            </Tr>
-                          ))}
-                        </Tbody>
-                      </Table>
-                    </div>
+                <div className="overflow-hidden" style={SURFACE}>
+                  <div className="px-4 py-2.5 flex items-center justify-between" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                    <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Lista de compra</span>
+                    <span className="text-xs font-bold" style={{ color: colors.danger }}>Total ${pesos(planCompras.totalCompra)}</span>
                   </div>
-                ))
+                  <div className="overflow-x-auto">
+                    <Table className="min-w-[560px]">
+                      <Thead><Tr><Th>Insumo</Th><Th className="text-right">Necesita</Th><Th className="text-right">Hay</Th><Th className="text-right">Comprar</Th><Th className="text-right">Costo $</Th></Tr></Thead>
+                      <Tbody>
+                        {planCompras.aComprar.map(i => (
+                          <Tr key={i.nombre}>
+                            <Td className="font-medium">{i.nombre}</Td>
+                            <Td className="text-right text-xs">{i.necesario.toFixed(2)} {i.unidad}</Td>
+                            <Td className="text-right text-xs" style={{ color: colors.textMuted }}>{i.disponible.toFixed(2)} {i.unidad}</Td>
+                            <Td className="text-right font-semibold" style={{ color: colors.danger }}>{i.faltante.toFixed(2)} {i.unidad}</Td>
+                            <Td className="text-right">{i.sinCosto ? <span className="text-xs" style={{ color: colors.warning }}>s/costo</span> : `$${pesos(i.costoCompra)}`}</Td>
+                          </Tr>
+                        ))}
+                      </Tbody>
+                    </Table>
+                  </div>
+                </div>
               )}
             </div>
           )}

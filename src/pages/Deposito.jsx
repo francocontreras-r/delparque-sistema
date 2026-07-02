@@ -11,7 +11,6 @@ import { POSTRES } from '../lib/postres'
 import { clasificarVencimiento, esAlertaVencimiento, labelDias } from '../lib/vencimientos'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import html2canvas from 'html2canvas'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, ReferenceLine,
@@ -2188,20 +2187,21 @@ export default function Deposito() {
         .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
         .slice(0, 5)
       if (conDiff > 0 && seccionCS === 'deposito') {
-        // Captura gráfico barras horizontal
-        if (chartRefConteo.current && top5.length > 0) {
-          try {
-            const canvasC = await html2canvas(chartRefConteo.current, { backgroundColor: '#1e293b', scale: 2, logging: false, useCORS: true })
-            const imgC = canvasC.toDataURL('image/png')
-            const imgCH = (canvasC.height * (W - 28)) / canvasC.width
-            if (y2 + imgCH > H - 20) { doc.addPage(); fondoOscuro(); y2 = 16 }
-            doc.setDrawColor(51, 65, 85); doc.setLineWidth(0.3)
-            doc.rect(14, y2, W - 28, imgCH)
-            doc.addImage(imgC, 'PNG', 14, y2, W - 28, imgCH)
-            doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(148, 163, 184)
-            doc.text('Top diferencias de stock (valor absoluto)', 14, y2 + imgCH + 3)
-            y2 += imgCH + 10
-          } catch (e) { console.warn('chart conteo:', e) }
+        // Gráfico NATIVO de barras (reemplaza la captura de pantalla)
+        if (top5.length > 0) {
+          if (y2 + top5.length * 8 + 14 > H - 20) { doc.addPage(); fondoOscuro(); y2 = PDF_CONTENT_Y }
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(200, 210, 225)
+          doc.text('Top diferencias de stock (valor absoluto)', 14, y2); y2 += 5
+          const maxV = Math.max(...top5.map(f => Math.abs(f.diff)), 1), bx = 60, bw = W - 14 - bx - 32
+          top5.forEach((f, i) => {
+            const by = y2 + i * 8
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(215, 222, 235)
+            doc.text((f.nombre || '').length > 22 ? f.nombre.slice(0, 21) + '…' : (f.nombre || ''), 14, by + 3.5)
+            doc.setFillColor(51, 65, 85); doc.roundedRect(bx, by, bw, 4.5, 0.8, 0.8, 'F')
+            doc.setFillColor(...(f.diff < 0 ? [239, 68, 68] : [34, 197, 94])); doc.roundedRect(bx, by, Math.max(1, bw * (Math.abs(f.diff) / maxV)), 4.5, 0.8, 0.8, 'F')
+            doc.setTextColor(215, 222, 235); doc.text(`${f.diff > 0 ? '+' : ''}${f.diff.toFixed(1)} ${f.unidad}`, bx + bw + 2, by + 3.5)
+          })
+          y2 += top5.length * 8 + 10
         }
 
         doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...N)
@@ -2496,7 +2496,24 @@ export default function Deposito() {
         ['Diferencias > 3%', conDiff],
       ].forEach(([lbl, val], i) => dibujarKpi(doc, 14 + i * (kpiW + 2), PDF_CONTENT_Y, kpiW, 20, lbl, val))
 
+      // Gráfico NATIVO: reposición — días de stock de los más urgentes
       let y2 = PDF_CONTENT_Y + 28
+      const urgentes = [...controlSemanal].filter(r => r.consumoPromDiario > 0 && r.diasStock >= 0 && r.diasStock < 60)
+        .sort((a, b) => a.diasStock - b.diasStock).slice(0, 8)
+      if (urgentes.length) {
+        y2 = dibujarSeccion(doc, pw, 'Reposición — días de stock restante', y2)
+        const maxV = Math.max(...urgentes.map(r => r.diasStock), 1), bx = 62, bw = pw - 14 - bx - 30
+        urgentes.forEach((r, i) => {
+          const by = y2 + i * 8
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...PDF_NEGRO)
+          doc.text((r.nombre || '').length > 26 ? r.nombre.slice(0, 25) + '…' : (r.nombre || ''), 14, by + 3.5)
+          doc.setFillColor(230, 230, 230); doc.roundedRect(bx, by, bw, 4.5, 0.8, 0.8, 'F')
+          const col = r.diasStock < 3 ? [190, 30, 30] : r.diasStock < 7 ? [210, 140, 20] : [90, 90, 90]
+          doc.setFillColor(...col); doc.roundedRect(bx, by, Math.max(1, bw * (r.diasStock / maxV)), 4.5, 0.8, 0.8, 'F')
+          doc.setTextColor(...PDF_NEGRO); doc.text(`${r.diasStock.toFixed(0)} días`, bx + bw + 2, by + 3.5)
+        })
+        y2 += urgentes.length * 8 + 10
+      }
       y2 = dibujarSeccion(doc, pw, 'Análisis del período', y2)
       const criticosList = controlSemanal.filter(r => r.estado === 'CRÍTICO').map(r => r.nombre).join(', ')
       const mayorDiff    = [...controlSemanal].filter(r => r.pctDiferencia > 3).sort((a, b) => b.pctDiferencia - a.pctDiferencia)[0]

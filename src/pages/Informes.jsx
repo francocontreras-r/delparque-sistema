@@ -736,6 +736,24 @@ export default function Informes() {
           ['Margen promedio', `${fmtNum(margenPromedio)}%`,                semMargen(margenPromedio)],
         ], y)
 
+        // Gráfico NATIVO: margen por producto (mejores) — barras coloreadas por nivel
+        const priced = [...productosFinancieros].filter(p => p.precio_venta > 0 && p.costo_unit > 0).sort((a, b) => b.margen - a.margen)
+        const topM = priced.slice(0, 10)
+        if (topM.length) {
+          y = dibujarSeccion(doc, pw, 'Margen por producto (mejores)', y)
+          const maxV = Math.max(...topM.map(p => Math.max(p.margen, 0)), 1), bx = 64, bw = pw - 14 - bx - 26
+          topM.forEach((p, i) => {
+            const by = y + i * 7.5
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...PDF_NEGRO)
+            doc.text((p.nombre || '').length > 26 ? p.nombre.slice(0, 25) + '…' : (p.nombre || ''), 14, by + 3.3)
+            doc.setFillColor(232, 232, 232); doc.roundedRect(bx, by, bw, 4, 0.7, 0.7, 'F')
+            doc.setFillColor(...semMargen(p.margen)); doc.roundedRect(bx, by, Math.max(1, bw * (Math.max(p.margen, 0) / maxV)), 4, 0.7, 0.7, 'F')
+            doc.setTextColor(...PDF_NEGRO); doc.text(`${fmtNum(p.margen)}%`, bx + bw + 2, by + 3.3)
+          })
+          y += topM.length * 7.5 + 8
+        }
+        y = saltarSiNecesario(y)
+
         y = dibujarSeccion(doc, pw, 'Indicadores generales', y)
         autoTable(doc, {
           ...EST, startY: y,
@@ -763,6 +781,23 @@ export default function Informes() {
           },
           didDrawPage: didDP,
         })
+        y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
+
+        // Productos MENOS rentables (los que hay que revisar)
+        const menosRent = priced.slice(-5).reverse().filter(p => !masRentables.includes(p))
+        if (menosRent.length) {
+          y = dibujarSeccion(doc, pw, 'Productos menos rentables (a revisar)', y)
+          autoTable(doc, {
+            ...EST, startY: y,
+            head: [['PRODUCTO', 'TIPO', 'COSTO', 'PRECIO VENTA', 'GANANCIA', 'MARGEN %']],
+            body: menosRent.map(p => [p.nombre, p.tipo === 'Helado' ? `Helado · ${p.subtipo}` : p.tipo, `$${pesos(p.costo_unit)}`, `$${pesos(p.precio_venta)}`, `$${pesos(p.ganancia)}`, `${fmtNum(p.margen)}%`]),
+            columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' } },
+            didParseCell: d => {
+              if (d.section === 'body' && d.column.index === 5) d.cell.styles.textColor = semMargen(menosRent[d.row.index]?.margen ?? 0)
+            },
+            didDrawPage: didDP,
+          })
+        }
       }
 
       // Firmas (al final del contenido; salta de hoja solo si no entran)

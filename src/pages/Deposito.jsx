@@ -77,6 +77,24 @@ function pctNivel(actual, minimo, maximo) {
 
 function pesos(n) { return Math.round(n || 0).toLocaleString('es-AR') }
 
+// Coincidencia robusta de un insumo por nombre. Usa normalizarNombre (ignora
+// mayúsculas, acentos y espacios de más) para que un ingreso no quede sin
+// actualizar stock solo porque el nombre se tipeó con una variación mínima
+// (ej: "DDL  Heladero Suave" vs "DDL Heladero Suave"). Mismo criterio en toda
+// la app: el hint de stock, el chequeo "existe" y la actualización de stock.
+function buscarInsumoPorNombre(nombre, insumos) {
+  const n = normalizarNombre(nombre || '')
+  if (!n || !insumos?.length) return null
+  // 1) Coincidencia exacta normalizada (el caso común).
+  const exacto = insumos.find(i => normalizarNombre(i.nombre || '') === n)
+  if (exacto) return exacto
+  // 2) Única coincidencia por "el nombre guardado contiene lo tipeado"
+  //    (variantes tipo "DDL Heladero Suave x 10kg"). Si hay más de una, no
+  //    adivinamos: devolvemos null para no imputar el stock al insumo equivocado.
+  const contiene = insumos.filter(i => normalizarNombre(i.nombre || '').includes(n))
+  return contiene.length === 1 ? contiene[0] : null
+}
+
 function fmtFecha(fecha) {
   if (!fecha) return '—'
   const [y, m, d] = fecha.split('-')
@@ -196,7 +214,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
   }
 
   const insumoSel = useMemo(() =>
-    insumos.find(i => (i.nombre || '').trim().toLowerCase() === form.producto_nombre.trim().toLowerCase()),
+    buscarInsumoPorNombre(form.producto_nombre, insumos),
     [form.producto_nombre, insumos]
   )
 
@@ -238,7 +256,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
   const precioUnitario = parseFloat(form.precio_unitario) || 0
 
   const nombreProducto = form.producto_nombre.trim()
-  const existeInsumo = insumos.some(i => (i.nombre || '').trim().toLowerCase() === nombreProducto.toLowerCase())
+  const existeInsumo = !!buscarInsumoPorNombre(nombreProducto, insumos)
   const mostrarAgregarInsumo = esIngreso && nombreProducto !== '' && !existeInsumo
 
   const stockInfo = insumoSel
@@ -1185,31 +1203,20 @@ export default function Deposito() {
 
     console.log('Actualizando stock insumo:', nombreProducto, 'cantidad:', delta, 'tipo:', modal)
 
-    // 1. Búsqueda exacta en caché local
-    let insumoMatch = insumos.find(i =>
-      (i.nombre || '').trim().toLowerCase() === nombreProducto.toLowerCase()
-    )
+    // 1. Coincidencia robusta contra el caché local (case/acentos/espacios).
+    //    El caché tiene TODOS los insumos (cargar() los trae), así que esta es
+    //    la fuente autoritativa. Mismo criterio que el hint de stock en el form.
+    let insumoMatch = buscarInsumoPorNombre(nombreProducto, insumos)
 
-    // 2. Si no está en caché: búsqueda exacta en Supabase (case-insensitive)
+    // 2. Respaldo: si por algún motivo el caché no lo tiene, exacto en Supabase.
     if (!insumoMatch) {
       const { data: found } = await supabase
         .from('insumos')
         .select('id, stock_actual, nombre, peso_por_unidad, costo_unitario')
-        .eq('nombre', nombreProducto)
-        .maybeSingle()
-      console.log('Insumo encontrado (exacto):', found)
-      insumoMatch = found
-    }
-
-    // 3. Si sigue sin encontrarse: búsqueda parcial
-    if (!insumoMatch) {
-      const { data: found } = await supabase
-        .from('insumos')
-        .select('id, stock_actual, nombre, peso_por_unidad, costo_unitario')
-        .ilike('nombre', `%${nombreProducto}%`)
+        .ilike('nombre', nombreProducto)
         .limit(1)
         .maybeSingle()
-      console.log('Insumo encontrado (parcial):', found)
+      console.log('Insumo encontrado (respaldo):', found)
       insumoMatch = found
     }
 

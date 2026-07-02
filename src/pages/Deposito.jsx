@@ -1884,6 +1884,18 @@ export default function Deposito() {
     }).sort((a, b) => a.grupo.localeCompare(b.grupo) || a.nombre.localeCompare(b.nombre))
   }, [recetasCosteo])
 
+  // Cuánto rinde UNA tanda de cada producto, para sugerir qué cantidad cargar.
+  // Sabor: kg = litros_base + agregados en kg (lo que sale de la tanda). Base:
+  // litros_batch. Impulsivo/postre: no tienen "tanda", se cargan por unidad.
+  const rindePorNombre = useMemo(() => {
+    const extra = {}
+    ;(recetasCosteo.saborIngredientes || []).forEach(i => { if ((i.unidad || '').toLowerCase() === 'kg') extra[i.sabor_id] = (extra[i.sabor_id] || 0) + (Number(i.cantidad) || 0) })
+    const m = {}
+    ;(recetasCosteo.sabores || []).forEach(s => { m[normalizarNombre(s.nombre)] = { cant: (Number(s.litros_base) || 120) + (extra[s.id] || 0), unidad: 'kg' } })
+    ;(recetasCosteo.bases || []).forEach(b => { m[normalizarNombre(b.nombre)] = { cant: Number(b.litros_batch) || 120, unidad: 'L' } })
+    return m
+  }, [recetasCosteo])
+
   const planCompras = useMemo(() => calcularPlanCompras({
     planItems,
     ctx: { ...recetasCosteo, insumos },
@@ -4349,6 +4361,29 @@ export default function Deposito() {
                     <Button variant="primary" size="sm" onClick={agregarItemPlan}><Plus size={13} /> Agregar</Button>
                   </div>
 
+                  {/* Ayuda: cuánto rinde una tanda del producto elegido */}
+                  {(() => {
+                    const rinde = planNuevo.nombre ? rindePorNombre[normalizarNombre(planNuevo.nombre)] : null
+                    if (!rinde) return (
+                      <p className="text-[11px]" style={{ color: colors.textMuted }}>
+                        Poné la cantidad de <b>producto terminado</b> que querés producir (los kg que van a cámara). El sistema calcula solo la materia prima a comprar.
+                      </p>
+                    )
+                    const uni = rinde.unidad === 'L' ? 'litros de base' : 'kg de helado terminado'
+                    return (
+                      <div className="flex items-center gap-2 flex-wrap text-[11px]" style={{ color: colors.textSecondary }}>
+                        <span>1 tanda de <b>{planNuevo.nombre}</b> rinde ≈ <b>{rinde.cant.toLocaleString('es-AR', { maximumFractionDigits: 1 })} {uni}</b>.</span>
+                        {[1, 2, 3].map(n => (
+                          <button key={n} onClick={() => setPlanNuevo(p => ({ ...p, cantidad: String(Math.round(rinde.cant * n)) }))}
+                            className="px-2 py-0.5 rounded-full border transition-colors"
+                            style={{ borderColor: colors.border, color: colors.textSecondary }}>
+                            {n} tanda{n > 1 ? 's' : ''} ({Math.round(rinde.cant * n)} {rinde.unidad})
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  })()}
+
                   {planItems.length === 0 ? (
                     <p className="text-xs" style={{ color: colors.textMuted }}>Todavía no cargaste nada. Traé las órdenes abiertas o agregá productos a mano.</p>
                   ) : (
@@ -4381,9 +4416,16 @@ export default function Deposito() {
                               <Tr>
                                 <Td colSpan={4} style={{ backgroundColor: colors.bg, padding: 0 }}>
                                   <div className="px-3 py-2">
-                                    <p className="text-[10px] font-bold uppercase tracking-wide mb-1.5" style={{ color: colors.textMuted }}>
-                                      Receta explotada — materia prima para {it.cantidad || 0} {it.tipo_producto === 'helado' ? 'kg' : it.tipo_producto === 'base' ? 'L' : 'u'}
-                                    </p>
+                                    {(() => {
+                                      const rinde = rindePorNombre[normalizarNombre(it.nombre)]
+                                      const tandas = rinde && rinde.cant > 0 ? (Number(it.cantidad) || 0) / rinde.cant : null
+                                      return (
+                                        <p className="text-[10px] font-bold uppercase tracking-wide mb-1.5" style={{ color: colors.textMuted }}>
+                                          Receta explotada — materia prima para {it.cantidad || 0} {it.tipo_producto === 'helado' ? 'kg' : it.tipo_producto === 'base' ? 'L' : 'u'}
+                                          {tandas != null && ` · ≈ ${tandas.toLocaleString('es-AR', { maximumFractionDigits: 1 })} tanda${tandas === 1 ? '' : 's'}`}
+                                        </p>
+                                      )
+                                    })()}
                                     {(!explosionItem || explosionItem.length === 0) ? (
                                       <p className="text-xs py-1" style={{ color: colors.textMuted }}>Sin receta cargada para este producto (no se puede explotar).</p>
                                     ) : (

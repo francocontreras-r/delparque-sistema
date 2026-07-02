@@ -1755,12 +1755,17 @@ export default function Deposito() {
     else toast2(`Plan cargado desde ${items.length} producto${items.length !== 1 ? 's' : ''} de órdenes abiertas`)
   }
 
-  // B) Agregar un producto a mano.
+  // B) Agregar un producto a mano. Sabores/bases se cargan por TANDAS: se
+  // convierten a kg/L (tandas × rinde) para que la explosión de recetas sea
+  // exacta. Impulsivos/postres se cargan por unidad, sin conversión.
   function agregarItemPlan() {
     const prod = catalogoProductos.find(p => p.nombre === planNuevo.nombre)
-    const cant = parseFloat(planNuevo.cantidad)
     if (!prod) { toast2('Elegí un producto', 'error'); return }
-    if (!(cant > 0)) { toast2('Ingresá una cantidad', 'error'); return }
+    const input = parseFloat(planNuevo.cantidad)
+    if (!(input > 0)) { toast2('Ingresá una cantidad', 'error'); return }
+    const rinde = rindePorNombre[normalizarNombre(prod.nombre)]
+    const esTanda = !!rinde && (prod.tipo_producto === 'helado' || prod.tipo_producto === 'base')
+    const cant = esTanda ? input * rinde.cant : input
     setPlanItems(prev => {
       const k = `${prod.tipo_producto}:${normalizarNombre(prod.nombre)}`
       const idx = prev.findIndex(it => `${it.tipo_producto}:${normalizarNombre(it.nombre)}` === k)
@@ -4325,7 +4330,7 @@ export default function Deposito() {
               <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg"
                 style={{ backgroundColor: 'rgba(59,130,246,0.08)', border: `1px solid ${colors.border}`, color: colors.textSecondary }}>
                 <span>🧮</span>
-                <span>Cargá lo que vas a producir (desde las órdenes abiertas y/o a mano). El sistema explota las recetas, mira el stock y te dice <b style={{ color: colors.textPrimary }}>qué comprar</b>, agrupado por proveedor.</span>
+                <span>Cargá lo que vas a producir (sabores y bases <b style={{ color: colors.textPrimary }}>por tandas</b>). El sistema explota las recetas, mira el stock y te dice <b style={{ color: colors.textPrimary }}>qué comprar</b> para producirlo.</span>
               </div>
 
               {/* Producción planificada */}
@@ -4342,45 +4347,56 @@ export default function Deposito() {
                   </div>
                 </div>
                 <div className="p-4 space-y-3">
-                  {/* Agregar a mano */}
-                  <div className="flex items-end gap-2 flex-wrap">
-                    <div className="flex-1 min-w-[180px]">
-                      <Select label="Producto" value={planNuevo.nombre} onChange={e => setPlanNuevo(p => ({ ...p, nombre: e.target.value }))}>
-                        <option value="">— Elegir producto —</option>
-                        {['BASES', 'HELADOS', 'IMPULSIVOS', 'POSTRES'].map(g => (
-                          <optgroup key={g} label={g}>
-                            {catalogoProductos.filter(p => p.grupo === g).map(p => <option key={`${p.grupo}-${p.nombre}`} value={p.nombre}>{p.nombre}</option>)}
-                          </optgroup>
-                        ))}
-                      </Select>
-                    </div>
-                    <div className="w-28">
-                      <Input label="Cantidad" type="number" min="0" value={planNuevo.cantidad}
-                        onChange={e => setPlanNuevo(p => ({ ...p, cantidad: e.target.value }))} placeholder="kg / L / u" />
-                    </div>
-                    <Button variant="primary" size="sm" onClick={agregarItemPlan}><Plus size={13} /> Agregar</Button>
-                  </div>
-
-                  {/* Ayuda: cuánto rinde una tanda del producto elegido */}
+                  {/* Agregar a mano — sabores/bases se cargan por TANDAS. */}
                   {(() => {
-                    const rinde = planNuevo.nombre ? rindePorNombre[normalizarNombre(planNuevo.nombre)] : null
-                    if (!rinde) return (
-                      <p className="text-[11px]" style={{ color: colors.textMuted }}>
-                        Poné la cantidad de <b>producto terminado</b> que querés producir (los kg que van a cámara). El sistema calcula solo la materia prima a comprar.
-                      </p>
-                    )
-                    const uni = rinde.unidad === 'L' ? 'litros de base' : 'kg de helado terminado'
+                    const selProd = catalogoProductos.find(p => p.nombre === planNuevo.nombre)
+                    const selRinde = selProd ? rindePorNombre[normalizarNombre(selProd.nombre)] : null
+                    const esTanda = !!selRinde && (selProd.tipo_producto === 'helado' || selProd.tipo_producto === 'base')
+                    const n = parseFloat(planNuevo.cantidad) || 0
+                    const equivale = esTanda ? n * selRinde.cant : 0
                     return (
-                      <div className="flex items-center gap-2 flex-wrap text-[11px]" style={{ color: colors.textSecondary }}>
-                        <span>1 tanda de <b>{planNuevo.nombre}</b> rinde ≈ <b>{rinde.cant.toLocaleString('es-AR', { maximumFractionDigits: 1 })} {uni}</b>.</span>
-                        {[1, 2, 3].map(n => (
-                          <button key={n} onClick={() => setPlanNuevo(p => ({ ...p, cantidad: String(Math.round(rinde.cant * n)) }))}
-                            className="px-2 py-0.5 rounded-full border transition-colors"
-                            style={{ borderColor: colors.border, color: colors.textSecondary }}>
-                            {n} tanda{n > 1 ? 's' : ''} ({Math.round(rinde.cant * n)} {rinde.unidad})
-                          </button>
-                        ))}
-                      </div>
+                      <>
+                        <div className="flex items-end gap-2 flex-wrap">
+                          <div className="flex-1 min-w-[180px]">
+                            <Select label="Producto" value={planNuevo.nombre}
+                              onChange={e => {
+                                const nombre = e.target.value
+                                const pr = catalogoProductos.find(p => p.nombre === nombre)
+                                const rd = pr ? rindePorNombre[normalizarNombre(nombre)] : null
+                                const tanda = rd && (pr.tipo_producto === 'helado' || pr.tipo_producto === 'base')
+                                // Para sabores/bases arrancamos en 1 tanda (lo más común).
+                                setPlanNuevo({ nombre, cantidad: tanda ? '1' : '' })
+                              }}>
+                              <option value="">— Elegir producto —</option>
+                              {['BASES', 'HELADOS', 'IMPULSIVOS', 'POSTRES'].map(g => (
+                                <optgroup key={g} label={g}>
+                                  {catalogoProductos.filter(p => p.grupo === g).map(p => <option key={`${p.grupo}-${p.nombre}`} value={p.nombre}>{p.nombre}</option>)}
+                                </optgroup>
+                              ))}
+                            </Select>
+                          </div>
+                          <div className="w-24">
+                            <Input label={esTanda ? 'Tandas' : 'Unidades'} type="number" min="0" step={esTanda ? '1' : 'any'}
+                              value={planNuevo.cantidad}
+                              onChange={e => setPlanNuevo(p => ({ ...p, cantidad: e.target.value }))}
+                              placeholder={esTanda ? 'tandas' : 'u'} />
+                          </div>
+                          <Button variant="primary" size="sm" onClick={agregarItemPlan}><Plus size={13} /> Agregar</Button>
+                        </div>
+
+                        {!selProd ? (
+                          <p className="text-[11px]" style={{ color: colors.textMuted }}>
+                            Elegí un producto. Los <b>sabores y bases</b> se cargan por <b>tandas</b> (el sistema calcula los kg y la materia prima). Impulsivos y postres, por <b>unidad</b>.
+                          </p>
+                        ) : esTanda ? (
+                          <p className="text-[11px]" style={{ color: colors.textSecondary }}>
+                            1 tanda de <b>{selProd.nombre}</b> rinde ≈ <b>{selRinde.cant.toLocaleString('es-AR', { maximumFractionDigits: 1 })} {selRinde.unidad === 'L' ? 'litros de base' : 'kg'}</b>.
+                            {n > 0 && <> Vas a producir <b>{equivale.toLocaleString('es-AR', { maximumFractionDigits: 1 })} {selRinde.unidad}</b>.</>}
+                          </p>
+                        ) : (
+                          <p className="text-[11px]" style={{ color: colors.textMuted }}>Cargá las <b>unidades</b> a producir.</p>
+                        )}
+                      </>
                     )
                   })()}
 

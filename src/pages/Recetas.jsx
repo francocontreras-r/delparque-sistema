@@ -9,11 +9,14 @@ import Modal from '../components/ui/Modal'
 import Button from '../components/ui/Button'
 import Toast from '../components/ui/Toast'
 import { colors, radius, shadow } from '../styles/design-system'
-import { BookOpen, Search, Edit2, RefreshCw, X, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
+import { BookOpen, Search, Edit2, RefreshCw, X, AlertTriangle, ChevronDown, ChevronUp, FileDown, Plus } from 'lucide-react'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import { POSTRES } from '../lib/postres'
 import { normalizarNombre } from '../lib/texto'
 import { crearCosteador } from '../lib/costeoRecetas'
 import { crearCostoUnitario } from '../lib/costoUnitario'
+import { dibujarPortada, dibujarEncabezado, dibujarPie, dibujarSeccion, PDF_CONTENT_Y } from '../lib/pdfEstilos'
 
 // Un ingrediente de receta puede ser materia prima cruda (depósito), un
 // intermedio (base/sabor, del proceso anterior) o agua (no se almacena, gratis).
@@ -442,6 +445,11 @@ export default function Recetas() {
   const [savingRename, setSavingRename] = useState(false)
   const [eliminando, setEliminando] = useState(null)   // { receta, tipo }
   const [savingDelete, setSavingDelete] = useState(false)
+  const [nuevaReceta, setNuevaReceta] = useState(null) // { tipo, nombre, litros }
+  const [savingNueva, setSavingNueva] = useState(false)
+  const [exportOpen, setExportOpen]   = useState(false)
+  const [selExport, setSelExport]     = useState(() => new Set()) // claves `${tipo}:${id}`
+  const [generandoPDF, setGenerandoPDF] = useState(false)
 
   useEffect(() => { cargar() }, [])
 
@@ -657,6 +665,127 @@ export default function Recetas() {
     }
   }
 
+  // Crea una receta vacía del tipo elegido y abre el editor para cargar sus
+  // ingredientes. Bases/Sabores llevan litros de tanda; impulsivos/postres, no.
+  async function crearNuevaReceta() {
+    if (!nuevaReceta) return
+    const nom = (nuevaReceta.nombre || '').trim().toUpperCase()
+    if (!nom) { showToast('Poné un nombre', 'error'); return }
+    const litros = Number(nuevaReceta.litros) || 120
+    setSavingNueva(true)
+    try {
+      const t = nuevaReceta.tipo
+      if (t === 'Bases') {
+        const { data, error } = await supabase.from('bases').insert({ nombre: nom, litros_batch: litros, costo_materiales: 0, mano_de_obra: 0, costo_total: 0 }).select().single()
+        if (error) throw error
+        await cargar(); setTab('Bases'); setEditando({ receta: { ...data, nombre: nom, manoDeObra: 0 }, tipo: 'Bases', rawIngs: [] })
+      } else if (t === 'Sabores') {
+        const { data, error } = await supabase.from('sabores').insert({ nombre: nom, litros_base: litros, costo_materiales: 0, mano_de_obra: 0, costo_total: 0 }).select().single()
+        if (error) throw error
+        await cargar(); setTab('Sabores'); setEditando({ receta: { ...data, nombre: nom, manoDeObra: 0 }, tipo: 'Sabores', rawIngs: [] })
+      } else if (t === 'Impulsivos') {
+        const { data, error } = await supabase.from('impulsivos').insert({ nombre: nom, costo_materiales: 0, mano_de_obra: 0, costo_total: 0 }).select().single()
+        if (error) throw error
+        await cargar(); setTab('Impulsivos'); setEditando({ receta: { ...data, nombre: nom, manoDeObra: 0 }, tipo: 'Impulsivos', rawIngs: [] })
+      } else { // Postres: viven en stock_camaras (tipo_producto=postre); receta en impulsivos.
+        const { error: e1 } = await supabase.from('stock_camaras').insert({ nombre: nom, tipo_producto: 'postre', tipo: 'Con Agregado', baldes: 0, kg: 0, ultima_actualizacion: new Date().toISOString() })
+        if (e1) throw e1
+        const { data: imp, error: e2 } = await supabase.from('impulsivos').insert({ nombre: nom, costo_materiales: 0, mano_de_obra: 0, costo_total: 0 }).select().single()
+        if (e2) throw e2
+        await cargar(); setTab('Postres'); setEditando({ receta: { ...imp, nombre: nom, manoDeObra: 0 }, tipo: 'Postres', rawIngs: [] })
+      }
+      setNuevaReceta(null)
+    } catch (err) {
+      showToast(err.message || 'No se pudo crear la receta', 'error')
+    } finally {
+      setSavingNueva(false)
+    }
+  }
+
+  // Exporta a PDF las recetas seleccionadas, SIN costos — solo fórmulas — en
+  // formato profesional con logo y leyenda de uso confidencial. Para compartir
+  // con el maestro heladero.
+  async function generarPDFRecetas() {
+    setGenerandoPDF(true)
+    try {
+      const GRUPOS = ['Bases', 'Sabores', 'Impulsivos', 'Postres']
+      const elegidas = GRUPOS.flatMap(g => (datosActivos[g] || [])
+        .filter(r => selExport.has(`${g}:${r.id}`))
+        .map(r => ({ ...r, _grupo: g })))
+      if (elegidas.length === 0) { showToast('Elegí al menos una receta', 'error'); setGenerandoPDF(false); return }
+
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+      const pw = doc.internal.pageSize.getWidth()
+      const ph = doc.internal.pageSize.getHeight()
+      const hoy = new Date().toLocaleString('es-AR')
+      const MOD = 'RECETARIO'
+      const TIT = 'RECETARIO DE PRODUCCIÓN'
+
+      // Portada + nota de confidencialidad
+      dibujarPortada(doc, pw, ph, MOD, TIT, 'Documento confidencial', hoy)
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(150, 40, 40)
+      doc.text('CONFIDENCIAL — USO EXCLUSIVO', pw / 2, ph - 46, { align: 'center' })
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(120, 120, 120)
+      doc.text('Propiedad de Helados del Parque. Prohibida su reproducción, copia o divulgación total o parcial.', pw / 2, ph - 40, { align: 'center' })
+
+      const encab = () => dibujarEncabezado(doc, pw, MOD, TIT, hoy)
+      const HEAD = { fillColor: [35, 35, 35], textColor: [255, 255, 255], halign: 'left', fontStyle: 'bold', lineWidth: 0.1, lineColor: [180, 180, 180] }
+      const BODY = { textColor: [25, 25, 25], lineWidth: 0.1, lineColor: [215, 215, 215] }
+      const grpLabel = { Bases: '🧱 BASES', Sabores: '🧊 SABORES', Impulsivos: '📦 IMPULSIVOS', Postres: '🍰 POSTRES' }
+
+      doc.addPage(); encab()
+      let y = PDF_CONTENT_Y
+
+      GRUPOS.forEach(g => {
+        const items = elegidas.filter(r => r._grupo === g)
+        if (!items.length) return
+        if (y + 16 > ph - 20) { doc.addPage(); encab(); y = PDF_CONTENT_Y }
+        y = dibujarSeccion(doc, pw, `${grpLabel[g]}  (${items.length})`, y)
+
+        items.forEach(r => {
+          if (y + 24 > ph - 20) { doc.addPage(); encab(); y = PDF_CONTENT_Y }
+          // Título de la receta
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(20, 20, 20)
+          doc.text(r.nombre, 14, y + 4)
+          // Meta (sin costos): base, tanda, rinde
+          const meta = []
+          if (g === 'Bases') meta.push(`Tanda: ${r.litros_batch || 120} L`)
+          if (g === 'Sabores') { if (r.baseNombre) meta.push(`Base: ${r.baseNombre}`); meta.push(`Tanda base: ${r.litros_batch || 120} L`) }
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(110, 110, 110)
+          if (meta.length) doc.text(meta.join('   ·   '), 14, y + 9)
+          y += meta.length ? 12 : 8
+
+          const filas = (r.ingredientes || []).map(i => [i.insumo, String(i.cantidad ?? ''), i.unidad || ''])
+          if (!filas.length) {
+            doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(150, 150, 150)
+            doc.text('Sin ingredientes cargados.', 16, y + 2); y += 8
+            return
+          }
+          autoTable(doc, {
+            startY: y,
+            head: [['INGREDIENTE', 'CANTIDAD', 'UNIDAD']],
+            body: filas,
+            headStyles: HEAD, bodyStyles: BODY, alternateRowStyles: { fillColor: [245, 245, 245] },
+            styles: { fontSize: 8.5, cellPadding: 1.8, valign: 'middle' },
+            columnStyles: { 0: { halign: 'left', cellWidth: 110 }, 1: { halign: 'right' }, 2: { halign: 'center' } },
+            margin: { top: PDF_CONTENT_Y, left: 14, right: 14 }, didDrawPage: encab,
+          })
+          y = doc.lastAutoTable.finalY + 7
+        })
+        y += 2
+      })
+
+      const total = doc.internal.getNumberOfPages()
+      for (let p = 2; p <= total; p++) { doc.setPage(p); dibujarPie(doc, pw, ph, p) }
+      doc.save(`recetario_delparque_${new Date().toISOString().split('T')[0]}.pdf`)
+      setExportOpen(false)
+    } catch (err) {
+      showToast(err.message || 'No se pudo generar el PDF', 'error')
+    } finally {
+      setGenerandoPDF(false)
+    }
+  }
+
   async function abrirEditor(receta) {
     if (tab === 'Postres') {
       // Postres viven en stock_camaras pero sus recetas están en tabla impulsivos
@@ -747,9 +876,21 @@ export default function Recetas() {
           <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Recetas</h1>
           <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Catálogo de fórmulas Del Parque</p>
         </div>
-        <Button variant="secondary" onClick={recalcularCostos} loading={recalculando} disabled={recalculando}>
-          <RefreshCw size={14} /> Recalcular costos
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {isAdmin && (
+            <>
+              <Button variant="primary" onClick={() => setNuevaReceta({ tipo: tab, nombre: '', litros: '120' })}>
+                <Plus size={14} /> Nueva receta
+              </Button>
+              <Button variant="secondary" onClick={() => { setSelExport(new Set()); setExportOpen(true) }}>
+                <FileDown size={14} /> Exportar recetas
+              </Button>
+            </>
+          )}
+          <Button variant="secondary" onClick={recalcularCostos} loading={recalculando} disabled={recalculando}>
+            <RefreshCw size={14} /> Recalcular costos
+          </Button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -972,6 +1113,107 @@ export default function Recetas() {
           saving={savingDelete}
         />
       )}
+
+      {nuevaReceta && (
+        <Modal open onClose={() => setNuevaReceta(null)} title="Nueva receta" maxWidth="max-w-sm" disableBackdropClose>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-semibold" style={{ color: colors.textSecondary }}>Tipo</label>
+              <div className="flex gap-1.5 flex-wrap mt-1">
+                {TABS.map(t => (
+                  <button key={t} onClick={() => setNuevaReceta(p => ({ ...p, tipo: t }))}
+                    className="px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
+                    style={{
+                      backgroundColor: nuevaReceta.tipo === t ? colors.brand : 'transparent',
+                      borderColor: nuevaReceta.tipo === t ? colors.brand : colors.border,
+                      color: nuevaReceta.tipo === t ? 'white' : colors.textSecondary,
+                    }}>{t}</button>
+                ))}
+              </div>
+            </div>
+            <Input label="Nombre *" type="text" value={nuevaReceta.nombre} autoFocus
+              onChange={e => setNuevaReceta(p => ({ ...p, nombre: e.target.value }))}
+              placeholder={nuevaReceta.tipo === 'Bases' ? 'Ej: NEUTRA LECHE' : nuevaReceta.tipo === 'Sabores' ? 'Ej: DULCE DE LECHE' : 'Nombre del producto'} />
+            {(nuevaReceta.tipo === 'Bases' || nuevaReceta.tipo === 'Sabores') && (
+              <Input label={nuevaReceta.tipo === 'Bases' ? 'Litros por tanda' : 'Litros de base por tanda'} type="number" min="0"
+                value={nuevaReceta.litros} onChange={e => setNuevaReceta(p => ({ ...p, litros: e.target.value }))} />
+            )}
+            <p className="text-[11px]" style={{ color: colors.textMuted }}>
+              Se crea la receta y se abre el editor para cargar los ingredientes.
+            </p>
+            <div className="flex gap-2 pt-1">
+              <Button variant="secondary" onClick={() => setNuevaReceta(null)} className="flex-1">Cancelar</Button>
+              <Button variant="primary" onClick={crearNuevaReceta} loading={savingNueva} className="flex-1">Crear y editar</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {exportOpen && (() => {
+        const GRUPOS = ['Bases', 'Sabores', 'Impulsivos', 'Postres']
+        const total = GRUPOS.reduce((a, g) => a + (datosActivos[g] || []).length, 0)
+        const toggle = (key) => setSelExport(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
+        const toggleGrupo = (g) => setSelExport(prev => {
+          const n = new Set(prev)
+          const keys = (datosActivos[g] || []).map(r => `${g}:${r.id}`)
+          const allSel = keys.every(k => n.has(k))
+          keys.forEach(k => allSel ? n.delete(k) : n.add(k))
+          return n
+        })
+        const selAll = () => setSelExport(new Set(GRUPOS.flatMap(g => (datosActivos[g] || []).map(r => `${g}:${r.id}`))))
+        return (
+          <Modal open onClose={() => setExportOpen(false)} title="Exportar recetas (PDF)" maxWidth="max-w-2xl" disableBackdropClose={false}>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <p className="text-xs" style={{ color: colors.textMuted }}>
+                  Elegí qué recetas exportar. Salen <b style={{ color: colors.textSecondary }}>sin costos</b>, solo las fórmulas, en formato profesional y confidencial.
+                </p>
+                <div className="flex gap-2">
+                  <button onClick={selAll} className="text-xs px-2 py-1 rounded-md border" style={{ borderColor: colors.border, color: colors.textSecondary }}>Todas</button>
+                  <button onClick={() => setSelExport(new Set())} className="text-xs px-2 py-1 rounded-md border" style={{ borderColor: colors.border, color: colors.textSecondary }}>Ninguna</button>
+                </div>
+              </div>
+              <div className="max-h-[50vh] overflow-y-auto space-y-3 pr-1">
+                {GRUPOS.map(g => {
+                  const items = datosActivos[g] || []
+                  if (!items.length) return null
+                  const keys = items.map(r => `${g}:${r.id}`)
+                  const allSel = keys.every(k => selExport.has(k))
+                  const someSel = keys.some(k => selExport.has(k))
+                  return (
+                    <div key={g} className="rounded-lg border overflow-hidden" style={{ borderColor: colors.border }}>
+                      <label className="flex items-center gap-2 px-3 py-2 cursor-pointer" style={{ backgroundColor: colors.bg }}>
+                        <input type="checkbox" checked={allSel} ref={el => { if (el) el.indeterminate = someSel && !allSel }} onChange={() => toggleGrupo(g)} />
+                        <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>{g}</span>
+                        <span className="text-xs" style={{ color: colors.textMuted }}>({items.length})</span>
+                      </label>
+                      <div className="grid sm:grid-cols-2 gap-x-4">
+                        {items.map(r => {
+                          const key = `${g}:${r.id}`
+                          return (
+                            <label key={key} className="flex items-center gap-2 px-3 py-1.5 cursor-pointer text-sm"
+                              style={{ color: colors.textSecondary }}>
+                              <input type="checkbox" checked={selExport.has(key)} onChange={() => toggle(key)} />
+                              <span className="truncate">{r.nombre}</span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+                {total === 0 && <p className="text-sm text-center py-6" style={{ color: colors.textMuted }}>No hay recetas cargadas.</p>}
+              </div>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs" style={{ color: colors.textMuted }}>{selExport.size} receta{selExport.size !== 1 ? 's' : ''} seleccionada{selExport.size !== 1 ? 's' : ''}</span>
+                <Button variant="primary" onClick={generarPDFRecetas} loading={generandoPDF} disabled={selExport.size === 0}>
+                  <FileDown size={14} /> Generar PDF
+                </Button>
+              </div>
+            </div>
+          </Modal>
+        )
+      })()}
     </div>
   )
 }

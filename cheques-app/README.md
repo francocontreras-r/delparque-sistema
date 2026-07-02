@@ -29,14 +29,32 @@ carpeta, que se puede publicar y usar por separado.
 
 ## Dónde se guardan los datos
 
-En el **propio dispositivo** (almacenamiento local del navegador). Ventaja: no
-necesita servidor, funciona sin conexión y es 100% tuyo. Para tener los mismos
-datos en la compu y en el celular, usá **Config → Copia de seguridad**
-(Descargar copia / Restaurar copia).
+La app es **offline-first**: siempre guarda una copia en el propio dispositivo
+(así funciona sin conexión). Además, si iniciás sesión, **sincroniza con
+Supabase** para que veas los mismos cheques en la compu y el celular.
 
-> ¿Querés que los datos se sincronicen solos entre todos los dispositivos? Se
-> puede sumar un backend (por ejemplo Supabase) en una segunda etapa sin cambiar
-> la interfaz.
+- **Con cuenta (sincronizado):** iniciás sesión y los datos viven en tu proyecto
+  de Supabase. Cargás en un dispositivo y aparece en el otro. Si te quedás sin
+  internet, seguís trabajando y se sincroniza al volver la conexión.
+- **Modo local (sin cuenta):** en la pantalla de ingreso podés elegir
+  "modo local"; los datos quedan solo en ese dispositivo. Para pasarlos a otro,
+  usá **Config → Copia de seguridad** (Descargar / Restaurar copia).
+
+### Configurar la sincronización (una sola vez)
+
+1. Creá un proyecto en [supabase.com](https://supabase.com).
+2. En **SQL Editor**, pegá y ejecutá el archivo [`supabase.sql`](./supabase.sql)
+   (crea las tablas y la seguridad).
+3. En **Authentication → Users → Add user**, creá tu usuario (email + contraseña,
+   con "Auto Confirm User" activado).
+4. En **Project Settings → API**, copiá la **Project URL** y la **anon/publishable
+   key**, y pegalas al principio de `index.html` en `SB_URL` y `SB_KEY`.
+   (En esta versión ya vienen cargadas las del proyecto de CIAF.)
+5. Abrí la app e **iniciá sesión**. Listo: ya sincroniza.
+
+> Las claves `SB_URL` y `SB_KEY` son **públicas** (pensadas para el frontend). La
+> seguridad real la da el login + las políticas RLS: sin sesión iniciada no se
+> ve ni se toca nada.
 
 ## Cómo usarla
 

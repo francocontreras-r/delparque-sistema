@@ -3,8 +3,8 @@
 // Cachea el shell para que la app abra y funcione sin conexión.
 // Subí SW_VERSION en cada cambio para invalidar la caché vieja.
 // ─────────────────────────────────────────────────────────────────────────────
-const SW_VERSION = 'cheques-v1';
-const SHELL = ['./', 'index.html', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png'];
+const SW_VERSION = 'cheques-v2';
+const SHELL = ['./', 'index.html', 'manifest.json', 'logo-ciaf.png', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
   self.skipWaiting();

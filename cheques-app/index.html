@@ -6,7 +6,7 @@
 <title>Informe de Cheques</title>
 <meta name="description" content="Control de cheques a cobrar y a pagar, con alertas de vencimiento. Multiplataforma, funciona sin conexión." />
 <link rel="manifest" href="manifest.json" />
-<meta name="theme-color" content="#E2661F" />
+<meta name="theme-color" content="#063F6D" />
 <link rel="icon" href="icon.svg" type="image/svg+xml" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -14,8 +14,8 @@
 <meta name="apple-mobile-web-app-title" content="Cheques" />
 <style>
 :root{
-  --brand:#E2661F; --brand-d:#c4551405; --brand-dark:#C0530F;
-  --green:#1E9E52; --amber:#D98A00; --red:#DC3545; --purple:#7A3FF2; --blue:#3B5BDB; --teal:#0E9F8E;
+  --brand:#063F6D; --brand-dark:#042C4D; --brand-mid:#0B4C82;
+  --green:#1E9E52; --amber:#D98A00; --red:#DC3545; --purple:#7A3FF2; --blue:#0B4C82; --teal:#0E9F8E;
   --ink:#1A2230; --ink2:#5B6472; --ink3:#8A93A3;
   --line:#E6E9EE; --bg:#EEF1F5; --card:#FFFFFF;
   --shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
@@ -47,6 +47,7 @@ a{color:var(--brand);text-decoration:none}
 .subtitle{color:var(--ink2);font-size:13.5px;margin-top:3px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .dot{width:7px;height:7px;border-radius:50%;display:inline-block}
 .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.logo{height:30px;width:auto;display:block;margin-bottom:7px}
 
 /* Buttons */
 .btn{display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border-radius:12px;font-weight:700;font-size:13.5px;color:#fff;background:var(--brand);transition:filter .12s,transform .05s;white-space:nowrap;border:1px solid transparent}
@@ -64,7 +65,7 @@ a{color:var(--brand);text-decoration:none}
 .tabs{display:flex;gap:4px;overflow-x:auto;margin-top:14px;-ms-overflow-style:none;scrollbar-width:none}
 .tabs::-webkit-scrollbar{display:none}
 .tab{padding:9px 16px;border-radius:11px;font-weight:700;font-size:14.5px;color:var(--ink2);white-space:nowrap;background:transparent}
-.tab.active{background:var(--brand);color:#fff;box-shadow:0 3px 8px rgba(226,102,31,.30)}
+.tab.active{background:var(--brand);color:#fff;box-shadow:0 3px 8px rgba(6,63,109,.28)}
 
 /* Filters bar */
 .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;box-shadow:var(--shadow);margin-bottom:16px}
@@ -72,7 +73,7 @@ select.f,input.f{appearance:none;-webkit-appearance:none;background:#F4F6F9 url(
   border:1px solid var(--line);border-radius:10px;padding:9px 30px 9px 12px;font-weight:600;color:var(--ink);min-width:120px}
 input.f{background-image:none;padding-right:12px}
 .linkbtn{color:var(--brand);font-weight:700;font-size:13.5px;padding:6px 8px;border-radius:8px}
-.linkbtn:hover{background:#FCEEE5}
+.linkbtn:hover{background:#E7EFF6}
 
 /* Cards / grid */
 .grid{display:grid;gap:14px}
@@ -88,7 +89,7 @@ input.f{background-image:none;padding-right:12px}
 
 /* Hero KPI */
 .hero{border-radius:var(--r);padding:20px 22px;color:#fff;position:relative;overflow:hidden;box-shadow:var(--shadow-lg)}
-.hero.pay{background:linear-gradient(135deg,#E2661F,#C0530F)}
+.hero.pay{background:linear-gradient(135deg,#0B4C82,#063F6D)}
 .hero.collect{background:linear-gradient(135deg,#0E9F8E,#0B7D70)}
 .hero .lab{font-size:14px;opacity:.92;font-weight:600}
 .hero .val{font-size:34px;font-weight:800;letter-spacing:-.02em;margin-top:2px}
@@ -139,7 +140,7 @@ tbody tr:hover{background:#F8FAFC}
 .bottomnav button{flex:1;padding:9px 2px 8px;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--ink3);font-size:10.5px;font-weight:700}
 .bottomnav button.active{color:var(--brand)}
 .bottomnav svg{width:22px;height:22px}
-.fab{position:fixed;right:16px;bottom:calc(74px + var(--safe-b));z-index:41;width:56px;height:56px;border-radius:50%;background:var(--brand);color:#fff;box-shadow:0 8px 20px rgba(226,102,31,.45);display:flex;align-items:center;justify-content:center}
+.fab{position:fixed;right:16px;bottom:calc(74px + var(--safe-b));z-index:41;width:56px;height:56px;border-radius:50%;background:var(--brand);color:#fff;box-shadow:0 8px 20px rgba(6,63,109,.42);display:flex;align-items:center;justify-content:center}
 .fab svg{width:26px;height:26px}
 
 /* Modal */
@@ -159,7 +160,7 @@ tbody tr:hover{background:#F8FAFC}
 .field{margin-bottom:13px}
 .field label{display:block;font-weight:700;font-size:12.5px;color:var(--ink2);margin-bottom:5px}
 .field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff;color:var(--ink)}
-.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(226,102,31,.15)}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(6,63,109,.16)}
 .frow{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media(max-width:520px){.frow{grid-template-columns:1fr}}
 .seg{display:flex;gap:6px;background:#F1F3F6;padding:4px;border-radius:12px}
@@ -198,6 +199,7 @@ tbody tr:hover{background:#F8FAFC}
   <div class="wrap">
     <div class="title-row">
       <div>
+        <img class="logo" src="logo-ciaf.png" alt="CIAF — Consultora Integral" />
         <h1 class="title">Informe de Cheques</h1>
         <div class="subtitle" id="subtitle">—</div>
       </div>
@@ -484,7 +486,7 @@ function alertRow(ch,c){
   return `<div class="alrow" data-edit="${ch.id}" style="cursor:pointer">
     <div class="barcol" style="background:${c.color}"></div>
     <div style="min-width:0">
-      <div class="who">${esc(ch.contraparte||ch.librador||'Sin nombre')} <span class="pill ${TIPOS[ch.tipo]?'':''}" style="background:${ch.tipo==='emitido'?'#FCEBDF':'#DEF4F1'};color:${TIPOS[ch.tipo].color}">${TIPOS[ch.tipo].label}</span></div>
+      <div class="who">${esc(ch.contraparte||ch.librador||'Sin nombre')} <span class="pill ${TIPOS[ch.tipo]?'':''}" style="background:${ch.tipo==='emitido'?'#E3ECF5':'#DEF4F1'};color:${TIPOS[ch.tipo].color}">${TIPOS[ch.tipo].label}</span></div>
       <div class="meta">${esc(ch.banco||'—')} · N° ${esc(ch.numero||'—')} · <b style="color:${c.color}">${c.label} ${labelDias(c.d)}</b></div>
     </div>
     <div class="amt"><div class="num" style="font-size:15px">${pesos(ch.importe)}</div><div class="mut3" style="font-size:11.5px">${fmtFecha(ch.fecha_pago)}</div></div>
@@ -533,7 +535,7 @@ function viewCheques(){
   const rows = chs.map(ch=>{
     const c=clasif(ch), est=estadoInfo(ch.tipo,ch.estado);
     return `<tr data-edit="${ch.id}" style="cursor:pointer">
-      <td><span class="pill" style="background:${ch.tipo==='emitido'?'#FCEBDF':'#DEF4F1'};color:${TIPOS[ch.tipo].color}">${TIPOS[ch.tipo].label}</span></td>
+      <td><span class="pill" style="background:${ch.tipo==='emitido'?'#E3ECF5':'#DEF4F1'};color:${TIPOS[ch.tipo].color}">${TIPOS[ch.tipo].label}</span></td>
       <td><b>${esc(ch.contraparte||ch.librador||'—')}</b>${state.razones.length>1?`<div class="mut3" style="font-size:11px">${esc(razonNombre(ch.razon_social_id))}</div>`:''}</td>
       <td>${esc(ch.banco||'—')}<div class="mut3" style="font-size:11px">N° ${esc(ch.numero||'—')} · ${FORMATOS[ch.formato]||'Físico'}</div></td>
       <td class="right num">${pesos(ch.importe)}</td>

@@ -10,6 +10,7 @@ import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
 import { progresoColor, calcularHorasReales } from '../lib/ordenes'
 import { clasificarVencimiento, esAlertaVencimiento, labelDias } from '../lib/vencimientos'
+import { construirAlertas, resumenSeveridad } from '../lib/alertas'
 import {
   Factory, ClipboardList, Warehouse, Thermometer, Package,
   ArrowUp, ArrowDown, PlayCircle, CheckCircle2, Activity, AlertTriangle,
@@ -28,6 +29,12 @@ const TIPO_BADGE = {
   Especial:       { bg: 'rgba(212,82,26,0.12)',   color: '#D4521A' },
 }
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+const SEV_UI = {
+  critico: { color: '#ef4444', label: 'crítico' },
+  alto:    { color: '#f97316', label: 'alto' },
+  medio:   { color: '#f59e0b', label: 'medio' },
+  info:    { color: '#60A5FA', label: 'info' },
+}
 
 function toISODate(d) {
   const y = d.getFullYear()
@@ -93,6 +100,7 @@ export default function Dashboard() {
   const [movimientos, setMovimientos] = useState([])
   const [stockBases, setStockBases] = useState([])
   const [vencimientosData, setVencimientosData] = useState([])
+  const [productosVenta, setProductosVenta] = useState([]) // sabores+impulsivos con costo_final y precio
 
   const hoy = hoyISO()
 
@@ -118,6 +126,8 @@ export default function Dashboard() {
       { data: movsHoy },
       { data: basesDisp },
       { data: vencData },
+      { data: sabVenta },
+      { data: impVenta },
     ] = await Promise.all([
       supabase.from('producciones').select('*').gte('fecha', inicioSemana).lte('fecha', finSemana),
       supabase.from('ordenes_produccion').select('*').eq('estado', 'en_proceso').order('fecha_inicio', { ascending: true }),
@@ -128,6 +138,8 @@ export default function Dashboard() {
       supabase.from('movimientos_deposito').select('*').eq('fecha', hoy).order('created_at', { ascending: false }),
       supabase.from('stock_bases').select('*').gte('kg_disponible', 0).order('fecha', { ascending: false }),
       supabase.from('movimientos_deposito').select('producto_nombre,lote,fecha_vencimiento,created_at').eq('tipo', 'ingreso').not('fecha_vencimiento', 'is', null).order('created_at', { ascending: false }).limit(500),
+      supabase.from('sabores').select('nombre,costo_final,precio_venta'),
+      supabase.from('impulsivos').select('nombre,costo_final,precio_venta'),
     ])
 
     setProducciones(prods || [])
@@ -139,6 +151,7 @@ export default function Dashboard() {
     setMovimientos(movsHoy || [])
     setStockBases(basesDisp || [])
     setVencimientosData(vencData || [])
+    setProductosVenta([...(sabVenta || []), ...(impVenta || [])])
     setLoading(false)
   }
 
@@ -160,10 +173,6 @@ export default function Dashboard() {
 
   const registrosHoy = useMemo(() => producciones.filter(p => p.fecha === hoy).length, [producciones, hoy])
 
-  const insumosCriticos = useMemo(() => insumos.filter(i => (i.stock_actual || 0) === 0), [insumos])
-  const insumosBajos = useMemo(() => (
-    insumos.filter(i => (i.stock_actual || 0) > 0 && (i.stock_actual || 0) < (i.stock_minimo || 0))
-  ), [insumos])
   const insumosBajoMinimo = useMemo(() => (
     insumos.filter(i => (i.stock_actual || 0) < (i.stock_minimo || 0))
   ), [insumos])
@@ -171,75 +180,37 @@ export default function Dashboard() {
   const camarasHelados = useMemo(() => camaras.filter(c => (c.tipo_producto || 'helado') === 'helado'), [camaras])
   const camarasPocoStock = useMemo(() => camarasHelados.filter(c => (c.baldes || 0) <= 3), [camarasHelados])
 
-  const ordenesPendientesViejas = useMemo(() => {
-    const hoyMs = new Date(hoy + 'T00:00:00').getTime()
-    return ordenesPendientes.filter(o => {
-      if (!o.fecha_produccion) return false
-      const fechaMs = new Date(o.fecha_produccion + 'T00:00:00').getTime()
-      return (hoyMs - fechaMs) / 86400000 > 1
-    })
-  }, [ordenesPendientes, hoy])
-
-  // ── Alertas ────────────────────────────────────────────────────────────────
-  const camarasAgotadas = useMemo(() => camaras.filter(c => (c.baldes || 0) === 0), [camaras])
-
-  const alertas = useMemo(() => {
-    const list = []
-    if (camarasAgotadas.length > 0) {
-      const nombres = camarasAgotadas.slice(0, 3).map(c => c.nombre).join(', ')
-      const extra = camarasAgotadas.length > 3 ? ` y ${camarasAgotadas.length - 3} más` : ''
-      list.push({
-        emoji: '🔴', variant: 'danger', titulo: 'Stock agotado en cámaras',
-        detalle: `Sin stock: ${nombres}${extra}`,
-        count: camarasAgotadas.length, to: '/camaras',
-      })
-    }
-    if (insumosCriticos.length > 0) {
-      const nombres = insumosCriticos.slice(0, 3).map(i => i.nombre).join(', ')
-      const extra = insumosCriticos.length > 3 ? ` y ${insumosCriticos.length - 3} más` : ''
-      list.push({
-        emoji: '🔴', variant: 'danger', titulo: 'Stock crítico',
-        detalle: `Sin stock: ${nombres}${extra}`,
-        count: insumosCriticos.length, to: '/deposito',
-      })
-    }
-    if (insumosBajos.length > 0) {
-      const nombres = insumosBajos.slice(0, 3).map(i => i.nombre).join(', ')
-      const extra = insumosBajos.length > 3 ? ` y ${insumosBajos.length - 3} más` : ''
-      list.push({
-        emoji: '🟡', variant: 'warning', titulo: 'Stock bajo',
-        detalle: `Por debajo del mínimo: ${nombres}${extra}`,
-        count: insumosBajos.length, to: '/deposito',
-      })
-    }
-    if (ordenesPendientesViejas.length > 0) {
-      const nums = ordenesPendientesViejas.slice(0, 3).map(o => `#${o.numero}`).join(', ')
-      const extra = ordenesPendientesViejas.length > 3 ? ` y ${ordenesPendientesViejas.length - 3} más` : ''
-      list.push({
-        emoji: '🔵', variant: 'info', titulo: 'Órdenes sin iniciar',
-        detalle: `Programadas hace más de 1 día: ${nums}${extra}`,
-        count: ordenesPendientesViejas.length, to: '/ordenes',
-      })
-    }
-    return list
-  }, [insumosCriticos, insumosBajos, ordenesPendientesViejas])
-
-  // Vencimientos: agrupar por producto+lote, tomar el más reciente, filtrar alertas
-  const vencimientosAlerta = useMemo(() => {
+  // Vencimientos deduplicados por producto+lote (el ingreso más reciente).
+  const vencimientosDedup = useMemo(() => {
     const map = {}
     vencimientosData.forEach(m => {
       const key = `${(m.producto_nombre || '').trim().toLowerCase()}||${(m.lote || '').trim()}`
       if (!map[key] || m.created_at > map[key].created_at) map[key] = m
     })
     return Object.values(map)
+  }, [vencimientosData])
+
+  const vencimientosAlerta = useMemo(() => (
+    vencimientosDedup
       .map(m => ({ ...m, clasif: clasificarVencimiento(m.fecha_vencimiento) }))
       .filter(m => esAlertaVencimiento(m.clasif))
       .sort((a, b) => a.clasif.dias - b.clasif.dias)
-  }, [vencimientosData])
+  ), [vencimientosDedup])
 
-  const totalAlertas = alertas.reduce((a, al) => a + al.count, 0)
-  const peorVariante = alertas.some(a => a.variant === 'danger') ? 'danger'
-    : alertas.some(a => a.variant === 'warning') ? 'warning' : 'info'
+  // Márgenes por producto (usa el costo_final que calcula Finanzas): sirve para
+  // detectar productos que se venden a pérdida o con margen bajo.
+  const margenes = useMemo(() => (
+    productosVenta
+      .filter(p => (Number(p.precio_venta) || 0) > 0 && p.costo_final != null && Number(p.costo_final) > 0)
+      .map(p => ({ nombre: p.nombre, costo: Number(p.costo_final) || 0, precio: Number(p.precio_venta) || 0 }))
+  ), [productosVenta])
+
+  // ── Centro de control: motor de excepciones priorizadas ─────────────────────
+  const centroAlertas = useMemo(() => construirAlertas({
+    insumos, camaras, ordenesPendientes, vencimientos: vencimientosDedup, margenes, hoy,
+  }), [insumos, camaras, ordenesPendientes, vencimientosDedup, margenes, hoy])
+  const resumenCtrl = useMemo(() => resumenSeveridad(centroAlertas), [centroAlertas])
+  const totalAlertas = resumenCtrl.total
 
   // ── Producción de la semana ───────────────────────────────────────────────
   const produccionSemana = useMemo(() => {
@@ -312,11 +283,11 @@ export default function Dashboard() {
             <div className="flex items-center gap-2 mt-3 flex-wrap">
               <span style={{ background: colors.success + '1f', color: colors.success, fontSize: '12px', fontWeight: '700', padding: '5px 12px', borderRadius: '10px' }}>● Fábrica operativa</span>
               {totalAlertas > 0 && (() => {
-                const col = peorVariante === 'danger' ? colors.danger : peorVariante === 'warning' ? colors.warning : colors.info
+                const col = SEV_UI[resumenCtrl.peor]?.color || colors.info
                 return (
-                  <span onClick={() => navigate(alertas[0]?.to || '/deposito')} className="cursor-pointer"
+                  <span onClick={() => document.getElementById('centro-control')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="cursor-pointer"
                     style={{ background: col + '1f', color: col, fontSize: '12px', fontWeight: '700', padding: '5px 12px', borderRadius: '10px' }}>
-                    ⚠ {totalAlertas} alerta{totalAlertas !== 1 ? 's' : ''}
+                    ⚠ {totalAlertas} pendiente{totalAlertas !== 1 ? 's' : ''}
                   </span>
                 )
               })()}
@@ -340,6 +311,51 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* Centro de control — lo primero que se ve: qué necesita acción hoy */}
+      {!loading && (
+        <div id="centro-control" className="overflow-hidden" style={SURFACE}>
+          <div className="px-4 pt-4 pb-3 flex items-center justify-between flex-wrap gap-2">
+            <h2 className="text-base font-bold flex items-center gap-2" style={{ color: colors.textPrimary }}>
+              🎯 Centro de control · Hoy
+            </h2>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {['critico', 'alto', 'medio'].map(sev => resumenCtrl[sev] > 0 && (
+                <span key={sev} className="text-[11px] font-bold px-2 py-0.5 rounded-full"
+                  style={{ backgroundColor: SEV_UI[sev].color + '22', color: SEV_UI[sev].color }}>
+                  {resumenCtrl[sev]} {SEV_UI[sev].label}
+                </span>
+              ))}
+            </div>
+          </div>
+          {centroAlertas.length === 0 ? (
+            <div className="px-4 pb-5">
+              <p className="text-sm font-semibold" style={{ color: colors.success }}>✅ Todo bajo control — nada urgente por resolver.</p>
+            </div>
+          ) : (
+            <div className="px-4 pb-4 space-y-2">
+              {centroAlertas.map(a => {
+                const col = SEV_UI[a.severidad]?.color || colors.info
+                return (
+                  <div key={a.id} onClick={() => navigate(a.to)}
+                    className="flex items-center gap-3 p-3 cursor-pointer transition-colors hover:bg-[#334155]/50"
+                    style={{ backgroundColor: colors.bg, borderRadius: radius.md, border: `1px solid ${colors.border}`, borderLeft: `3px solid ${col}` }}>
+                    <span className="text-lg flex-shrink-0">{a.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>{a.titulo}</p>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: col + '1f', color: col }}>{a.categoria}</span>
+                      </div>
+                      <p className="text-xs truncate" style={{ color: colors.textMuted }}>{a.detalle}</p>
+                    </div>
+                    <span className="text-lg font-black flex-shrink-0" style={{ color: col }}>{a.count}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Acciones rápidas */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -392,8 +408,8 @@ export default function Dashboard() {
             />
           </div>
 
-          {/* Sección 2 y 3: Órdenes activas + Alertas */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {/* Sección 2: Órdenes activas (las alertas ahora viven en el Centro de control) */}
+          <div>
             <div className="overflow-hidden" style={SURFACE}>
               <h3 className="px-4 pt-4 pb-1 text-sm font-semibold" style={{ color: colors.textPrimary }}>
                 Órdenes activas {ordenesActivas.length > 0 && `(${ordenesActivas.length})`}
@@ -438,36 +454,6 @@ export default function Dashboard() {
                       </div>
                     )
                   })}
-                </div>
-              )}
-            </div>
-
-            <div className="overflow-hidden" style={SURFACE}>
-              <div className="px-4 pt-4 pb-2 flex items-center gap-2">
-                <h3 className="text-sm font-semibold" style={{ color: colors.textPrimary }}>Alertas</h3>
-                {totalAlertas > 0 && <Badge variant={peorVariante}>{totalAlertas}</Badge>}
-              </div>
-              {alertas.length === 0 ? (
-                <div className="px-4 pb-4">
-                  <p className="text-sm font-medium" style={{ color: colors.success }}>✅ Todo en orden</p>
-                </div>
-              ) : (
-                <div className="px-4 pb-4 space-y-2">
-                  {alertas.map((a, i) => (
-                    <div
-                      key={i}
-                      onClick={() => navigate(a.to)}
-                      className="flex items-center gap-3 p-3 cursor-pointer transition-colors hover:bg-[#334155]/50"
-                      style={{ backgroundColor: colors.bg, borderRadius: radius.md, border: `1px solid ${colors.border}` }}
-                    >
-                      <span className="text-lg flex-shrink-0">{a.emoji}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>{a.titulo}</p>
-                        <p className="text-xs truncate" style={{ color: colors.textMuted }}>{a.detalle}</p>
-                      </div>
-                      <Badge variant={a.variant}>{a.count}</Badge>
-                    </div>
-                  ))}
                 </div>
               )}
             </div>

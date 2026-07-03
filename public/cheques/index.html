@@ -17,10 +17,11 @@
   --brand:#063F6D; --brand-dark:#042C4D; --brand-mid:#0B4C82;
   --green:#1E9E52; --amber:#D98A00; --red:#DC3545; --purple:#7A3FF2; --blue:#0B4C82; --teal:#0E9F8E;
   --ink:#1A2230; --ink2:#5B6472; --ink3:#8A93A3;
-  --line:#E6E9EE; --bg:#EEF1F5; --card:#FFFFFF;
-  --shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
-  --shadow-lg:0 10px 24px rgba(16,24,40,.10);
-  --r:16px; --r-sm:10px;
+  --line:#E7EAF0; --bg:#F4F6FA; --card:#FFFFFF; --brand-soft:#E9F0F7;
+  --shadow:0 1px 2px rgba(16,24,40,.04), 0 2px 8px rgba(16,24,40,.05);
+  --shadow-lg:0 14px 34px rgba(16,24,40,.13);
+  --r:18px; --r-sm:12px;
+  --safe-t:env(safe-area-inset-top,0px);
   --safe-b:env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -40,32 +41,48 @@ a{color:var(--brand);text-decoration:none}
 .tabnum{font-variant-numeric:tabular-nums}
 
 /* Header */
-.appbar{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
-.appbar .wrap{padding-top:14px;padding-bottom:12px}
-.title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.title{font-size:26px;line-height:1.05}
-.subtitle{color:var(--ink2);font-size:13.5px;margin-top:3px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
-.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.logo{height:30px;width:auto;display:block;margin-bottom:7px}
+.appbar{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.82);backdrop-filter:saturate(1.6) blur(14px);-webkit-backdrop-filter:saturate(1.6) blur(14px);border-bottom:1px solid var(--line)}
+.appbar .wrap{padding-top:calc(12px + var(--safe-t));padding-bottom:10px}
+.topbar{display:flex;align-items:center;gap:11px}
+.logo{height:30px;width:auto;display:block;flex:none}
+.brandtxt{flex:1;min-width:0}
+.apptitle{font-size:17px;font-weight:800;letter-spacing:-.02em;line-height:1.12}
+@media(min-width:420px){.apptitle{font-size:19px}}
+.subtitle{color:var(--ink2);font-size:12px;margin-top:2px;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.subtitle>span{flex:none}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+.actions{display:flex;gap:8px;align-items:center;flex:none}
+.iconbtn{position:relative;width:40px;height:40px;border-radius:13px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--line);color:var(--ink2);transition:transform .05s,background .12s,box-shadow .12s;box-shadow:var(--shadow)}
+.iconbtn:active{transform:scale(.94)}
+.iconbtn svg{width:19px;height:19px}
+.iconbtn.primary{background:var(--brand);border-color:transparent;color:#fff;box-shadow:0 4px 12px rgba(6,63,109,.28)}
+.iconbtn .nd{position:absolute;top:-3px;right:-3px;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:var(--red);color:#fff;font-size:10px;font-weight:800;display:none;align-items:center;justify-content:center;border:2px solid #fff}
+.iconbtn.on-alert .nd{display:flex}
 
 /* Buttons */
-.btn{display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border-radius:12px;font-weight:700;font-size:13.5px;color:#fff;background:var(--brand);transition:filter .12s,transform .05s;white-space:nowrap;border:1px solid transparent}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:11px 16px;border-radius:13px;font-weight:700;font-size:14px;color:#fff;background:var(--brand);transition:filter .12s,transform .05s;white-space:nowrap;border:1px solid transparent}
 .btn:active{transform:translateY(1px)}
-.btn:hover{filter:brightness(1.05)}
+.btn:hover{filter:brightness(1.06)}
 .btn svg{width:16px;height:16px;flex:none}
-.btn.green{background:var(--green)} .btn.blue{background:var(--blue)} .btn.slate{background:#334155}
+.btn.green{background:var(--green)} .btn.blue{background:var(--blue)} .btn.slate{background:#334155} .btn.wa{background:#25D366}
 .btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);font-weight:600}
 .btn.ghost:hover{background:#F7F8FA;filter:none}
-.btn.sm{padding:7px 11px;font-size:12.5px;border-radius:10px}
+.btn.sm{padding:8px 12px;font-size:12.5px;border-radius:11px}
 .btn.danger{background:var(--red)}
-.btn.icon{padding:9px;border-radius:11px}
+.btn.block{width:100%}
+
+/* Menú hoja (bottom sheet reutiliza overlay) */
+.sheet-btn{display:flex;align-items:center;gap:13px;width:100%;padding:14px 12px;border-radius:13px;font-weight:600;font-size:15px;color:var(--ink);text-align:left;transition:background .12s}
+.sheet-btn:hover{background:var(--brand-soft)}
+.sheet-btn .ico{width:38px;height:38px;border-radius:11px;background:var(--brand-soft);color:var(--brand);display:flex;align-items:center;justify-content:center;flex:none}
+.sheet-btn .ico svg{width:19px;height:19px}
+.sheet-btn small{display:block;color:var(--ink3);font-weight:500;font-size:12px}
 
 /* Tabs */
-.tabs{display:flex;gap:4px;overflow-x:auto;margin-top:14px;-ms-overflow-style:none;scrollbar-width:none}
+.tabs{display:flex;gap:5px;overflow-x:auto;margin-top:12px;-ms-overflow-style:none;scrollbar-width:none}
 .tabs::-webkit-scrollbar{display:none}
-.tab{padding:9px 16px;border-radius:11px;font-weight:700;font-size:14.5px;color:var(--ink2);white-space:nowrap;background:transparent}
-.tab.active{background:var(--brand);color:#fff;box-shadow:0 3px 8px rgba(6,63,109,.28)}
+.tab{padding:8px 15px;border-radius:999px;font-weight:700;font-size:14px;color:var(--ink2);white-space:nowrap;background:#EEF1F6;transition:background .12s,color .12s}
+.tab.active{background:var(--brand);color:#fff;box-shadow:0 4px 12px rgba(6,63,109,.26)}
 
 /* Filters bar */
 .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;box-shadow:var(--shadow);margin-bottom:16px}
@@ -136,11 +153,14 @@ tbody tr:hover{background:#F8FAFC}
 .bankrow td input{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:#fff}
 
 /* Bottom nav (mobile) */
-.bottomnav{position:fixed;bottom:0;left:0;right:0;z-index:40;background:rgba(255,255,255,.94);backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;padding-bottom:var(--safe-b)}
-.bottomnav button{flex:1;padding:9px 2px 8px;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--ink3);font-size:10.5px;font-weight:700}
+.bottomnav{position:fixed;bottom:0;left:0;right:0;z-index:40;background:rgba(255,255,255,.92);backdrop-filter:saturate(1.6) blur(14px);-webkit-backdrop-filter:saturate(1.6) blur(14px);border-top:1px solid var(--line);display:flex;padding:6px 4px calc(6px + var(--safe-b))}
+.bottomnav button{flex:1;padding:6px 2px;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--ink3);font-size:10.5px;font-weight:700;border-radius:12px;transition:color .12s}
+.bottomnav button .nav-ic{width:44px;height:26px;border-radius:999px;display:flex;align-items:center;justify-content:center;transition:background .18s}
 .bottomnav button.active{color:var(--brand)}
+.bottomnav button.active .nav-ic{background:var(--brand-soft)}
 .bottomnav svg{width:22px;height:22px}
-.fab{position:fixed;right:16px;bottom:calc(74px + var(--safe-b));z-index:41;width:56px;height:56px;border-radius:50%;background:var(--brand);color:#fff;box-shadow:0 8px 20px rgba(6,63,109,.42);display:flex;align-items:center;justify-content:center}
+.fab{position:fixed;right:16px;bottom:calc(82px + var(--safe-b));z-index:41;width:58px;height:58px;border-radius:19px;background:linear-gradient(135deg,var(--brand-mid),var(--brand));color:#fff;box-shadow:0 10px 24px rgba(6,63,109,.45);display:flex;align-items:center;justify-content:center;transition:transform .06s}
+.fab:active{transform:scale(.93)}
 .fab svg{width:26px;height:26px}
 
 /* Modal */
@@ -211,24 +231,22 @@ body.locked{padding-bottom:0}
 
 <header class="appbar">
   <div class="wrap">
-    <div class="title-row">
-      <div>
-        <img class="logo" src="logo-ciaf.png" alt="CIAF — Consultora Integral" />
-        <h1 class="title">Informe de Cheques</h1>
+    <div class="topbar">
+      <img class="logo" src="logo-ciaf.png" alt="CIAF — Consultora Integral" />
+      <div class="brandtxt">
+        <div class="apptitle">Informe de Cheques</div>
         <div class="subtitle" id="subtitle">—</div>
       </div>
       <div class="actions">
-        <button class="btn ghost sm" id="btnBackup" title="Guardar / restaurar copia de datos">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>Datos
+        <button class="iconbtn primary" id="btnShare" title="Compartir vencimientos" aria-label="Compartir">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>
         </button>
-        <button class="btn blue sm" id="btnImg">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>Imagen
+        <button class="iconbtn" id="btnNotif" title="Alertas de vencimiento" aria-label="Alertas">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <span class="nd" id="notifDot">0</span>
         </button>
-        <button class="btn slate sm" id="btnPrint">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>PDF
-        </button>
-        <button class="btn green sm" id="btnNotif">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span id="notifTxt">Alertas</span>
+        <button class="iconbtn" id="btnMore" title="Más opciones" aria-label="Más">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/></svg>
         </button>
       </div>
     </div>
@@ -249,11 +267,11 @@ body.locked{padding-bottom:0}
 </button>
 
 <nav class="bottomnav" id="bottomnav">
-  <button data-view="dashboard" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Panel</button>
-  <button data-view="cheques"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Cheques</button>
-  <button data-view="semanal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Semanal</button>
-  <button data-view="analisis"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>Análisis</button>
-  <button data-view="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Config</button>
+  <button data-view="dashboard" class="active"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg></span>Panel</button>
+  <button data-view="cheques"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></span>Cheques</button>
+  <button data-view="semanal"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Semanal</button>
+  <button data-view="analisis"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></span>Análisis</button>
+  <button data-view="config"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>Config</button>
 </nav>
 
 <div id="modalRoot"></div>
@@ -483,10 +501,11 @@ function renderSubtitle(){
   const dotColor = n>0 ? 'var(--red)' : 'var(--green)';
   $('#subtitle').innerHTML =
     `<span class="dot" style="background:${dotColor}"></span>`+
-    `Fecha base: <b style="color:var(--ink);font-weight:700">${fmtFecha(hoyISO())}</b>`+
-    (n>0 ? ` · <span style="color:var(--red);font-weight:700">${n} por vencer</span>` : ` · <span style="color:var(--green);font-weight:700">al día</span>`)+
-    ` · <span class="mut3">${state.cheques.length} cheque${state.cheques.length!==1?'s':''}</span>`;
-  const nt = $('#notifTxt'); if(nt) nt.textContent = state.settings.notif ? 'Alertas ✓' : 'Alertas';
+    `<span><b style="color:var(--ink);font-weight:700">${fmtFecha(hoyISO())}</b></span>`+
+    (n>0 ? `<span style="color:var(--red);font-weight:700">· ${n} por vencer</span>` : `<span style="color:var(--green);font-weight:700">· al día</span>`)+
+    `<span class="mut3">· ${nChe(state.cheques.length)}</span>`;
+  const bell = $('#btnNotif'), dot = $('#notifDot');
+  if(bell){ bell.classList.toggle('on-alert', n>0); if(dot) dot.textContent = n>9?'9+':n; }
 }
 
 /* ── Barra de filtros ───────────────────────────────────────────────────── */
@@ -911,7 +930,7 @@ function modalBanco(id){
    EVENTOS
    ══════════════════════════════════════════════════════════════════════════ */
 document.addEventListener('click', e=>{
-  const t = e.target.closest('[data-view],[data-act],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
+  const t = e.target.closest('[data-view],[data-act],[data-more],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
   if(!t) return;
 
   // navegación
@@ -954,6 +973,13 @@ document.addEventListener('click', e=>{
   if(act==='wipe'){ if(confirm('¿Borrar TODOS los datos de este dispositivo? Esta acción no se puede deshacer.')){ state={razones:[],bancos:[],cheques:[],settings:{notif:false,notifDias:7},notifLog:{},_queue:[]}; save(); render(); toast('Datos borrados'); } return; }
   if(act==='logout'){ if(confirm('¿Cerrar sesión? Los datos quedan guardados en la nube.')){ logout(); } return; }
   if(act==='ir-login'){ localMode=false; renderLogin(); return; }
+
+  // menú "Más"
+  if(t.dataset.more){ const m=t.dataset.more; closeModal();
+    if(m==='img'){ descargarImagen(); }
+    else if(m==='print'){ view='dashboard'; render(); setTimeout(()=>window.print(),150); }
+    else if(m==='backup'){ view='config'; render(); setTimeout(()=>window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'}),60); }
+    return; }
   if(act==='sync-now'){ toast('Sincronizando…'); cloudFlush().then(cloudPull).then(()=>{ render(); toast('Sincronizado ✓'); }); return; }
 
   // guardar/eliminar cheque
@@ -980,10 +1006,9 @@ document.addEventListener('change', e=>{
 });
 
 $('#fab').addEventListener('click', ()=>{ if(!state.razones.length){ view='config'; render(); toast('Cargá una razón social para empezar'); modalRazon(); return; } modalCheque(); });
-$('#btnBackup').addEventListener('click', ()=>{ view='config'; render(); window.scrollTo({top:document.body.scrollHeight}); });
-$('#btnPrint').addEventListener('click', ()=>{ view='dashboard'; render(); setTimeout(()=>window.print(),120); });
-$('#btnImg').addEventListener('click', descargarImagen);
+$('#btnShare').addEventListener('click', compartir);
 $('#btnNotif').addEventListener('click', toggleNotif);
+$('#btnMore').addEventListener('click', abrirMenuMas);
 
 function syncDraft(){
   const d=window._draft; if(!d) return;
@@ -1036,6 +1061,43 @@ function importJSON(){
   inp.click();
 }
 function download(name,blob){ const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u); }
+
+/* ── Compartir vencimientos (WhatsApp / Mail / share nativo) ─────────────── */
+function resumenVencimientos(){
+  const als = alertas();
+  const L = ['🧾 *Informe de Cheques — CIAF*', 'Al ' + fmtFecha(hoyISO()), ''];
+  if(!als.length){ L.push('✅ Sin cheques por vencer en los próximos ' + (state.settings.notifDias||7) + ' días.'); return L.join('\n'); }
+  const pag = als.filter(x=>x.ch.tipo==='emitido'), cob = als.filter(x=>x.ch.tipo==='recibido');
+  const linea = ({ch,c}) => `• ${ch.contraparte||ch.librador||'—'} — ${pesos(ch.importe)} — ${c.label} (${fmtFecha(ch.fecha_pago)})`;
+  if(pag.length){ L.push('🔴 *A PAGAR* — ' + pesos(suma(pag.map(x=>x.ch)))); pag.forEach(x=>L.push(linea(x))); L.push(''); }
+  if(cob.length){ L.push('🟢 *A COBRAR* — ' + pesos(suma(cob.map(x=>x.ch)))); cob.forEach(x=>L.push(linea(x))); }
+  return L.join('\n').trim();
+}
+async function compartir(){
+  if(!state.cheques.length){ toast('Cargá cheques primero'); return; }
+  const txt = resumenVencimientos();
+  if(navigator.share){
+    try{ await navigator.share({ title:'Informe de Cheques — CIAF', text:txt }); return; }
+    catch(e){ if(e && e.name==='AbortError') return; }
+  }
+  const wa = 'https://wa.me/?text=' + encodeURIComponent(txt);
+  const mail = 'mailto:?subject=' + encodeURIComponent('Informe de Cheques — vencimientos') + '&body=' + encodeURIComponent(txt);
+  openModal(`<div class="modal" style="max-width:420px">
+    <div class="modal-h"><h3>Compartir vencimientos</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-b">
+      <a class="btn wa block" style="margin-bottom:10px" href="${wa}" target="_blank" rel="noopener" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.7 4.8-1.3A10 10 0 1 0 12 2zm5.8 14.2c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.1-1.9-.1-.4-.1-1-.3-1.8-.6-3-1.3-5-4.4-5.1-4.6-.2-.2-1.3-1.7-1.3-3.2s.8-2.3 1.1-2.6c.3-.3.6-.4.8-.4h.6c.2 0 .5 0 .7.5l.9 2.1c.1.2.1.4 0 .6l-.4.6c-.2.2-.3.4-.1.7.2.3.9 1.4 1.9 2.3 1.3 1.1 2.3 1.5 2.6 1.6.3.1.5.1.7-.1l.8-1c.2-.3.4-.2.7-.1l2 1c.3.1.5.2.5.4.1.2.1.9-.1 1.3z"/></svg>Enviar por WhatsApp</a>
+      <a class="btn block" href="${mail}" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 6l10 7 10-7"/></svg>Enviar por Email</a>
+    </div></div>`);
+}
+function abrirMenuMas(){
+  openModal(`<div class="modal" style="max-width:440px">
+    <div class="modal-h"><h3>Más opciones</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-b" style="padding:10px">
+      <button class="sheet-btn" data-more="img"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg></span><span>Descargar imagen<small>Captura del panel en PNG</small></span></button>
+      <button class="sheet-btn" data-more="print"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></span><span>PDF / Imprimir<small>Guardar o imprimir el informe</small></span></button>
+      <button class="sheet-btn" data-more="backup"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></span><span>Copia de datos<small>Respaldar o restaurar</small></span></button>
+    </div></div>`);
+}
 
 async function descargarImagen(){
   view='dashboard'; render();

@@ -6,6 +6,7 @@ import { exportarCSV } from '../lib/exportar'
 import { registrarConteoStock, nuevoCiclo } from '../lib/conteos'
 import { generarComprobanteConteo } from '../lib/comprobanteConteo'
 import { normalizarNombre } from '../lib/texto'
+import { construirPrecioMapCamara, valorizarItemCamara } from '../lib/valorCamara'
 import { useUser } from '../context/UserContext'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -22,26 +23,11 @@ import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Modal from '../components/ui/Modal'
 
-const TIPO_PRECIOS = {
-  Lisa:           { costo_kg: 1200, precio_kg: 2800 },
-  'Con Agregado': { costo_kg: 1500, precio_kg: 3200 },
-  Agua:           { costo_kg:  900, precio_kg: 2200 },
-  Especial:       { costo_kg: 2000, precio_kg: 4500 },
-}
 const TIPOS = ['Todos', 'Lisa', 'Con Agregado', 'Agua', 'Especial']
 
-// Costo y precio de venta UNIFICADOS: se leen de Finanzas (tablas sabores /
-// impulsivos). Cámara solo los muestra; se editan únicamente desde Finanzas.
-// Helado: por kg. Impulsivo/postre: por unidad. Fallback a TIPO_PRECIOS si no se
-// encuentra el producto (para no romper).
-function valoresDe(item, precioMap = {}) {
-  const m = precioMap[normalizarNombre(item.nombre || '')] || {}
-  const esUnid = item.tipo_producto === 'impulsivo' || item.tipo_producto === 'postre'
-  const costoUnit  = m.costo  || TIPO_PRECIOS[item.tipo]?.costo_kg  || 0
-  const precioUnit = m.precio || TIPO_PRECIOS[item.tipo]?.precio_kg || 0
-  const qty = esUnid ? (item.baldes || 0) : (item.kg || 0)
-  return { costoUnit, precioUnit, valorCosto: qty * costoUnit, valorVenta: qty * precioUnit }
-}
+// Costo y precio de venta UNIFICADOS: fuente única en lib/valorCamara (la misma
+// que usa Finanzas → los valores coinciden entre ambos módulos).
+const valoresDe = valorizarItemCamara
 const TIPO_BADGE = {
   Lisa:           { bg: 'rgba(96,165,250,0.12)',  color: '#60A5FA' },
   'Con Agregado': { bg: 'rgba(139,92,246,0.12)',  color: '#A78BFA' },
@@ -1271,15 +1257,7 @@ export default function Camaras() {
       // Costo/precio desde Finanzas (fuente única). Preferimos el COSTO FINAL por
       // unidad que guarda Finanzas (MP+MO+CIF). Si no está, respaldo: costo_total
       // del batch / rinde estimado (litros_base + kg de agregados).
-      const extraKg = {}
-      ;(sabIng || []).forEach(i => { if ((i.unidad || '').toLowerCase() === 'kg') extraKg[i.sabor_id] = (extraKg[i.sabor_id] || 0) + (Number(i.cantidad) || 0) })
-      const precioMap = {}
-      ;(sab || []).forEach(s => {
-        const rinde = (Number(s.litros_base) || 120) + (extraKg[s.id] || 0)
-        const costoKg = Number(s.costo_final) > 0 ? Number(s.costo_final) : (rinde > 0 ? (Number(s.costo_total) || 0) / rinde : 0)
-        precioMap[normalizarNombre(s.nombre)] = { costo: costoKg, precio: Number(s.precio_venta) || 0 }
-      })
-      ;(imp || []).forEach(i => { precioMap[normalizarNombre(i.nombre)] = { costo: Number(i.costo_final) > 0 ? Number(i.costo_final) : (Number(i.costo_total) || 0), precio: Number(i.precio_venta) || 0 } })
+      const precioMap = construirPrecioMapCamara({ sabores: sab || [], impulsivos: imp || [], saborIngredientes: sabIng || [] })
       const agrupados = {}
       ;(data || []).forEach(item => {
         const key = item.nombre.trim().toUpperCase()

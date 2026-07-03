@@ -19,6 +19,7 @@ import { exportarCSV } from '../lib/exportar'
 import { crearCosteador } from '../lib/costeoRecetas'
 import { normalizarNombre } from '../lib/texto'
 import { cargarHistorialCostos } from '../lib/historialCostos'
+import { construirPrecioMapCamara, valorTotalCamara } from '../lib/valorCamara'
 import {
   DollarSign, RefreshCw, Warehouse, Thermometer, Percent,
   TrendingUp, TrendingDown, Clock, FileDown, AlertTriangle,
@@ -518,19 +519,12 @@ export default function Finanzas() {
     insumos.reduce((acc, i) => acc + (i.stock_actual || 0) * (i.costo_unitario || 0), 0)
   ), [insumos])
 
-  // Valoriza el stock en cámara con el MISMO costo unitario que calcula Finanzas
-  // (costo_unit por kg para helados/postres, por unidad para impulsivos). Antes
-  // usaba precios fijos y ni siquiera traía los kg → daba $0.
+  // Valoriza el stock en cámara con la MISMA función que la pantalla Cámara
+  // (fuente única en lib/valorCamara) → los dos módulos dan el mismo número.
   const valorCamaras = useMemo(() => {
-    const map = {}
-    productos.forEach(p => { map[normalizarNombre(p.nombre)] = p })
-    return stockCamaras.reduce((acc, c) => {
-      const p = map[normalizarNombre(c.nombre)]
-      if (!p) return acc
-      const cant = p.unidad === 'u' ? (Number(c.baldes) || 0) : (Number(c.kg) || 0)
-      return acc + cant * (Number(p.costo_unit) || 0)
-    }, 0)
-  }, [stockCamaras, productos])
+    const precioMap = construirPrecioMapCamara({ sabores, impulsivos, saborIngredientes })
+    return valorTotalCamara(stockCamaras, precioMap).valorCosto
+  }, [stockCamaras, sabores, impulsivos, saborIngredientes])
 
   const margenPromedio = useMemo(() => {
     const cp = margenes.filter(p => p.precio_venta > 0)

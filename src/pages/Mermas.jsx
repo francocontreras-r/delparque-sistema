@@ -11,6 +11,7 @@ import { useUser } from '../context/UserContext'
 import { deduplicarOperarios } from '../lib/operarios'
 import { POSTRES } from '../lib/postres'
 import { exportarCSV } from '../lib/exportar'
+import { compararConsumo } from '../lib/consumoTeoricoReal'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
@@ -26,6 +27,7 @@ import { TrendingDown, Plus, DollarSign, User, FileDown } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 const TABS   = ['Por Sabor', 'Por Operario', 'Por Causa', 'Historial']
+const MESES  = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const CAUSAS = [
   'Derrame accidental', 'Falla de equipo', 'Producto fuera de norma',
   'Vencimiento', 'Error de pesaje', 'Limpieza de línea', 'Otra',
@@ -151,7 +153,56 @@ export default function Mermas() {
     causa: CAUSAS[0], observaciones: '',
   })
 
+  // ── Teórico vs Real (control de consumo) ────────────────────────────────────
+  const ahora = new Date()
+  const [tvrMes, setTvrMes]   = useState(ahora.getMonth() + 1)
+  const [tvrAnio, setTvrAnio] = useState(ahora.getFullYear())
+  const [tvrCtx, setTvrCtx]   = useState(null)
+  const [tvrIngresos, setTvrIngresos] = useState([])
+  const [tvrEgresos, setTvrEgresos]   = useState([])
+  const [tvrLoading, setTvrLoading]   = useState(false)
+
   useEffect(() => { cargar() }, [])
+
+  // Carga perezosa: solo cuando se abre la pestaña o cambia el período.
+  useEffect(() => {
+    if (tab !== 'Teórico vs Real') return
+    let vivo = true
+    ;(async () => {
+      setTvrLoading(true)
+      const mm = String(tvrMes).padStart(2, '0')
+      const desde = `${tvrAnio}-${mm}-01`
+      const ultimo = new Date(tvrAnio, tvrMes, 0).getDate()
+      const hasta = `${tvrAnio}-${mm}-${String(ultimo).padStart(2, '0')}`
+      const [sab, si, bas, bi, imp, ii, ins, cam, egr] = await Promise.all([
+        supabase.from('sabores').select('*'),
+        supabase.from('sabor_ingredientes').select('*'),
+        supabase.from('bases').select('*'),
+        supabase.from('base_ingredientes').select('*'),
+        supabase.from('impulsivos').select('*'),
+        supabase.from('impulsivo_ingredientes').select('*'),
+        supabase.from('insumos').select('nombre,costo_unitario'),
+        supabase.from('movimientos_camara').select('producto_nombre,sabor_nombre,tipo_producto,kg,baldes,fecha').eq('tipo', 'ingreso').gte('fecha', desde).lte('fecha', hasta).limit(5000),
+        supabase.from('movimientos_deposito').select('producto_nombre,cantidad,fecha').eq('tipo', 'egreso').gte('fecha', desde).lte('fecha', hasta).limit(5000),
+      ])
+      if (!vivo) return
+      setTvrCtx({
+        sabores: sab.data || [], saborIngredientes: si.data || [],
+        bases: bas.data || [], baseIngredientes: bi.data || [],
+        impulsivos: imp.data || [], impulsivoIngredientes: ii.data || [],
+        insumos: ins.data || [],
+      })
+      setTvrIngresos(cam.data || [])
+      setTvrEgresos(egr.data || [])
+      setTvrLoading(false)
+    })()
+    return () => { vivo = false }
+  }, [tab, tvrMes, tvrAnio])
+
+  const tvr = useMemo(
+    () => tvrCtx ? compararConsumo({ camaraIngresos: tvrIngresos, ctx: tvrCtx, egresos: tvrEgresos }) : null,
+    [tvrCtx, tvrIngresos, tvrEgresos]
+  )
 
   async function cargar() {
     const [{ data: m }, { data: s }, { data: o }, { data: imp }] = await Promise.all([
@@ -521,7 +572,7 @@ export default function Mermas() {
       </div>
 
       <div className="flex gap-1.5 flex-wrap">
-        {(isAdmin ? [...TABS, 'Estándares'] : TABS).map(t => (
+        {(isAdmin ? [...TABS, 'Teórico vs Real', 'Estándares'] : TABS).map(t => (
           <button key={t} onClick={() => setTab(t)}
             className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border"
             style={{
@@ -540,6 +591,88 @@ export default function Mermas() {
         <>
           {tab === 'Por Sabor'    && <AgrupacionList filas={porSabor} />}
           {tab === 'Por Operario' && <AgrupacionList filas={porOperario} />}
+
+          {tab === 'Teórico vs Real' && (
+            <div className="space-y-3">
+              <div className="flex items-start justify-between flex-wrap gap-3 p-3 rounded-lg"
+                style={{ backgroundColor: 'rgba(59,130,246,0.06)', border: `1px solid ${colors.border}` }}>
+                <p className="text-xs max-w-2xl" style={{ color: colors.textSecondary }}>
+                  Compara la materia prima que la producción <b>debería</b> haber consumido (según las recetas, a partir de lo que entró a cámara) contra lo que <b>realmente salió</b> del depósito.{' '}
+                  <b style={{ color: colors.danger }}>Variación &gt; 0</b> = se usó de más (posible merma/robo/error de receta).{' '}
+                  <b style={{ color: colors.warning }}>&lt; 0</b> = se produjo sin registrar el egreso.
+                </p>
+                <div className="flex gap-2">
+                  <Select value={tvrMes} onChange={e => setTvrMes(Number(e.target.value))}>
+                    {MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+                  </Select>
+                  <Select value={tvrAnio} onChange={e => setTvrAnio(Number(e.target.value))}>
+                    {[ahora.getFullYear(), ahora.getFullYear() - 1].map(y => <option key={y} value={y}>{y}</option>)}
+                  </Select>
+                </div>
+              </div>
+
+              {tvrLoading || !tvr ? (
+                <div className="flex justify-center py-14"><Spinner size={28} /></div>
+              ) : tvr.filas.length === 0 ? (
+                <EmptyState icon={TrendingDown} title="Sin datos en el período" subtitle="No hay producción en cámara ni egresos de depósito para comparar en este mes." />
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <KpiCard label="Consumo teórico" value={`$${pesos(tvr.totalTeorico)}`} color={colors.info} icon={DollarSign} />
+                    <KpiCard label="Consumo real" value={`$${pesos(tvr.totalReal)}`} color={colors.brand} icon={DollarSign} />
+                    <KpiCard label="Variación total"
+                      value={`${tvr.totalVariacion >= 0 ? '+' : '-'}$${pesos(Math.abs(tvr.totalVariacion))}`}
+                      color={tvr.totalVariacion > 0 ? colors.danger : colors.success} icon={TrendingDown} />
+                    <KpiCard label="Consumo de más" value={`$${pesos(tvr.valorDeMas)}`}
+                      sub="por encima de lo teórico" color={colors.danger} icon={TrendingDown} />
+                  </div>
+
+                  {tvr.sinReceta.length > 0 && (
+                    <div className="text-xs px-3 py-2 rounded-lg" style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
+                      Sin receta (no se pudo calcular su consumo teórico): {tvr.sinReceta.join(', ')}
+                    </div>
+                  )}
+
+                  <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                    <div className="overflow-x-auto">
+                      <Table className="min-w-[620px]">
+                        <Thead>
+                          <Tr>
+                            <Th>Insumo</Th>
+                            <Th className="text-right">Teórico</Th>
+                            <Th className="text-right">Real</Th>
+                            <Th className="text-right">Variación</Th>
+                            <Th className="text-right">%</Th>
+                            <Th className="text-right">$ Variación</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {tvr.filas.map(f => {
+                            const col = f.variacion > 0.001 ? colors.danger : f.variacion < -0.001 ? colors.warning : colors.textMuted
+                            return (
+                              <Tr key={f.nombre}>
+                                <Td className="font-medium">{f.nombre}</Td>
+                                <Td className="text-right text-xs">{f.teorico.toFixed(2)}</Td>
+                                <Td className="text-right text-xs">{f.real.toFixed(2)}</Td>
+                                <Td className="text-right font-semibold" style={{ color: col }}>{f.variacion > 0 ? '+' : ''}{f.variacion.toFixed(2)}</Td>
+                                <Td className="text-right text-xs" style={{ color: col }}>{f.teorico > 0 ? `${f.variacionPct > 0 ? '+' : ''}${f.variacionPct.toFixed(0)}%` : '—'}</Td>
+                                <Td className="text-right font-semibold" style={{ color: f.valorVariacion > 0.5 ? colors.danger : f.valorVariacion < -0.5 ? colors.success : colors.textMuted }}>
+                                  {f.valorVariacion >= 0 ? '+' : '-'}${pesos(Math.abs(f.valorVariacion))}
+                                </Td>
+                              </Tr>
+                            )
+                          })}
+                        </Tbody>
+                      </Table>
+                    </div>
+                  </div>
+                  <p className="text-[11px]" style={{ color: colors.textMuted }}>
+                    Requiere que los <b>egresos de depósito</b> estén registrados para ser exacto. Si un insumo sale con variación negativa grande, suele ser producción sin egreso cargado.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
 
           {tab === 'Por Causa' && (
             porCausa.length === 0

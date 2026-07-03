@@ -300,6 +300,8 @@ const CLOUD = !!(SB_URL && SB_KEY && self.supabase && self.supabase.createClient
 const sb = CLOUD ? self.supabase.createClient(SB_URL, SB_KEY, { auth:{ persistSession:true, autoRefreshToken:true, storageKey:'sb-cheques-auth' } }) : null;
 let sbUser = null;      // usuario logueado (o null)
 let localMode = false;  // el usuario eligió seguir sin cuenta
+let perfil = null;      // {rol} del usuario en la nube (admin|carga|lectura)
+let usuariosCache = null; // lista de usuarios (para el panel Admin)
 
 /* ── Modelo de estados ─────────────────────────────────────────────────── */
 const TIPOS = {
@@ -371,6 +373,41 @@ function toRemote(tabla,row){
 }
 const isUuid = id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id||'');
 const cloudOn = () => CLOUD && !!sbUser && !localMode;
+
+// ── Permisos (Opción A: roles). En modo local hay acceso total. ─────────────
+const ROLES = { admin:'Administrador', carga:'Cargador', lectura:'Solo lectura' };
+const esAdmin     = () => !cloudOn() || perfil?.rol === 'admin';
+const puedeEditar = () => !cloudOn() || perfil?.rol === 'admin' || perfil?.rol === 'carga';
+const RO          = () => !puedeEditar();   // read-only
+
+async function cargarPerfil(){
+  if(!cloudOn()){ perfil = null; return; }
+  try{
+    let { data } = await sb.from('perfiles').select('rol,email').eq('id', sbUser.id).maybeSingle();
+    if(!data){ // fallback si el trigger no lo creó: arranco como lectura
+      await sb.from('perfiles').insert({ id: sbUser.id, email: sbUser.email, rol: 'lectura' });
+      data = { rol: 'lectura', email: sbUser.email };
+    }
+    perfil = data;
+  }catch(e){ perfil = { rol: 'lectura' }; console.warn('perfil:', e.message); }
+}
+async function cargarUsuarios(){
+  if(!esAdmin() || !cloudOn()) return;
+  try{
+    const { data, error } = await sb.from('perfiles').select('id,email,rol').order('email');
+    if(error) throw error;
+    usuariosCache = data || [];
+  }catch(e){ usuariosCache = []; toast('No se pudo leer usuarios'); }
+  if(view==='config') render();
+}
+async function cambiarRol(id, rol){
+  try{
+    const { error } = await sb.from('perfiles').update({ rol }).eq('id', id);
+    if(error) throw error;
+    if(usuariosCache){ const u = usuariosCache.find(x=>x.id===id); if(u) u.rol = rol; }
+    toast('Permiso actualizado');
+  }catch(e){ toast('No se pudo cambiar: '+e.message); }
+}
 
 async function cloudPull(){
   if(!cloudOn()) return false;
@@ -683,7 +720,7 @@ function viewCheques(){
     : emptyState('No hay cheques con estos filtros.', state.cheques.length===0?'Agregá tu primer cheque con el botón +':'Probá limpiar los filtros.')}
   </div>
   <div class="noprint" style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
-    <button class="btn" data-act="nuevo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Nuevo cheque</button>
+    ${puedeEditar()?`<button class="btn" data-act="nuevo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Nuevo cheque</button>`:''}
     <button class="btn ghost" data-act="csv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Exportar CSV</button>
   </div>`;
 }
@@ -761,13 +798,33 @@ function barList(pairs,color){
   </div>`).join('');
 }
 
+/* ── Panel Usuarios y permisos (solo admin, solo en la nube) ────────────── */
+function usuariosCard(){
+  if(!esAdmin() || !cloudOn()) return '';
+  if(usuariosCache === null){ cargarUsuarios(); return `<div class="card" style="margin-bottom:16px"><h2>Usuarios y permisos</h2><div class="empty" style="padding:18px">Cargando usuarios…</div></div>`; }
+  const rows = usuariosCache.map(u=>`<tr>
+    <td><b>${esc(u.email||'—')}</b>${u.id===sbUser?.id?' <span class="mut3">(vos)</span>':''}</td>
+    <td class="right"><select class="f" data-rol-user="${u.id}" style="min-width:148px">
+      ${Object.entries(ROLES).map(([v,l])=>`<option value="${v}" ${u.rol===v?'selected':''}>${l}</option>`).join('')}
+    </select></td>
+  </tr>`).join('');
+  return `<div class="card" style="margin-bottom:16px">
+    <h2>Usuarios y permisos</h2>
+    <div class="hint">Para sumar una persona: creala primero en Supabase (Authentication → Add user) y después elegí su permiso acá.
+      <br><b>Administrador</b>: todo + gestiona usuarios · <b>Cargador</b>: ve y carga cheques · <b>Solo lectura</b>: solo mira.</div>
+    <div class="tblwrap"><table><tbody>${rows||'<tr><td class="mut3">Sin usuarios</td></tr>'}</tbody></table></div>
+  </div>`;
+}
+
 /* ── CONFIG (razones sociales + bancos + ajustes) ───────────────────────── */
 function viewConfig(){
+  const puedeE = puedeEditar();
+  const rolBadge = cloudOn() ? `<span class="badge b-${perfil?.rol==='admin'?'info':perfil?.rol==='carga'?'ok':'mut'}">${ROLES[perfil?.rol]||'—'}</span>` : '<span class="badge b-mut">Local</span>';
   const cloudCard = !CLOUD ? '' : (cloudOn() ? `
   <div class="card" style="margin-bottom:16px">
     <h2>Sincronización en la nube</h2>
     <div class="cloudbar"><span class="dot" style="background:var(--green)"></span>
-      Conectado como <b style="color:var(--ink)">${esc(sbUser?.email||'')}</b>${state._queue.length?` · <span style="color:var(--amber)">${state._queue.length} cambio(s) sin subir</span>`:''}
+      Conectado como <b style="color:var(--ink)">${esc(sbUser?.email||'')}</b> ${rolBadge}${state._queue.length?` · <span style="color:var(--amber)">${state._queue.length} sin subir</span>`:''}
     </div>
     <div class="hint">Tus cheques se guardan en la nube y aparecen en todos tus dispositivos. Funciona también sin conexión: se sincroniza cuando volvés a tener internet.</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
@@ -782,16 +839,17 @@ function viewConfig(){
   </div>`);
   return `
   ${cloudCard}
+  ${usuariosCard()}
   <div class="card" style="margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <h2>Razones sociales</h2>
-      <button class="btn sm" data-act="nueva-razon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Agregar</button>
+      ${puedeE?`<button class="btn sm" data-act="nueva-razon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Agregar</button>`:''}
     </div>
     <div class="hint">Las empresas con las que operás. Cada cheque y cada cuenta bancaria se asigna a una.</div>
     ${state.razones.length? `<div class="tblwrap"><table><tbody>
       ${state.razones.map(r=>`<tr>
         <td><b>${esc(r.nombre)}</b>${r.cuit?`<div class="mut3" style="font-size:11.5px">CUIT ${esc(r.cuit)}</div>`:''}</td>
-        <td class="right"><button class="linkbtn" data-edit-razon="${r.id}">Editar</button><button class="linkbtn" style="color:var(--red)" data-del-razon="${r.id}">Borrar</button></td>
+        ${puedeE?`<td class="right"><button class="linkbtn" data-edit-razon="${r.id}">Editar</button><button class="linkbtn" style="color:var(--red)" data-del-razon="${r.id}">Borrar</button></td>`:'<td></td>'}
       </tr>`).join('')}
     </tbody></table></div>` : `<div class="empty">Todavía no cargaste ninguna razón social.</div>`}
   </div>
@@ -799,7 +857,7 @@ function viewConfig(){
   <div class="card" style="margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <h2>Cuentas bancarias</h2>
-      <button class="btn sm" data-act="nuevo-banco" ${state.razones.length?'':'disabled style="opacity:.5"'}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Agregar</button>
+      ${puedeE?`<button class="btn sm" data-act="nuevo-banco" ${state.razones.length?'':'disabled style="opacity:.5"'}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Agregar</button>`:''}
     </div>
     <div class="hint">Saldo y acuerdo (giro en descubierto) de cada cuenta — alimenta la "Disponibilidad bancaria" del panel.</div>
     ${state.bancos.length? `<div class="tblwrap"><table>
@@ -807,7 +865,7 @@ function viewConfig(){
       <tbody>${state.bancos.map(b=>`<tr>
         <td><b>${esc(b.entidad)}</b>${state.razones.length>1?`<div class="mut3" style="font-size:11px">${esc(razonNombre(b.razon_social_id))}</div>`:''}</td>
         <td class="right num">${pesos(b.saldo)}</td><td class="right num mut3">${pesos(b.acuerdo)}</td>
-        <td class="right"><button class="linkbtn" data-edit-banco="${b.id}">Editar</button><button class="linkbtn" style="color:var(--red)" data-del-banco="${b.id}">Borrar</button></td>
+        ${puedeE?`<td class="right"><button class="linkbtn" data-edit-banco="${b.id}">Editar</button><button class="linkbtn" style="color:var(--red)" data-del-banco="${b.id}">Borrar</button></td>`:'<td></td>'}
       </tr>`).join('')}</tbody>
     </table></div>` : `<div class="empty">Sin cuentas cargadas.</div>`}
   </div>
@@ -859,8 +917,10 @@ function renderChequeForm(d, editing){
   const rzOpts = state.razones.map(r=>`<option value="${r.id}" ${d.razon_social_id===r.id?'selected':''}>${esc(r.nombre)}</option>`).join('')
     || '<option value="">(cargá una razón social en Config)</option>';
   const contrapLbl = d.tipo==='emitido'?'Beneficiario (a quién se lo das)':'Librador (quién te lo dio)';
+  const ro = RO();
   openModal(`<div class="modal">
-    <div class="modal-h"><h3>${editing?'Editar cheque':'Nuevo cheque'}</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-h"><h3>${ro?'Ver cheque':(editing?'Editar cheque':'Nuevo cheque')}</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <fieldset ${ro?'disabled':''} style="border:none;padding:0;margin:0;min-width:0">
     <div class="modal-b">
       <div class="seg" style="margin-bottom:14px">
         <button class="${d.tipo==='emitido'?'on pay':''}" data-tipo="emitido">A pagar (propio)</button>
@@ -889,10 +949,12 @@ function renderChequeForm(d, editing){
       </div>
       <div class="field"><label>Observaciones <span class="mut3">(opcional)</span></label><textarea data-d="observaciones" rows="2" placeholder="Notas...">${esc(d.observaciones)}</textarea></div>
     </div>
+    </fieldset>
     <div class="modal-f">
-      ${editing?'<button class="btn danger" data-del-cheque>Eliminar</button>':''}
+      ${ro ? '<button class="btn ghost" data-close>Cerrar</button>'
+           : `${editing?'<button class="btn danger" data-del-cheque>Eliminar</button>':''}
       <button class="btn ghost" data-close>Cancelar</button>
-      <button class="btn" data-save-cheque>${editing?'Guardar':'Agregar'}</button>
+      <button class="btn" data-save-cheque>${editing?'Guardar':'Agregar'}</button>`}
     </div>
   </div>
   <datalist id="bancosList">${[...new Set(state.cheques.map(c=>c.banco).filter(Boolean))].map(b=>`<option value="${esc(b)}">`).join('')}</datalist>`);
@@ -932,6 +994,12 @@ function modalBanco(id){
 document.addEventListener('click', e=>{
   const t = e.target.closest('[data-view],[data-act],[data-more],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
   if(!t) return;
+
+  // Bloqueo de escritura para usuarios de solo lectura
+  const WRITE_ACTS = new Set(['nuevo','nueva-razon','nuevo-banco','wipe','import-json']);
+  if(RO() && ( t.matches('[data-save-cheque],[data-del-cheque],[data-save-razon],[data-del-razon],[data-save-banco],[data-del-banco],[data-edit-razon],[data-edit-banco]') || WRITE_ACTS.has(t.dataset.act) )){
+    toast('Tu usuario es de solo lectura'); return;
+  }
 
   // navegación
   if(t.dataset.view){ view=t.dataset.view; render(); window.scrollTo({top:0}); return; }
@@ -1003,9 +1071,11 @@ document.addEventListener('change', e=>{
   if(f){ filtros[f.dataset.filtro]=f.value; if(f.dataset.filtro==='tipo') filtros.estado=''; render(); return; }
   const s=e.target.closest('[data-set]');
   if(s){ state.settings[s.dataset.set]= s.dataset.set==='notifDias'?+s.value:s.value; save(); renderSubtitle(); if(view==='config'){} return; }
+  const ru=e.target.closest('[data-rol-user]');
+  if(ru){ cambiarRol(ru.dataset.rolUser, ru.value); return; }
 });
 
-$('#fab').addEventListener('click', ()=>{ if(!state.razones.length){ view='config'; render(); toast('Cargá una razón social para empezar'); modalRazon(); return; } modalCheque(); });
+$('#fab').addEventListener('click', ()=>{ if(RO()){ toast('Tu usuario es de solo lectura'); return; } if(!state.razones.length){ view='config'; render(); toast('Cargá una razón social para empezar'); modalRazon(); return; } modalCheque(); });
 $('#btnShare').addEventListener('click', compartir);
 $('#btnNotif').addEventListener('click', toggleNotif);
 $('#btnMore').addEventListener('click', abrirMenuMas);
@@ -1140,7 +1210,9 @@ function chequearVencimientos(forzar){
 }
 
 /* ── Post-render (nada extra por ahora) ─────────────────────────────────── */
-function postRender(){}
+function postRender(){
+  const fab = $('#fab'); if(fab) fab.style.display = RO() ? 'none' : 'flex';
+}
 
 /* ══════════════════════════════════════════════════════════════════════════
    LOGIN / ARRANQUE
@@ -1188,8 +1260,10 @@ async function doLogin(signup){
 async function logout(){ try{ await sb.auth.signOut(); }catch(e){} }
 
 async function syncInicial(){
+  await cargarPerfil();                                                           // rol del usuario
+  usuariosCache = null;
   const n = await cloudCount();
-  if(n===0 && (state.cheques.length||state.razones.length)) await cloudPushAll(); // 1ª vez: subir lo local
+  if(n===0 && (state.cheques.length||state.razones.length) && puedeEditar()) await cloudPushAll(); // 1ª vez
   else if(n>0) await cloudPull();                                                 // ya hay datos en la nube
   await cloudFlush();
 }

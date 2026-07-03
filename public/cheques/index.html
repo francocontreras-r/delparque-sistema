@@ -1,0 +1,1173 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Informe de Cheques</title>
+<meta name="description" content="Control de cheques a cobrar y a pagar, con alertas de vencimiento. Multiplataforma, funciona sin conexión." />
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#063F6D" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Cheques" />
+<style>
+:root{
+  --brand:#063F6D; --brand-dark:#042C4D; --brand-mid:#0B4C82;
+  --green:#1E9E52; --amber:#D98A00; --red:#DC3545; --purple:#7A3FF2; --blue:#0B4C82; --teal:#0E9F8E;
+  --ink:#1A2230; --ink2:#5B6472; --ink3:#8A93A3;
+  --line:#E6E9EE; --bg:#EEF1F5; --card:#FFFFFF;
+  --shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
+  --shadow-lg:0 10px 24px rgba(16,24,40,.10);
+  --r:16px; --r-sm:10px;
+  --safe-b:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+  background:var(--bg); color:var(--ink);
+  font-size:15px; line-height:1.45; -webkit-font-smoothing:antialiased;
+  padding-bottom:calc(64px + var(--safe-b));
+}
+h1,h2,h3{margin:0;font-weight:800;letter-spacing:-.02em}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+input,select,textarea{font-family:inherit;font-size:15px}
+a{color:var(--brand);text-decoration:none}
+.wrap{max-width:1180px;margin:0 auto;padding:16px}
+.muted{color:var(--ink2)} .mut3{color:var(--ink3)}
+.tabnum{font-variant-numeric:tabular-nums}
+
+/* Header */
+.appbar{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.appbar .wrap{padding-top:14px;padding-bottom:12px}
+.title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.title{font-size:26px;line-height:1.05}
+.subtitle{color:var(--ink2);font-size:13.5px;margin-top:3px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.logo{height:30px;width:auto;display:block;margin-bottom:7px}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border-radius:12px;font-weight:700;font-size:13.5px;color:#fff;background:var(--brand);transition:filter .12s,transform .05s;white-space:nowrap;border:1px solid transparent}
+.btn:active{transform:translateY(1px)}
+.btn:hover{filter:brightness(1.05)}
+.btn svg{width:16px;height:16px;flex:none}
+.btn.green{background:var(--green)} .btn.blue{background:var(--blue)} .btn.slate{background:#334155}
+.btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);font-weight:600}
+.btn.ghost:hover{background:#F7F8FA;filter:none}
+.btn.sm{padding:7px 11px;font-size:12.5px;border-radius:10px}
+.btn.danger{background:var(--red)}
+.btn.icon{padding:9px;border-radius:11px}
+
+/* Tabs */
+.tabs{display:flex;gap:4px;overflow-x:auto;margin-top:14px;-ms-overflow-style:none;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{padding:9px 16px;border-radius:11px;font-weight:700;font-size:14.5px;color:var(--ink2);white-space:nowrap;background:transparent}
+.tab.active{background:var(--brand);color:#fff;box-shadow:0 3px 8px rgba(6,63,109,.28)}
+
+/* Filters bar */
+.filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;box-shadow:var(--shadow);margin-bottom:16px}
+select.f,input.f{appearance:none;-webkit-appearance:none;background:#F4F6F9 url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235B6472' stroke-width='3'><path d='M6 9l6 6 6-6'/></svg>") no-repeat right 10px center;
+  border:1px solid var(--line);border-radius:10px;padding:9px 30px 9px 12px;font-weight:600;color:var(--ink);min-width:120px}
+input.f{background-image:none;padding-right:12px}
+.linkbtn{color:var(--brand);font-weight:700;font-size:13.5px;padding:6px 8px;border-radius:8px}
+.linkbtn:hover{background:#E7EFF6}
+
+/* Cards / grid */
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:720px){.g3,.g4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:440px){.hero-grid{grid-template-columns:1fr!important}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:18px}
+.card h2{font-size:17px;margin-bottom:2px}
+.card .hint{color:var(--ink3);font-size:12.5px;margin-bottom:12px}
+.section-title{font-size:20px;font-weight:800;margin:22px 2px 12px}
+
+/* Hero KPI */
+.hero{border-radius:var(--r);padding:20px 22px;color:#fff;position:relative;overflow:hidden;box-shadow:var(--shadow-lg)}
+.hero.pay{background:linear-gradient(135deg,#0B4C82,#063F6D)}
+.hero.collect{background:linear-gradient(135deg,#0E9F8E,#0B7D70)}
+.hero .lab{font-size:14px;opacity:.92;font-weight:600}
+.hero .val{font-size:34px;font-weight:800;letter-spacing:-.02em;margin-top:2px}
+.hero .cnt{position:absolute;top:20px;right:22px;text-align:right}
+.hero .cnt b{font-size:30px;font-weight:800;display:block;line-height:1}
+.hero .cnt span{font-size:12px;opacity:.9}
+.hero .ico{position:absolute;right:-10px;bottom:-14px;opacity:.14}
+.hero .ico svg{width:120px;height:120px}
+
+/* Stat cards (vencimientos por periodo) */
+.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;box-shadow:var(--shadow)}
+.stat .lab{color:var(--ink2);font-size:14px;font-weight:600}
+.stat .val{font-size:26px;font-weight:800;margin-top:4px;letter-spacing:-.02em}
+.stat .sub{color:var(--ink3);font-size:12.5px;margin-top:3px}
+.stat.click{cursor:pointer;transition:box-shadow .15s,transform .05s}
+.stat.click:hover{box-shadow:var(--shadow-lg)}
+.stat.click:active{transform:translateY(1px)}
+
+/* Table */
+.tblwrap{overflow-x:auto;border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;color:var(--ink3);font-weight:700;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:#F8FAFC}
+.right{text-align:right} .center{text-align:center}
+.num{font-variant-numeric:tabular-nums;font-weight:700}
+
+/* Badges */
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
+.b-info{background:#E7F0FF;color:#2456C7} .b-warn{background:#FFF2D9;color:#9A6B00}
+.b-ok{background:#E3F6EC;color:#137a41} .b-danger{background:#FDE7E9;color:#B71D2B}
+.b-mut{background:#EEF1F5;color:#5B6472} .b-purple{background:#EEE7FE;color:#5B27C4}
+.pill{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:700}
+
+/* Alerts list */
+.alrow{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;margin-bottom:8px;background:#fff}
+.alrow .barcol{width:5px;align-self:stretch;border-radius:6px;flex:none}
+.alrow .who{font-weight:700}
+.alrow .meta{color:var(--ink2);font-size:12.5px}
+.alrow .amt{margin-left:auto;text-align:right}
+
+/* Bank availability row inputs */
+.bankrow td input{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:#fff}
+
+/* Bottom nav (mobile) */
+.bottomnav{position:fixed;bottom:0;left:0;right:0;z-index:40;background:rgba(255,255,255,.94);backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;padding-bottom:var(--safe-b)}
+.bottomnav button{flex:1;padding:9px 2px 8px;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--ink3);font-size:10.5px;font-weight:700}
+.bottomnav button.active{color:var(--brand)}
+.bottomnav svg{width:22px;height:22px}
+.fab{position:fixed;right:16px;bottom:calc(74px + var(--safe-b));z-index:41;width:56px;height:56px;border-radius:50%;background:var(--brand);color:#fff;box-shadow:0 8px 20px rgba(6,63,109,.42);display:flex;align-items:center;justify-content:center}
+.fab svg{width:26px;height:26px}
+
+/* Modal */
+.overlay{position:fixed;inset:0;z-index:60;background:rgba(16,24,40,.5);backdrop-filter:blur(3px);display:flex;align-items:flex-end;justify-content:center;padding:0}
+@media(min-width:640px){.overlay{align-items:center;padding:20px}}
+.modal{background:#fff;width:100%;max-width:640px;max-height:92vh;border-radius:20px 20px 0 0;display:flex;flex-direction:column;overflow:hidden;animation:up .22s cubic-bezier(.16,1,.3,1)}
+@media(min-width:640px){.modal{border-radius:20px}}
+@keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:translateY(0);opacity:1}}
+.modal-h{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line)}
+.modal-h h3{font-size:18px}
+.modal-b{padding:18px;overflow-y:auto}
+.modal-f{padding:14px 18px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end}
+.close{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--ink2)}
+.close:hover{background:#F1F3F6}
+
+/* Form */
+.field{margin-bottom:13px}
+.field label{display:block;font-weight:700;font-size:12.5px;color:var(--ink2);margin-bottom:5px}
+.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff;color:var(--ink)}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(6,63,109,.16)}
+.frow{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:520px){.frow{grid-template-columns:1fr}}
+.seg{display:flex;gap:6px;background:#F1F3F6;padding:4px;border-radius:12px}
+.seg button{flex:1;padding:9px;border-radius:9px;font-weight:700;color:var(--ink2);font-size:13.5px}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:var(--shadow)}
+.seg button.on.pay{color:var(--brand)} .seg button.on.collect{color:var(--teal)}
+
+/* Toast */
+#toast{position:fixed;left:50%;bottom:calc(80px + var(--safe-b));transform:translateX(-50%);z-index:80;background:var(--ink);color:#fff;padding:11px 18px;border-radius:12px;font-weight:700;font-size:13.5px;box-shadow:var(--shadow-lg);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+
+/* Empty state */
+.empty{text-align:center;padding:36px 16px;color:var(--ink3)}
+.empty svg{width:44px;height:44px;opacity:.5;margin-bottom:10px}
+
+/* SVG chart */
+.chart{width:100%;height:auto;display:block}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);margin-top:8px}
+.legend b{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}
+
+/* Login */
+body.locked .tabs,body.locked .actions,body.locked #subtitle,body.locked .fab,body.locked .bottomnav{display:none!important}
+body.locked{padding-bottom:0}
+.login{max-width:400px;margin:24px auto;background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-lg);padding:26px 24px}
+.login-logo{height:38px;width:auto;display:block;margin:2px auto 18px}
+.login h2{font-size:20px;text-align:center}
+.login p{text-align:center;font-size:13.5px;margin:6px 0 18px}
+.login .btn{margin-top:6px}
+.login-alt{text-align:center;font-size:13px;color:var(--ink2);margin-top:14px}
+.login-alt a,.login .mut3 a{color:var(--brand);font-weight:700;cursor:pointer}
+.login-msg{background:#FDECEC;color:#B71D2B;border-radius:10px;padding:9px 12px;font-size:13px;font-weight:600;margin-bottom:12px;text-align:center}
+.login-msg.ok{background:#E3F6EC;color:#137a41}
+.cloudbar{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);background:#EAF2FA;border:1px solid #D4E5F4;border-radius:10px;padding:8px 12px;margin-bottom:14px}
+.cloudbar .dot{width:8px;height:8px}
+.hidden{display:none!important}
+@media(min-width:768px){ .bottomnav,.fab{display:none} body{padding-bottom:24px} }
+
+/* Print */
+@media print{
+  .appbar .actions,.tabs,.filters,.bottomnav,.fab,.noprint{display:none!important}
+  body{background:#fff;padding:0}
+  .card,.stat,.hero{box-shadow:none;border:1px solid #ddd;break-inside:avoid}
+  .appbar{position:static;background:#fff}
+}
+</style>
+</head>
+<body>
+
+<header class="appbar">
+  <div class="wrap">
+    <div class="title-row">
+      <div>
+        <img class="logo" src="logo-ciaf.png" alt="CIAF — Consultora Integral" />
+        <h1 class="title">Informe de Cheques</h1>
+        <div class="subtitle" id="subtitle">—</div>
+      </div>
+      <div class="actions">
+        <button class="btn ghost sm" id="btnBackup" title="Guardar / restaurar copia de datos">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>Datos
+        </button>
+        <button class="btn blue sm" id="btnImg">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>Imagen
+        </button>
+        <button class="btn slate sm" id="btnPrint">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>PDF
+        </button>
+        <button class="btn green sm" id="btnNotif">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span id="notifTxt">Alertas</span>
+        </button>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-view="dashboard">Dashboard</button>
+      <button class="tab" data-view="cheques">Cheques</button>
+      <button class="tab" data-view="semanal">Semanal</button>
+      <button class="tab" data-view="analisis">Análisis</button>
+      <button class="tab" data-view="config">Config</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap" id="app"></main>
+
+<button class="fab" id="fab" title="Nuevo cheque">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>
+</button>
+
+<nav class="bottomnav" id="bottomnav">
+  <button data-view="dashboard" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Panel</button>
+  <button data-view="cheques"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Cheques</button>
+  <button data-view="semanal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Semanal</button>
+  <button data-view="analisis"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>Análisis</button>
+  <button data-view="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Config</button>
+</nav>
+
+<div id="modalRoot"></div>
+<div id="toast"></div>
+
+<script src="vendor/supabase.js"></script>
+<script>
+"use strict";
+/* ══════════════════════════════════════════════════════════════════════════
+   Informe de Cheques — app independiente, sin servidor. Los datos se guardan
+   en el propio dispositivo (localStorage) y se pueden respaldar/restaurar con
+   el botón "Datos" para pasarlos entre la compu y el celular.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const KEY = 'informe-cheques-v1';
+const $ = (s,el=document)=>el.querySelector(s);
+const $$ = (s,el=document)=>[...el.querySelectorAll(s)];
+const uid = ()=> (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,9);
+
+/* ── Conexión a Supabase (sincronización en la nube) ────────────────────────
+   Estas dos claves son públicas (pensadas para el frontend). Si las dejás
+   vacías, la app funciona igual en modo local (solo este dispositivo). */
+const SB_URL = 'https://wzaqkenrlwilbyisvlhw.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind6YXFrZW5ybHdpbGJ5aXN2bGh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwMjQwNTQsImV4cCI6MjA5ODYwMDA1NH0.EljEzUJKzbDrIe4pogveik9L_ES_a8ALt91Cv9IOkRg';
+const CLOUD = !!(SB_URL && SB_KEY && self.supabase && self.supabase.createClient);
+const sb = CLOUD ? self.supabase.createClient(SB_URL, SB_KEY, { auth:{ persistSession:true, autoRefreshToken:true, storageKey:'sb-cheques-auth' } }) : null;
+let sbUser = null;      // usuario logueado (o null)
+let localMode = false;  // el usuario eligió seguir sin cuenta
+
+/* ── Modelo de estados ─────────────────────────────────────────────────── */
+const TIPOS = {
+  recibido:{label:'A cobrar', verbo:'cobrar', color:'var(--teal)'},
+  emitido :{label:'A pagar',  verbo:'pagar',  color:'var(--brand)'},
+};
+const FORMATOS = {fisico:'Físico', echeq:'E-cheq'};
+const ESTADOS = {
+  recibido:[
+    {v:'en_cartera',l:'En cartera',b:'info',  abierto:true },
+    {v:'depositado',l:'Depositado',b:'warn',  abierto:true },
+    {v:'cobrado',   l:'Cobrado',   b:'ok',    abierto:false},
+    {v:'endosado',  l:'Endosado',  b:'mut',   abierto:false},
+    {v:'rechazado', l:'Rechazado', b:'danger',abierto:false},
+    {v:'anulado',   l:'Anulado',   b:'mut',   abierto:false},
+  ],
+  emitido:[
+    {v:'pendiente', l:'Pendiente', b:'info',  abierto:true },
+    {v:'entregado', l:'Entregado', b:'warn',  abierto:true },
+    {v:'pagado',    l:'Pagado',    b:'ok',    abierto:false},
+    {v:'rechazado', l:'Rechazado', b:'danger',abierto:false},
+    {v:'anulado',   l:'Anulado',   b:'mut',   abierto:false},
+  ],
+};
+const estadoInfo=(tipo,est)=> (ESTADOS[tipo]||[]).find(e=>e.v===est) || {v:est,l:est||'—',b:'mut',abierto:false};
+const esAbierto = ch => estadoInfo(ch.tipo,ch.estado).abierto;
+
+/* ── Estado global (persistido) ─────────────────────────────────────────── */
+let state = load();
+function load(){
+  try{
+    const raw = localStorage.getItem(KEY);
+    if(raw) return migrate(JSON.parse(raw));
+  }catch(e){}
+  return {razones:[], bancos:[], cheques:[], settings:{notif:false, notifDias:7}, notifLog:{}, _queue:[]};
+}
+function migrate(s){
+  s.razones ||= []; s.bancos ||= []; s.cheques ||= [];
+  s.settings ||= {notif:false, notifDias:7};
+  if(s.settings.notifDias==null) s.settings.notifDias=7;
+  s.notifLog ||= {}; s._queue ||= [];
+  return s;
+}
+function save(){ localStorage.setItem(KEY, JSON.stringify(state)); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SINCRONIZACIÓN CON SUPABASE (offline-first)
+   El almacenamiento local sigue siendo el que manda para la UI; cada cambio se
+   "empuja" a la nube y, si no hay conexión, queda en cola para reintentar.
+   ══════════════════════════════════════════════════════════════════════════ */
+const REMOTE = { razones:'razones_sociales', bancos:'bancos', cheques:'cheques' };
+const COLS = {
+  razones:['id','nombre','cuit','activo'],
+  bancos :['id','razon_social_id','entidad','saldo','acuerdo'],
+  cheques:['id','razon_social_id','tipo','formato','banco','numero','importe','fecha_emision','fecha_pago','fecha_acreditacion','estado','librador','cuit_librador','contraparte','concepto','observaciones'],
+};
+const DATE_COLS = new Set(['fecha_emision','fecha_pago','fecha_acreditacion']);
+const NUM_COLS  = new Set(['importe','saldo','acuerdo']);
+function toRemote(tabla,row){
+  const o={};
+  COLS[tabla].forEach(c=>{
+    let v=row[c];
+    if(DATE_COLS.has(c)) v = v ? String(v).slice(0,10) : null;      // '' → null (date válido)
+    else if(NUM_COLS.has(c)) v = Number(v)||0;
+    else if(v===undefined) v = (c==='activo') ? true : null;
+    o[c]=v;
+  });
+  return o;
+}
+const isUuid = id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id||'');
+const cloudOn = () => CLOUD && !!sbUser && !localMode;
+
+async function cloudPull(){
+  if(!cloudOn()) return false;
+  try{
+    const [rz,bk,ch] = await Promise.all([
+      sb.from('razones_sociales').select('*').order('created_at'),
+      sb.from('bancos').select('*').order('created_at'),
+      sb.from('cheques').select('*').order('created_at'),
+    ]);
+    if(rz.error||bk.error||ch.error) throw (rz.error||bk.error||ch.error);
+    state.razones = rz.data||[]; state.bancos = bk.data||[]; state.cheques = ch.data||[];
+    save(); return true;
+  }catch(e){ console.warn('pull:', e.message); return false; }
+}
+function queueOp(op){ state._queue.push(op); save(); }
+async function cloudPush(tabla,row){
+  if(!cloudOn()) return;
+  try{ const {error}=await sb.from(REMOTE[tabla]).upsert(toRemote(tabla,row)); if(error) throw error; }
+  catch(e){ queueOp({t:'up',tabla,row}); }
+}
+async function cloudDelete(tabla,id){
+  if(!cloudOn()) return;
+  try{ const {error}=await sb.from(REMOTE[tabla]).delete().eq('id',id); if(error) throw error; }
+  catch(e){ queueOp({t:'del',tabla,id}); }
+}
+async function cloudFlush(){
+  if(!cloudOn() || !state._queue.length) return;
+  const q=state._queue.slice(); state._queue=[]; save();
+  for(const op of q){
+    try{
+      if(op.t==='up'){ const {error}=await sb.from(REMOTE[op.tabla]).upsert(toRemote(op.tabla,op.row)); if(error) throw error; }
+      else { const {error}=await sb.from(REMOTE[op.tabla]).delete().eq('id',op.id); if(error) throw error; }
+    }catch(e){ state._queue.push(op); }
+  }
+  save();
+}
+// Primer volcado: sube lo que haya local cuando la nube está vacía. Arregla ids
+// que no sean uuid (datos viejos), remapeando las referencias.
+async function cloudPushAll(){
+  if(!cloudOn()) return;
+  const remap={};
+  state.razones.forEach(r=>{ if(!isUuid(r.id)){ const n=uid(); remap[r.id]=n; r.id=n; } });
+  state.bancos.forEach(b=>{ if(remap[b.razon_social_id]) b.razon_social_id=remap[b.razon_social_id]; if(!isUuid(b.id)) b.id=uid(); });
+  state.cheques.forEach(c=>{ if(remap[c.razon_social_id]) c.razon_social_id=remap[c.razon_social_id]; if(!isUuid(c.id)) c.id=uid(); });
+  save();
+  try{
+    if(state.razones.length) { const {error}=await sb.from('razones_sociales').upsert(state.razones.map(r=>toRemote('razones',r))); if(error) throw error; }
+    if(state.bancos.length)  { const {error}=await sb.from('bancos').upsert(state.bancos.map(b=>toRemote('bancos',b))); if(error) throw error; }
+    if(state.cheques.length) { const {error}=await sb.from('cheques').upsert(state.cheques.map(c=>toRemote('cheques',c))); if(error) throw error; }
+  }catch(e){ console.warn('pushAll:', e.message); toast('No se pudo subir a la nube: '+e.message); }
+}
+async function cloudCount(){
+  try{
+    const a=await sb.from('cheques').select('id',{count:'exact',head:true});
+    const b=await sb.from('razones_sociales').select('id',{count:'exact',head:true});
+    if(a.error||b.error) throw (a.error||b.error);
+    return (a.count||0)+(b.count||0);
+  }catch(e){ return -1; } // -1 = error/sin conexión → no tocar datos locales
+}
+
+/* ── UI state ───────────────────────────────────────────────────────────── */
+let view = 'dashboard';
+let filtros = {razon:'', tipo:'', estado:''};
+
+/* ── Helpers ────────────────────────────────────────────────────────────── */
+const pesos = n => '$ '+Math.round(Number(n)||0).toLocaleString('es-AR');
+const nChe = n => n+' cheque'+(n!==1?'s':'');
+const pesosK = n => { n=Number(n)||0; return Math.abs(n)>=1e6 ? '$ '+(n/1e6).toLocaleString('es-AR',{maximumFractionDigits:1})+'M' : pesos(n); };
+function fmtFecha(f){ if(!f) return '—'; const [y,m,d]=String(f).slice(0,10).split('-'); return d&&m&&y?`${d}/${m}/${y}`:'—'; }
+function hoyISO(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
+function diasHasta(f){ if(!f) return null; const h=new Date(); h.setHours(0,0,0,0); const t=new Date(String(f).slice(0,10)+'T00:00:00'); return Math.round((t-h)/86400000); }
+function razonNombre(id){ return state.razones.find(r=>r.id===id)?.nombre || 'Sin razón social'; }
+
+// Clasificación de vencimiento (solo cheques abiertos). Mismos umbrales/colores.
+function clasif(ch){
+  if(!esAbierto(ch) || !ch.fecha_pago) return null;
+  const d = diasHasta(ch.fecha_pago);
+  if(d<0)  return {est:'vencido', d, label:'Vencido',   color:'var(--purple)', b:'purple'};
+  if(d<=2) return {est:'urgente', d, label:d<=0?'Hoy':'Inminente', color:'var(--red)',    b:'danger'};
+  if(d<=7) return {est:'pronto',  d, label:'Vence pronto', color:'var(--amber)', b:'warn'};
+  return         {est:'ok',      d, label:'En fecha',    color:'var(--green)', b:'ok'};
+}
+function labelDias(d){
+  if(d==null) return '';
+  if(d<0) return `hace ${-d} d`;
+  if(d===0) return 'hoy';
+  if(d===1) return 'mañana';
+  return `en ${d} d`;
+}
+
+/* ── Selectores ─────────────────────────────────────────────────────────── */
+function chequesFiltrados(){
+  return state.cheques.filter(ch=>{
+    if(filtros.razon && ch.razon_social_id!==filtros.razon) return false;
+    if(filtros.tipo  && ch.tipo!==filtros.tipo) return false;
+    if(filtros.estado && ch.estado!==filtros.estado) return false;
+    return true;
+  });
+}
+const suma = arr => arr.reduce((s,ch)=>s+(Number(ch.importe)||0),0);
+function alertas(){ // cheques abiertos vencidos o que vencen dentro del rango de aviso
+  const dias = state.settings.notifDias||7;
+  return chequesFiltrados()
+    .filter(ch=>esAbierto(ch) && ch.fecha_pago)
+    .map(ch=>({ch, c:clasif(ch)}))
+    .filter(x=>x.c && (x.c.est!=='ok' || x.c.d<=dias))
+    .sort((a,b)=>(a.c.d)-(b.c.d));
+}
+function contarAlertas(){ return state.cheques.filter(ch=>{const c=clasif(ch);return c&&c.est!=='ok';}).length; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RENDER
+   ══════════════════════════════════════════════════════════════════════════ */
+function render(){
+  renderSubtitle();
+  const app = $('#app');
+  if(view==='dashboard') app.innerHTML = viewDashboard();
+  else if(view==='cheques') app.innerHTML = viewCheques();
+  else if(view==='semanal') app.innerHTML = viewSemanal();
+  else if(view==='analisis') app.innerHTML = viewAnalisis();
+  else if(view==='config') app.innerHTML = viewConfig();
+  $$('#tabs .tab').forEach(t=>t.classList.toggle('active',t.dataset.view===view));
+  $$('#bottomnav button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
+  postRender();
+}
+function renderSubtitle(){
+  const n = contarAlertas();
+  const dotColor = n>0 ? 'var(--red)' : 'var(--green)';
+  $('#subtitle').innerHTML =
+    `<span class="dot" style="background:${dotColor}"></span>`+
+    `Fecha base: <b style="color:var(--ink);font-weight:700">${fmtFecha(hoyISO())}</b>`+
+    (n>0 ? ` · <span style="color:var(--red);font-weight:700">${n} por vencer</span>` : ` · <span style="color:var(--green);font-weight:700">al día</span>`)+
+    ` · <span class="mut3">${state.cheques.length} cheque${state.cheques.length!==1?'s':''}</span>`;
+  const nt = $('#notifTxt'); if(nt) nt.textContent = state.settings.notif ? 'Alertas ✓' : 'Alertas';
+}
+
+/* ── Barra de filtros ───────────────────────────────────────────────────── */
+function filtrosBar(){
+  const rzOpts = ['<option value="">Todas las razones</option>']
+    .concat(state.razones.map(r=>`<option value="${r.id}" ${filtros.razon===r.id?'selected':''}>${esc(r.nombre)}</option>`)).join('');
+  const tpOpts = `<option value="">Todos</option>
+    <option value="recibido" ${filtros.tipo==='recibido'?'selected':''}>A cobrar</option>
+    <option value="emitido" ${filtros.tipo==='emitido'?'selected':''}>A pagar</option>`;
+  const estSet = filtros.tipo ? ESTADOS[filtros.tipo] : [...ESTADOS.recibido,...ESTADOS.emitido].filter((e,i,a)=>a.findIndex(x=>x.v===e.v)===i);
+  const esOpts = ['<option value="">Estado: todos</option>']
+    .concat(estSet.map(e=>`<option value="${e.v}" ${filtros.estado===e.v?'selected':''}>${e.l}</option>`)).join('');
+  const limpiar = (filtros.razon||filtros.tipo||filtros.estado) ? '<button class="linkbtn" data-act="limpiar">Limpiar</button>':'';
+  return `<div class="filters noprint">
+    <select class="f" data-filtro="razon">${rzOpts}</select>
+    <select class="f" data-filtro="tipo">${tpOpts}</select>
+    <select class="f" data-filtro="estado">${esOpts}</select>
+    ${limpiar}
+  </div>`;
+}
+
+/* ── DASHBOARD ──────────────────────────────────────────────────────────── */
+function viewDashboard(){
+  const chs = chequesFiltrados();
+  const cobrar = chs.filter(c=>c.tipo==='recibido' && esAbierto(c));
+  const pagar  = chs.filter(c=>c.tipo==='emitido'  && esAbierto(c));
+  const totCobrar=suma(cobrar), totPagar=suma(pagar);
+
+  // Vencimientos por periodo (sobre el set filtrado)
+  const finalizados = chs.filter(c=>['cobrado','pagado'].includes(c.estado));
+  const pendientes  = chs.filter(c=>esAbierto(c) && (diasHasta(c.fecha_pago)==null || diasHasta(c.fecha_pago)>=0));
+  const rechazados  = chs.filter(c=>c.estado==='rechazado');
+  const vencidos    = chs.filter(c=>esAbierto(c) && diasHasta(c.fecha_pago)!=null && diasHasta(c.fecha_pago)<0);
+
+  const als = alertas();
+  const dispo = disponibilidadBancaria();
+
+  return `
+  ${filtrosBar()}
+  <div class="grid g2 hero-grid" style="margin-bottom:16px">
+    <div class="hero collect">
+      <div class="lab">Total a Cobrar</div>
+      <div class="val tabnum">${pesos(totCobrar)}</div>
+      <div class="cnt"><b>${cobrar.length}</b><span>cheques</span></div>
+      <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+    </div>
+    <div class="hero pay">
+      <div class="lab">Total a Pagar</div>
+      <div class="val tabnum">${pesos(totPagar)}</div>
+      <div class="cnt"><b>${pagar.length}</b><span>cheques</span></div>
+      <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg></div>
+    </div>
+  </div>
+
+  ${als.length? `<div class="card" style="margin-bottom:16px;border-color:#F3C9A6">
+    <h2 style="display:flex;align-items:center;gap:8px">⚠️ Próximos vencimientos <span class="badge b-danger">${als.length}</span></h2>
+    <div class="hint">Cheques abiertos que vencen dentro de ${state.settings.notifDias} días o ya vencidos.</div>
+    ${als.slice(0,8).map(({ch,c})=>alertRow(ch,c)).join('')}
+    ${als.length>8?`<div class="mut3" style="text-align:center;font-size:12.5px;margin-top:4px">+${als.length-8} más — ver pestaña Cheques</div>`:''}
+  </div>`:''}
+
+  <div class="section-title">Vencimientos por período</div>
+  <div class="grid g4" style="margin-bottom:6px">
+    ${statCard('Cobrados / Pagados', pesos(suma(finalizados)), nChe(finalizados.length),'var(--green)','cobrado')}
+    ${statCard('Pendientes',         pesos(suma(pendientes)),  nChe(pendientes.length),'var(--amber)','pend')}
+    ${statCard('Rechazados',         pesos(suma(rechazados)),  nChe(rechazados.length),'var(--red)','rechazado')}
+    ${statCard('Vencidos',           pesos(suma(vencidos)),    nChe(vencidos.length),'var(--purple)','venc')}
+  </div>
+
+  <div class="section-title">Cheques — próximos 30 días</div>
+  <div class="card">${chartProximos30(chs)}</div>
+
+  <div class="section-title">Disponibilidad bancaria</div>
+  <div class="card">
+    <div class="hint">Saldo en cuenta + acuerdo (giro en descubierto) = disponible. Cargá tus cuentas en la pestaña Config.</div>
+    ${dispo.rows.length? `<div class="tblwrap"><table>
+      <thead><tr><th>Entidad</th><th class="right">Saldo</th><th class="right">Acuerdo</th><th class="right">Disponible</th></tr></thead>
+      <tbody>${dispo.rows.map(r=>`<tr>
+        <td><b>${esc(r.entidad)}</b>${r.razon?`<div class="mut3" style="font-size:11.5px">${esc(r.razon)}</div>`:''}</td>
+        <td class="right num">${pesos(r.saldo)}</td>
+        <td class="right num mut3">${pesos(r.acuerdo)}</td>
+        <td class="right num" style="color:${r.disp<0?'var(--red)':'var(--green)'}">${pesos(r.disp)}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--line)">
+        <td style="padding:11px 12px;font-weight:800">Total</td>
+        <td class="right num">${pesos(dispo.saldo)}</td>
+        <td class="right num mut3">${pesos(dispo.acuerdo)}</td>
+        <td class="right num" style="color:${dispo.disp<0?'var(--red)':'var(--green)'}">${pesos(dispo.disp)}</td>
+      </tr></tfoot>
+    </table></div>
+    <div style="margin-top:12px;padding:12px;border-radius:12px;background:${dispo.disp-totPagar<0?'#FDECEC':'#EAF7EF'}">
+      <div class="muted" style="font-size:13px">Disponible tras pagar los ${pagar.length} cheques a pagar</div>
+      <div style="font-size:22px;font-weight:800;color:${dispo.disp-totPagar<0?'var(--red)':'var(--green)'}">${pesos(dispo.disp-totPagar)}</div>
+    </div>`
+    : `<div class="empty"><div>No cargaste cuentas bancarias todavía.</div><button class="btn sm ghost" style="margin-top:10px" data-goto="config">Cargar cuentas</button></div>`}
+  </div>
+  `;
+}
+
+function statCard(lab,val,sub,color,filtro){
+  return `<div class="stat click" data-stat="${filtro}">
+    <div class="lab">${lab}</div>
+    <div class="val" style="color:${color}">${val}</div>
+    <div class="sub">${sub}</div>
+  </div>`;
+}
+function alertRow(ch,c){
+  return `<div class="alrow" data-edit="${ch.id}" style="cursor:pointer">
+    <div class="barcol" style="background:${c.color}"></div>
+    <div style="min-width:0">
+      <div class="who">${esc(ch.contraparte||ch.librador||'Sin nombre')} <span class="pill ${TIPOS[ch.tipo]?'':''}" style="background:${ch.tipo==='emitido'?'#E3ECF5':'#DEF4F1'};color:${TIPOS[ch.tipo].color}">${TIPOS[ch.tipo].label}</span></div>
+      <div class="meta">${esc(ch.banco||'—')} · N° ${esc(ch.numero||'—')} · <b style="color:${c.color}">${c.label} ${labelDias(c.d)}</b></div>
+    </div>
+    <div class="amt"><div class="num" style="font-size:15px">${pesos(ch.importe)}</div><div class="mut3" style="font-size:11.5px">${fmtFecha(ch.fecha_pago)}</div></div>
+  </div>`;
+}
+
+function disponibilidadBancaria(){
+  const rows = state.bancos
+    .filter(b=> !filtros.razon || b.razon_social_id===filtros.razon)
+    .map(b=>({entidad:b.entidad, razon: state.razones.length>1?razonNombre(b.razon_social_id):'', saldo:Number(b.saldo)||0, acuerdo:Number(b.acuerdo)||0, disp:(Number(b.saldo)||0)+(Number(b.acuerdo)||0)}));
+  return {rows, saldo:rows.reduce((s,r)=>s+r.saldo,0), acuerdo:rows.reduce((s,r)=>s+r.acuerdo,0), disp:rows.reduce((s,r)=>s+r.disp,0)};
+}
+
+/* ── Gráfico próximos 30 días (SVG, sin librerías) ──────────────────────── */
+function chartProximos30(chs){
+  const dias=30, buckets=Array.from({length:dias},()=>({cobrar:0,pagar:0}));
+  chs.forEach(ch=>{
+    if(!esAbierto(ch)||!ch.fecha_pago) return;
+    const d=diasHasta(ch.fecha_pago);
+    if(d==null||d<0||d>=dias) return;
+    buckets[d][ch.tipo==='emitido'?'pagar':'cobrar'] += Number(ch.importe)||0;
+  });
+  const max = Math.max(1, ...buckets.map(b=>Math.max(b.cobrar,b.pagar)));
+  const W=920,H=210,padL=64,padR=18,padT=14,padB=26,bw=(W-padL-padR)/dias,plotH=H-padT-padB;
+  let bars='';
+  buckets.forEach((b,i)=>{
+    const x=padL+i*bw;
+    const hc=b.cobrar/max*plotH, hp=b.pagar/max*plotH;
+    const w=Math.max(2,bw*0.36);
+    if(b.cobrar>0) bars+=`<rect x="${x+bw*0.12}" y="${H-padB-hc}" width="${w}" height="${hc}" rx="2" fill="var(--teal)"><title>Día +${i}: cobrar ${pesos(b.cobrar)}</title></rect>`;
+    if(b.pagar>0)  bars+=`<rect x="${x+bw*0.52}" y="${H-padB-hp}" width="${w}" height="${hp}" rx="2" fill="var(--brand)"><title>Día +${i}: pagar ${pesos(b.pagar)}</title></rect>`;
+    if(i%5===0) bars+=`<text x="${x+bw/2}" y="${H-padB+15}" font-size="10" fill="var(--ink3)" text-anchor="middle">+${i}d</text>`;
+  });
+  const grid=[0,.5,1].map(g=>{ const y=H-padB-g*plotH; return `<line x1="${padL}" x2="${W-padR}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${padL-8}" y="${y+3}" font-size="10" fill="var(--ink3)" text-anchor="end">${pesosK(g*max)}</text>`; }).join('');
+  const totC=suma(chs.filter(c=>esAbierto(c)&&c.tipo==='recibido'&&(d=>d!=null&&d>=0&&d<dias)(diasHasta(c.fecha_pago))));
+  const totP=suma(chs.filter(c=>esAbierto(c)&&c.tipo==='emitido' &&(d=>d!=null&&d>=0&&d<dias)(diasHasta(c.fecha_pago))));
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" preserveAspectRatio="xMidYMid meet">${grid}${bars}</svg>
+    <div class="legend"><span><b style="background:var(--teal)"></b>A cobrar (${pesos(totC)})</span><span><b style="background:var(--brand)"></b>A pagar (${pesos(totP)})</span></div>`;
+}
+
+/* ── CHEQUES (tabla + alta) ─────────────────────────────────────────────── */
+function viewCheques(){
+  const chs = chequesFiltrados().slice().sort((a,b)=>{
+    const da=a.fecha_pago||'9999', db=b.fecha_pago||'9999'; return da<db?-1:da>db?1:0;
+  });
+  const rows = chs.map(ch=>{
+    const c=clasif(ch), est=estadoInfo(ch.tipo,ch.estado);
+    return `<tr data-edit="${ch.id}" style="cursor:pointer">
+      <td><span class="pill" style="background:${ch.tipo==='emitido'?'#E3ECF5':'#DEF4F1'};color:${TIPOS[ch.tipo].color}">${TIPOS[ch.tipo].label}</span></td>
+      <td><b>${esc(ch.contraparte||ch.librador||'—')}</b>${state.razones.length>1?`<div class="mut3" style="font-size:11px">${esc(razonNombre(ch.razon_social_id))}</div>`:''}</td>
+      <td>${esc(ch.banco||'—')}<div class="mut3" style="font-size:11px">N° ${esc(ch.numero||'—')} · ${FORMATOS[ch.formato]||'Físico'}</div></td>
+      <td class="right num">${pesos(ch.importe)}</td>
+      <td class="center">${fmtFecha(ch.fecha_pago)}${c&&c.est!=='ok'?`<div class="mut3" style="font-size:11px;color:${c.color}">${c.label} ${labelDias(c.d)}</div>`:''}</td>
+      <td><span class="badge b-${est.b}">${est.l}</span></td>
+    </tr>`;
+  }).join('');
+  return `${filtrosBar()}
+  <div class="card" style="padding:0;overflow:hidden">
+    ${chs.length? `<div class="tblwrap"><table>
+      <thead><tr><th>Tipo</th><th>Contraparte</th><th>Banco / N°</th><th class="right">Importe</th><th class="center">Fecha pago</th><th>Estado</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--line)"><td colspan="3" style="padding:12px;font-weight:800">${chs.length} cheque${chs.length!==1?'s':''}</td><td class="right num" style="padding:12px">${pesos(suma(chs))}</td><td colspan="2"></td></tr></tfoot>
+    </table></div>`
+    : emptyState('No hay cheques con estos filtros.', state.cheques.length===0?'Agregá tu primer cheque con el botón +':'Probá limpiar los filtros.')}
+  </div>
+  <div class="noprint" style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+    <button class="btn" data-act="nuevo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Nuevo cheque</button>
+    <button class="btn ghost" data-act="csv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Exportar CSV</button>
+  </div>`;
+}
+
+/* ── SEMANAL ────────────────────────────────────────────────────────────── */
+function viewSemanal(){
+  const chs = chequesFiltrados().filter(c=>esAbierto(c)&&c.fecha_pago);
+  const semanas={};
+  chs.forEach(ch=>{
+    const d=diasHasta(ch.fecha_pago); const wk=Math.floor((d<0?0:d)/7);
+    const key = d<0? 'vencidos' : 'w'+wk;
+    (semanas[key] ||= {cobrar:0,pagar:0,items:[]});
+    semanas[key][ch.tipo==='emitido'?'pagar':'cobrar'] += Number(ch.importe)||0;
+    semanas[key].items.push(ch);
+  });
+  const orden = Object.keys(semanas).sort((a,b)=> (a==='vencidos'?-1:b==='vencidos'?1: (+a.slice(1))-(+b.slice(1)) ));
+  const nombreSem = k=>{
+    if(k==='vencidos') return '⚠️ Vencidos';
+    const w=+k.slice(1);
+    if(w===0) return 'Esta semana (0-7 días)';
+    if(w===1) return 'Próxima semana (8-14 días)';
+    return `En ${w*7+1}-${w*7+7} días`;
+  };
+  if(!orden.length) return `${filtrosBar()}${emptyState('Sin cheques abiertos con fecha de pago.','')}`;
+  return `${filtrosBar()}
+  ${orden.map(k=>{
+    const s=semanas[k];
+    return `<div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+        <h2 style="font-size:16px;color:${k==='vencidos'?'var(--purple)':'var(--ink)'}">${nombreSem(k)}</h2>
+        <div style="display:flex;gap:14px;font-size:13px">
+          ${s.cobrar?`<span style="color:var(--teal);font-weight:800">+${pesos(s.cobrar)}</span>`:''}
+          ${s.pagar?`<span style="color:var(--brand);font-weight:800">−${pesos(s.pagar)}</span>`:''}
+        </div>
+      </div>
+      <div class="tblwrap"><table><tbody>
+      ${s.items.sort((a,b)=>(a.fecha_pago<b.fecha_pago?-1:1)).map(ch=>{const c=clasif(ch);return `<tr data-edit="${ch.id}" style="cursor:pointer">
+        <td style="width:6px;padding:0"><div style="width:5px;height:26px;border-radius:4px;background:${c?c.color:'var(--line)'}"></div></td>
+        <td><b>${esc(ch.contraparte||ch.librador||'—')}</b><div class="mut3" style="font-size:11px">${esc(ch.banco||'—')} · ${TIPOS[ch.tipo].label}</div></td>
+        <td class="center mut3" style="font-size:12.5px">${fmtFecha(ch.fecha_pago)}</td>
+        <td class="right num" style="color:${ch.tipo==='emitido'?'var(--brand)':'var(--teal)'}">${pesos(ch.importe)}</td>
+      </tr>`;}).join('')}
+      </tbody></table></div>
+    </div>`;
+  }).join('')}`;
+}
+
+/* ── ANÁLISIS ───────────────────────────────────────────────────────────── */
+function viewAnalisis(){
+  const chs = chequesFiltrados();
+  const abiertos = chs.filter(esAbierto);
+  const porBanco = agrupar(abiertos, c=>c.banco||'Sin banco');
+  const porEstado = agrupar(chs, c=>estadoInfo(c.tipo,c.estado).l);
+  const porRazon = agrupar(abiertos, c=>razonNombre(c.razon_social_id));
+  const echeq = suma(abiertos.filter(c=>c.formato==='echeq')), fisico=suma(abiertos.filter(c=>c.formato!=='echeq'));
+  return `${filtrosBar()}
+  <div class="grid g2" style="align-items:start">
+    <div class="card"><h2>Por banco</h2><div class="hint">Cheques abiertos</div>${barList(porBanco,'var(--brand)')}</div>
+    <div class="card"><h2>Por estado</h2><div class="hint">Todos los cheques del filtro</div>${barList(porEstado,'var(--blue)')}</div>
+    ${state.razones.length>1?`<div class="card"><h2>Por razón social</h2><div class="hint">Cheques abiertos</div>${barList(porRazon,'var(--teal)')}</div>`:''}
+    <div class="card"><h2>Físico vs E-cheq</h2><div class="hint">Monto abierto</div>
+      ${barList([['E-cheq',echeq],['Físico',fisico]].filter(x=>x[1]>0),'var(--purple)')}</div>
+  </div>`;
+}
+function agrupar(arr,fn){
+  const m={}; arr.forEach(c=>{const k=fn(c); m[k]=(m[k]||0)+(Number(c.importe)||0);});
+  return Object.entries(m).sort((a,b)=>b[1]-a[1]);
+}
+function barList(pairs,color){
+  if(!pairs.length) return `<div class="empty" style="padding:20px">Sin datos</div>`;
+  const max=Math.max(...pairs.map(p=>p[1]),1);
+  return pairs.map(([k,v])=>`<div style="margin-bottom:11px">
+    <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px"><span style="font-weight:600">${esc(k)}</span><span class="num">${pesos(v)}</span></div>
+    <div style="height:9px;background:#F0F2F5;border-radius:6px;overflow:hidden"><div style="height:100%;width:${v/max*100}%;background:${color};border-radius:6px"></div></div>
+  </div>`).join('');
+}
+
+/* ── CONFIG (razones sociales + bancos + ajustes) ───────────────────────── */
+function viewConfig(){
+  const cloudCard = !CLOUD ? '' : (cloudOn() ? `
+  <div class="card" style="margin-bottom:16px">
+    <h2>Sincronización en la nube</h2>
+    <div class="cloudbar"><span class="dot" style="background:var(--green)"></span>
+      Conectado como <b style="color:var(--ink)">${esc(sbUser?.email||'')}</b>${state._queue.length?` · <span style="color:var(--amber)">${state._queue.length} cambio(s) sin subir</span>`:''}
+    </div>
+    <div class="hint">Tus cheques se guardan en la nube y aparecen en todos tus dispositivos. Funciona también sin conexión: se sincroniza cuando volvés a tener internet.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn sm" data-act="sync-now">Sincronizar ahora</button>
+      <button class="btn ghost sm" data-act="logout">Cerrar sesión</button>
+    </div>
+  </div>` : `
+  <div class="card" style="margin-bottom:16px">
+    <h2>Sincronización en la nube</h2>
+    <div class="cloudbar"><span class="dot" style="background:var(--amber)"></span>Estás en <b style="color:var(--ink)">modo local</b> (los datos no se comparten entre dispositivos).</div>
+    <button class="btn sm" data-act="ir-login">Iniciar sesión para sincronizar</button>
+  </div>`);
+  return `
+  ${cloudCard}
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <h2>Razones sociales</h2>
+      <button class="btn sm" data-act="nueva-razon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Agregar</button>
+    </div>
+    <div class="hint">Las empresas con las que operás. Cada cheque y cada cuenta bancaria se asigna a una.</div>
+    ${state.razones.length? `<div class="tblwrap"><table><tbody>
+      ${state.razones.map(r=>`<tr>
+        <td><b>${esc(r.nombre)}</b>${r.cuit?`<div class="mut3" style="font-size:11.5px">CUIT ${esc(r.cuit)}</div>`:''}</td>
+        <td class="right"><button class="linkbtn" data-edit-razon="${r.id}">Editar</button><button class="linkbtn" style="color:var(--red)" data-del-razon="${r.id}">Borrar</button></td>
+      </tr>`).join('')}
+    </tbody></table></div>` : `<div class="empty">Todavía no cargaste ninguna razón social.</div>`}
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <h2>Cuentas bancarias</h2>
+      <button class="btn sm" data-act="nuevo-banco" ${state.razones.length?'':'disabled style="opacity:.5"'}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Agregar</button>
+    </div>
+    <div class="hint">Saldo y acuerdo (giro en descubierto) de cada cuenta — alimenta la "Disponibilidad bancaria" del panel.</div>
+    ${state.bancos.length? `<div class="tblwrap"><table>
+      <thead><tr><th>Entidad</th><th class="right">Saldo</th><th class="right">Acuerdo</th><th></th></tr></thead>
+      <tbody>${state.bancos.map(b=>`<tr>
+        <td><b>${esc(b.entidad)}</b>${state.razones.length>1?`<div class="mut3" style="font-size:11px">${esc(razonNombre(b.razon_social_id))}</div>`:''}</td>
+        <td class="right num">${pesos(b.saldo)}</td><td class="right num mut3">${pesos(b.acuerdo)}</td>
+        <td class="right"><button class="linkbtn" data-edit-banco="${b.id}">Editar</button><button class="linkbtn" style="color:var(--red)" data-del-banco="${b.id}">Borrar</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : `<div class="empty">Sin cuentas cargadas.</div>`}
+  </div>
+
+  <div class="card">
+    <h2>Alertas y notificaciones</h2>
+    <div class="hint">Avisos de cheques por vencer. Las notificaciones del navegador aparecen aunque tengas la app minimizada (con la pestaña abierta).</div>
+    <div class="field">
+      <label>Avisar cheques que vencen dentro de</label>
+      <select class="f" data-set="notifDias" style="width:auto">
+        ${[3,5,7,10,15,30].map(d=>`<option value="${d}" ${state.settings.notifDias===d?'selected':''}>${d} días</option>`).join('')}
+      </select>
+    </div>
+    <button class="btn ${state.settings.notif?'green':'ghost'}" data-act="toggle-notif">
+      ${state.settings.notif?'🔔 Notificaciones activadas':'Activar notificaciones'}
+    </button>
+    <hr style="border:none;border-top:1px solid var(--line);margin:18px 0">
+    <h2 style="font-size:15px">Copia de seguridad</h2>
+    <div class="hint">Guardá un archivo con todos tus datos y restauralo en otro dispositivo (compu ⇄ celular).</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn ghost sm" data-act="export-json">Descargar copia</button>
+      <button class="btn ghost sm" data-act="import-json">Restaurar copia</button>
+      ${cloudOn()?'':'<button class="btn danger sm" data-act="wipe">Borrar todo</button>'}
+    </div>
+    <div class="mut3" style="font-size:12px;margin-top:14px">Informe de Cheques · CIAF Consultora Integral · v1</div>
+  </div>`;
+}
+
+/* ── util ───────────────────────────────────────────────────────────────── */
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function emptyState(t,s){ return `<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg><div style="font-weight:700;color:var(--ink2)">${t}</div>${s?`<div style="font-size:13px;margin-top:4px">${s}</div>`:''}</div>`; }
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2200); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MODALES
+   ══════════════════════════════════════════════════════════════════════════ */
+function openModal(html){ $('#modalRoot').innerHTML = `<div class="overlay" data-overlay>${html}</div>`; document.body.style.overflow='hidden'; }
+function closeModal(){ $('#modalRoot').innerHTML=''; document.body.style.overflow=''; }
+
+function modalCheque(id){
+  const ch = id ? state.cheques.find(c=>c.id===id) : null;
+  const tipo = ch?.tipo || filtros.tipo || 'emitido';
+  const draft = ch ? {...ch} : {id:'', tipo, formato:'fisico', razon_social_id: filtros.razon||state.razones[0]?.id||'', estado: ESTADOS[tipo][0].v, fecha_emision:hoyISO(), fecha_pago:''};
+  window._draft = draft;
+  renderChequeForm(draft, !!ch);
+}
+function renderChequeForm(d, editing){
+  const estOpts = ESTADOS[d.tipo].map(e=>`<option value="${e.v}" ${d.estado===e.v?'selected':''}>${e.l}</option>`).join('');
+  const rzOpts = state.razones.map(r=>`<option value="${r.id}" ${d.razon_social_id===r.id?'selected':''}>${esc(r.nombre)}</option>`).join('')
+    || '<option value="">(cargá una razón social en Config)</option>';
+  const contrapLbl = d.tipo==='emitido'?'Beneficiario (a quién se lo das)':'Librador (quién te lo dio)';
+  openModal(`<div class="modal">
+    <div class="modal-h"><h3>${editing?'Editar cheque':'Nuevo cheque'}</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-b">
+      <div class="seg" style="margin-bottom:14px">
+        <button class="${d.tipo==='emitido'?'on pay':''}" data-tipo="emitido">A pagar (propio)</button>
+        <button class="${d.tipo==='recibido'?'on collect':''}" data-tipo="recibido">A cobrar (de tercero)</button>
+      </div>
+      <div class="frow">
+        <div class="field"><label>Importe</label><input type="number" inputmode="decimal" step="0.01" data-d="importe" value="${d.importe??''}" placeholder="0.00"></div>
+        <div class="field"><label>Razón social</label><select data-d="razon_social_id">${rzOpts}</select></div>
+      </div>
+      <div class="frow">
+        <div class="field"><label>Banco</label><input data-d="banco" value="${esc(d.banco)}" placeholder="Ej: Banco Nación" list="bancosList"></div>
+        <div class="field"><label>N° de cheque</label><input data-d="numero" value="${esc(d.numero)}" placeholder="00000000"></div>
+      </div>
+      <div class="field"><label>${contrapLbl}</label><input data-d="contraparte" value="${esc(d.contraparte)}" placeholder="Nombre / empresa"></div>
+      <div class="frow">
+        <div class="field"><label>Fecha de emisión</label><input type="date" data-d="fecha_emision" value="${d.fecha_emision||''}"></div>
+        <div class="field"><label>Fecha de pago / cobro</label><input type="date" data-d="fecha_pago" value="${d.fecha_pago||''}"></div>
+      </div>
+      <div class="frow">
+        <div class="field"><label>Formato</label><select data-d="formato"><option value="fisico" ${d.formato==='fisico'?'selected':''}>Físico</option><option value="echeq" ${d.formato==='echeq'?'selected':''}>E-cheq</option></select></div>
+        <div class="field"><label>Estado</label><select data-d="estado">${estOpts}</select></div>
+      </div>
+      <div class="frow">
+        <div class="field"><label>CUIT del librador <span class="mut3">(opcional)</span></label><input data-d="cuit_librador" value="${esc(d.cuit_librador)}" placeholder="30-00000000-0"></div>
+        <div class="field"><label>Concepto <span class="mut3">(opcional)</span></label><input data-d="concepto" value="${esc(d.concepto)}" placeholder="Ej: Factura 0001-00012"></div>
+      </div>
+      <div class="field"><label>Observaciones <span class="mut3">(opcional)</span></label><textarea data-d="observaciones" rows="2" placeholder="Notas...">${esc(d.observaciones)}</textarea></div>
+    </div>
+    <div class="modal-f">
+      ${editing?'<button class="btn danger" data-del-cheque>Eliminar</button>':''}
+      <button class="btn ghost" data-close>Cancelar</button>
+      <button class="btn" data-save-cheque>${editing?'Guardar':'Agregar'}</button>
+    </div>
+  </div>
+  <datalist id="bancosList">${[...new Set(state.cheques.map(c=>c.banco).filter(Boolean))].map(b=>`<option value="${esc(b)}">`).join('')}</datalist>`);
+}
+
+function modalRazon(id){
+  const r = id? state.razones.find(x=>x.id===id):{nombre:'',cuit:''};
+  openModal(`<div class="modal" style="max-width:460px">
+    <div class="modal-h"><h3>${id?'Editar':'Nueva'} razón social</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-b">
+      <div class="field"><label>Nombre / Razón social</label><input id="rzNombre" value="${esc(r.nombre)}" placeholder="Mi Empresa S.A."></div>
+      <div class="field"><label>CUIT <span class="mut3">(opcional)</span></label><input id="rzCuit" value="${esc(r.cuit)}" placeholder="30-00000000-0"></div>
+    </div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn" data-save-razon="${id||''}">Guardar</button></div>
+  </div>`);
+}
+function modalBanco(id){
+  const b = id? state.bancos.find(x=>x.id===id):{entidad:'',saldo:0,acuerdo:0,razon_social_id:filtros.razon||state.razones[0]?.id||''};
+  const rzOpts = state.razones.map(r=>`<option value="${r.id}" ${b.razon_social_id===r.id?'selected':''}>${esc(r.nombre)}</option>`).join('');
+  openModal(`<div class="modal" style="max-width:460px">
+    <div class="modal-h"><h3>${id?'Editar':'Nueva'} cuenta bancaria</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-b">
+      <div class="field"><label>Entidad</label><input id="bkEnt" value="${esc(b.entidad)}" placeholder="Banco Nación — Cta Cte"></div>
+      ${state.razones.length>1?`<div class="field"><label>Razón social</label><select id="bkRz">${rzOpts}</select></div>`:`<input type="hidden" id="bkRz" value="${b.razon_social_id||''}">`}
+      <div class="frow">
+        <div class="field"><label>Saldo actual</label><input id="bkSaldo" type="number" step="0.01" value="${b.saldo??0}"></div>
+        <div class="field"><label>Acuerdo (descubierto)</label><input id="bkAcuerdo" type="number" step="0.01" value="${b.acuerdo??0}"></div>
+      </div>
+    </div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn" data-save-banco="${id||''}">Guardar</button></div>
+  </div>`);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   EVENTOS
+   ══════════════════════════════════════════════════════════════════════════ */
+document.addEventListener('click', e=>{
+  const t = e.target.closest('[data-view],[data-act],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
+  if(!t) return;
+
+  // navegación
+  if(t.dataset.view){ view=t.dataset.view; render(); window.scrollTo({top:0}); return; }
+  if(t.dataset.goto){ view=t.dataset.goto; render(); return; }
+
+  // overlay / cerrar
+  if(t.hasAttribute('data-overlay') && e.target===t){ closeModal(); return; }
+  if(t.hasAttribute('data-close')){ closeModal(); return; }
+
+  // abrir edición de cheque
+  if(t.dataset.edit){ modalCheque(t.dataset.edit); return; }
+
+  // stat cards → filtran / navegan
+  if(t.dataset.stat){
+    const s=t.dataset.stat;
+    if(s==='cobrado'){ filtros.estado=''; }
+    filtros = {...filtros};
+    if(s==='rechazado') filtros.estado='rechazado';
+    view='cheques'; render(); return;
+  }
+
+  // segment tipo dentro del form
+  if(t.dataset.tipo){
+    const d=window._draft; d.tipo=t.dataset.tipo;
+    if(!ESTADOS[d.tipo].some(e=>e.v===d.estado)) d.estado=ESTADOS[d.tipo][0].v;
+    syncDraft(); renderChequeForm(d, !!d.id); return;
+  }
+
+  const act = t.dataset.act;
+  if(act==='limpiar'){ filtros={razon:'',tipo:'',estado:''}; render(); return; }
+  if(act==='nuevo'||act===undefined && t.id==='fab'){ }
+  if(act==='nuevo'){ modalCheque(); return; }
+  if(act==='csv'){ exportCSV(); return; }
+  if(act==='nueva-razon'){ modalRazon(); return; }
+  if(act==='nuevo-banco'){ if(!state.razones.length){toast('Primero cargá una razón social');return;} modalBanco(); return; }
+  if(act==='toggle-notif'){ toggleNotif(); return; }
+  if(act==='export-json'){ exportJSON(); return; }
+  if(act==='import-json'){ importJSON(); return; }
+  if(act==='wipe'){ if(confirm('¿Borrar TODOS los datos de este dispositivo? Esta acción no se puede deshacer.')){ state={razones:[],bancos:[],cheques:[],settings:{notif:false,notifDias:7},notifLog:{},_queue:[]}; save(); render(); toast('Datos borrados'); } return; }
+  if(act==='logout'){ if(confirm('¿Cerrar sesión? Los datos quedan guardados en la nube.')){ logout(); } return; }
+  if(act==='ir-login'){ localMode=false; renderLogin(); return; }
+  if(act==='sync-now'){ toast('Sincronizando…'); cloudFlush().then(cloudPull).then(()=>{ render(); toast('Sincronizado ✓'); }); return; }
+
+  // guardar/eliminar cheque
+  if(t.hasAttribute('data-save-cheque')){ saveCheque(); return; }
+  if(t.hasAttribute('data-del-cheque')){ if(confirm('¿Eliminar este cheque?')){ const id=window._draft.id; state.cheques=state.cheques.filter(c=>c.id!==id); save(); closeModal(); render(); toast('Cheque eliminado'); cloudDelete('cheques',id); } return; }
+
+  // razones
+  if(t.dataset.editRazon){ modalRazon(t.dataset.editRazon); return; }
+  if(t.dataset.delRazon){ const usados=state.cheques.some(c=>c.razon_social_id===t.dataset.delRazon)||state.bancos.some(b=>b.razon_social_id===t.dataset.delRazon); if(usados&&!confirm('Esta razón social tiene cheques o cuentas asociadas. ¿Borrarla igual?'))return; const rid=t.dataset.delRazon; state.razones=state.razones.filter(r=>r.id!==rid); save(); render(); toast('Razón social borrada'); cloudDelete('razones',rid); return; }
+  if(t.hasAttribute('data-save-razon')){ saveRazon(t.dataset.saveRazon); return; }
+
+  // bancos
+  if(t.dataset.editBanco){ modalBanco(t.dataset.editBanco); return; }
+  if(t.dataset.delBanco){ const bid=t.dataset.delBanco; state.bancos=state.bancos.filter(b=>b.id!==bid); save(); render(); toast('Cuenta borrada'); cloudDelete('bancos',bid); return; }
+  if(t.hasAttribute('data-save-banco')){ saveBanco(t.dataset.saveBanco); return; }
+});
+
+// filtros (change)
+document.addEventListener('change', e=>{
+  const f=e.target.closest('[data-filtro]');
+  if(f){ filtros[f.dataset.filtro]=f.value; if(f.dataset.filtro==='tipo') filtros.estado=''; render(); return; }
+  const s=e.target.closest('[data-set]');
+  if(s){ state.settings[s.dataset.set]= s.dataset.set==='notifDias'?+s.value:s.value; save(); renderSubtitle(); if(view==='config'){} return; }
+});
+
+$('#fab').addEventListener('click', ()=>{ if(!state.razones.length){ view='config'; render(); toast('Cargá una razón social para empezar'); modalRazon(); return; } modalCheque(); });
+$('#btnBackup').addEventListener('click', ()=>{ view='config'; render(); window.scrollTo({top:document.body.scrollHeight}); });
+$('#btnPrint').addEventListener('click', ()=>{ view='dashboard'; render(); setTimeout(()=>window.print(),120); });
+$('#btnImg').addEventListener('click', descargarImagen);
+$('#btnNotif').addEventListener('click', toggleNotif);
+
+function syncDraft(){
+  const d=window._draft; if(!d) return;
+  $$('[data-d]').forEach(el=>{ d[el.dataset.d]= el.value; });
+}
+function saveCheque(){
+  syncDraft(); const d=window._draft;
+  if(!d.razon_social_id){ toast('Elegí una razón social'); return; }
+  if(!(Number(d.importe)>0)){ toast('Poné el importe'); return; }
+  d.importe=Number(d.importe)||0;
+  if(d.id){ const i=state.cheques.findIndex(c=>c.id===d.id); state.cheques[i]={...d}; }
+  else { d.id=uid(); state.cheques.push({...d}); }
+  const guardado={...d}; save(); closeModal(); render(); toast('Cheque guardado'); cloudPush('cheques',guardado);
+}
+function saveRazon(id){
+  const nombre=$('#rzNombre').value.trim(); if(!nombre){ toast('Poné un nombre'); return; }
+  const cuit=$('#rzCuit').value.trim(); let row;
+  if(id){ const r=state.razones.find(x=>x.id===id); r.nombre=nombre; r.cuit=cuit; row=r; }
+  else { row={id:uid(),nombre,cuit,activo:true}; state.razones.push(row); }
+  save(); closeModal(); render(); toast('Razón social guardada'); cloudPush('razones',{...row});
+}
+function saveBanco(id){
+  const entidad=$('#bkEnt').value.trim(); if(!entidad){ toast('Poné la entidad'); return; }
+  const razon_social_id=$('#bkRz').value, saldo=Number($('#bkSaldo').value)||0, acuerdo=Number($('#bkAcuerdo').value)||0; let row;
+  if(id){ const b=state.bancos.find(x=>x.id===id); Object.assign(b,{entidad,razon_social_id,saldo,acuerdo}); row=b; }
+  else { row={id:uid(),entidad,razon_social_id,saldo,acuerdo}; state.bancos.push(row); }
+  save(); closeModal(); render(); toast('Cuenta guardada'); cloudPush('bancos',{...row});
+}
+
+/* ── Export CSV / JSON / Imagen ─────────────────────────────────────────── */
+function exportCSV(){
+  const cols=[['Tipo',c=>TIPOS[c.tipo].label],['Razón social',c=>razonNombre(c.razon_social_id)],['Contraparte',c=>c.contraparte||c.librador||''],['Banco',c=>c.banco||''],['N°',c=>c.numero||''],['Formato',c=>FORMATOS[c.formato]||''],['Importe',c=>c.importe||0],['Emisión',c=>c.fecha_emision||''],['Pago',c=>c.fecha_pago||''],['Estado',c=>estadoInfo(c.tipo,c.estado).l],['Concepto',c=>c.concepto||''],['Observaciones',c=>c.observaciones||'']];
+  const esc2=v=>{const s=String(v==null?'':v);return /[",;\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+  const rows=chequesFiltrados();
+  const csv='﻿'+cols.map(c=>c[0]).join(';')+'\r\n'+rows.map(r=>cols.map(c=>esc2(c[1](r))).join(';')).join('\r\n');
+  download('cheques-'+hoyISO()+'.csv', new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  toast('CSV descargado');
+}
+function exportJSON(){
+  download('cheques-backup-'+hoyISO()+'.json', new Blob([JSON.stringify(state,null,2)],{type:'application/json'}));
+  toast('Copia descargada');
+}
+function importJSON(){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.json,application/json';
+  inp.onchange=()=>{ const f=inp.files[0]; if(!f)return; const r=new FileReader();
+    r.onload=()=>{ try{ const data=JSON.parse(r.result); if(!data.cheques) throw 0;
+      if(confirm('Esto reemplazará los datos actuales de este dispositivo por los del archivo. ¿Continuar?')){ state=migrate(data); save(); render(); toast('Copia restaurada'); if(cloudOn()) cloudPushAll(); }
+    }catch(e){ toast('Archivo inválido'); } };
+    r.readAsText(f); };
+  inp.click();
+}
+function download(name,blob){ const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u); }
+
+async function descargarImagen(){
+  view='dashboard'; render();
+  toast('Generando imagen…');
+  try{
+    if(!window.html2canvas){
+      await new Promise((res,rej)=>{ const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+    }
+    const node=$('#app');
+    const canvas=await window.html2canvas(node,{scale:2,backgroundColor:'#EEF1F5',useCORS:true});
+    canvas.toBlob(b=>{ download('informe-cheques-'+hoyISO()+'.png', b); toast('Imagen descargada'); });
+  }catch(e){
+    toast('Sin conexión para imagen — usá PDF');
+    setTimeout(()=>window.print(),400);
+  }
+}
+
+/* ── Notificaciones ─────────────────────────────────────────────────────── */
+async function toggleNotif(){
+  if(!('Notification' in window)){ toast('Este dispositivo no soporta notificaciones'); return; }
+  if(state.settings.notif){ state.settings.notif=false; save(); renderSubtitle(); if(view==='config')render(); toast('Notificaciones desactivadas'); return; }
+  let perm=Notification.permission;
+  if(perm!=='granted') perm=await Notification.requestPermission();
+  if(perm==='granted'){ state.settings.notif=true; save(); renderSubtitle(); if(view==='config')render(); toast('Notificaciones activadas'); chequearVencimientos(true); }
+  else toast('Permiso de notificaciones denegado');
+}
+function chequearVencimientos(forzar){
+  if(!state.settings.notif || !('Notification' in window) || Notification.permission!=='granted') return;
+  const hoy=hoyISO();
+  if(!forzar && state.notifLog[hoy]) return; // ya avisamos hoy
+  const dias = state.settings.notifDias||7;
+  const venc = state.cheques.filter(ch=>{const c=clasif(ch); return c && (c.est!=='ok' || c.d<=dias);});
+  if(!venc.length) return;
+  const totPagar=suma(venc.filter(c=>c.tipo==='emitido')), totCobrar=suma(venc.filter(c=>c.tipo==='recibido'));
+  let cuerpo=[]; if(totPagar) cuerpo.push('A pagar: '+pesos(totPagar)); if(totCobrar) cuerpo.push('A cobrar: '+pesos(totCobrar));
+  try{
+    new Notification('💳 '+venc.length+' cheque'+(venc.length!==1?'s':'')+' por vencer', {body:cuerpo.join(' · '), icon:'icon-192.png', badge:'icon-192.png', tag:'cheques-venc'});
+    state.notifLog={[hoy]:true}; save();
+  }catch(e){}
+}
+
+/* ── Post-render (nada extra por ahora) ─────────────────────────────────── */
+function postRender(){}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LOGIN / ARRANQUE
+   ══════════════════════════════════════════════════════════════════════════ */
+function renderLogin(msg, ok){
+  document.body.classList.add('locked');
+  $('#app').innerHTML = `<div class="login">
+    <img class="login-logo" src="logo-ciaf.png" alt="CIAF">
+    <h2>Ingresar</h2>
+    <p class="muted">Iniciá sesión para ver y sincronizar tus cheques en todos tus dispositivos.</p>
+    ${msg?`<div class="login-msg ${ok?'ok':''}">${esc(msg)}</div>`:''}
+    <div class="field"><label>Email</label><input id="lgEmail" type="email" autocomplete="username" placeholder="tu@email.com"></div>
+    <div class="field"><label>Contraseña</label><input id="lgPass" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+    <button class="btn" id="lgBtn" style="width:100%;justify-content:center">Ingresar</button>
+    <div class="login-alt">¿Primera vez? <a id="lgSignup">Crear cuenta</a></div>
+    <div class="mut3" style="font-size:11.5px;margin-top:16px;text-align:center">También podés usarla sin cuenta en <a id="lgLocal">modo local</a> (solo este dispositivo).</div>
+  </div>`;
+  $('#lgBtn').onclick=()=>doLogin(false);
+  $('#lgSignup').onclick=()=>doLogin(true);
+  $('#lgPass').onkeydown=e=>{ if(e.key==='Enter') doLogin(false); };
+  $('#lgLocal').onclick=()=>{ localMode=true; boot2(); toast('Modo local (sin sincronizar)'); };
+}
+function authMsg(m){
+  m=(m||'').toLowerCase();
+  if(m.includes('invalid login')) return 'Email o contraseña incorrectos.';
+  if(m.includes('email not confirmed')) return 'Falta confirmar el email. Revisá tu casilla.';
+  if(m.includes('already registered')) return 'Ese email ya tiene cuenta. Probá ingresar.';
+  if(m.includes('password')&&m.includes('6')) return 'La contraseña debe tener al menos 6 caracteres.';
+  if(m.includes('fetch')||m.includes('network')) return 'Sin conexión con el servidor. Revisá internet.';
+  return m ? m.charAt(0).toUpperCase()+m.slice(1) : 'No se pudo completar.';
+}
+async function doLogin(signup){
+  const email=$('#lgEmail').value.trim(), password=$('#lgPass').value;
+  if(!email||!password){ renderLogin('Completá email y contraseña.'); return; }
+  const btn=$('#lgBtn'); btn.textContent='Conectando…'; btn.disabled=true;
+  try{
+    const {data,error} = signup
+      ? await sb.auth.signUp({email,password})
+      : await sb.auth.signInWithPassword({email,password});
+    if(error) throw error;
+    if(signup && !data.session){ renderLogin('Cuenta creada. Si te pide confirmar el email, hacelo y volvé a ingresar.', true); return; }
+    // onAuthStateChange dispara afterLogin()
+  }catch(e){ renderLogin(authMsg(e.message)); }
+}
+async function logout(){ try{ await sb.auth.signOut(); }catch(e){} }
+
+async function syncInicial(){
+  const n = await cloudCount();
+  if(n===0 && (state.cheques.length||state.razones.length)) await cloudPushAll(); // 1ª vez: subir lo local
+  else if(n>0) await cloudPull();                                                 // ya hay datos en la nube
+  await cloudFlush();
+}
+function boot2(){
+  document.body.classList.remove('locked');
+  render();
+  chequearVencimientos(false);
+}
+async function afterLogin(){
+  toast('Conectado ✓');
+  await syncInicial();
+  boot2();
+}
+async function boot(){
+  if(CLOUD){
+    try{
+      const {data:{session}} = await sb.auth.getSession();
+      sbUser = session?.user || null;
+      sb.auth.onAuthStateChange((ev,s)=>{
+        const was=!!sbUser; sbUser=s?.user||null;
+        if(sbUser && !was) afterLogin();
+        else if(!sbUser && was) renderLogin('Sesión cerrada.', true);
+      });
+    }catch(e){ console.warn('auth:', e.message); }
+    if(!sbUser && !localMode){ renderLogin(); return; }
+    if(sbUser){ await syncInicial(); }
+  }
+  boot2();
+}
+
+/* ── Init ───────────────────────────────────────────────────────────────── */
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+boot();
+setInterval(()=>chequearVencimientos(false), 60*60*1000);
+window.addEventListener('online', ()=>{ if(cloudOn()) cloudFlush().then(cloudPull).then(ok=>{ if(ok) render(); }); });
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden) return;
+  chequearVencimientos(false);
+  if(cloudOn()) cloudFlush().then(cloudPull).then(ok=>{ if(ok) render(); });
+});
+</script>
+</body>
+</html>

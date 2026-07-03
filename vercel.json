@@ -1,5 +1,5 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!cheques).*)", "destination": "/index.html" }
   ]
 }

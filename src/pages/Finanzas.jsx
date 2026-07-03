@@ -26,7 +26,6 @@ import {
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Cell,
-  PieChart, Pie, Legend,
 } from 'recharts'
 
 // ── Constantes ─────────────────────────────────────────────────────────────────
@@ -45,13 +44,6 @@ const CIF_PREDEFINIDOS = [
   { concepto: 'Packaging general',         categoria: 'variable', monto_mensual: 0 },
   { concepto: 'Productos de limpieza',     categoria: 'variable', monto_mensual: 0 },
 ]
-
-const TIPO_PRECIOS = {
-  Lisa:           { costo_kg: 1200 },
-  'Con Agregado': { costo_kg: 1500 },
-  Agua:           { costo_kg:  900 },
-  Especial:       { costo_kg: 2000 },
-}
 
 // Tipos de sabor para precio por tipo. Lisa/Con Agregado/Agua/Especial vienen de
 // la segmentación de cámara; Pistacho y Rocher son "con agregado" pero cuestan
@@ -184,7 +176,7 @@ export default function Finanzas() {
       supabase.from('bases').select('*').order('nombre'),
       supabase.from('base_ingredientes').select('*'),
       supabase.from('insumos').select('nombre,costo_unitario,stock_actual'),
-      supabase.from('stock_camaras').select('nombre,tipo_producto,tipo'),
+      supabase.from('stock_camaras').select('nombre,tipo_producto,tipo,kg,baldes'),
       supabase.from('cif_config').select('*').order('categoria').order('concepto'),
       supabase.from('producciones').select('peso_kg').gte('fecha', inicioMes).lte('fecha', finMes),
     ])
@@ -526,12 +518,19 @@ export default function Finanzas() {
     insumos.reduce((acc, i) => acc + (i.stock_actual || 0) * (i.costo_unitario || 0), 0)
   ), [insumos])
 
-  const valorCamaras = useMemo(() => (
-    stockCamaras.reduce((acc, c) => {
-      const costoKg = c.costo_kg ?? TIPO_PRECIOS[c.tipo]?.costo_kg ?? 0
-      return acc + (c.kg || 0) * costoKg
+  // Valoriza el stock en cámara con el MISMO costo unitario que calcula Finanzas
+  // (costo_unit por kg para helados/postres, por unidad para impulsivos). Antes
+  // usaba precios fijos y ni siquiera traía los kg → daba $0.
+  const valorCamaras = useMemo(() => {
+    const map = {}
+    productos.forEach(p => { map[normalizarNombre(p.nombre)] = p })
+    return stockCamaras.reduce((acc, c) => {
+      const p = map[normalizarNombre(c.nombre)]
+      if (!p) return acc
+      const cant = p.unidad === 'u' ? (Number(c.baldes) || 0) : (Number(c.kg) || 0)
+      return acc + cant * (Number(p.costo_unit) || 0)
     }, 0)
-  ), [stockCamaras])
+  }, [stockCamaras, productos])
 
   const margenPromedio = useMemo(() => {
     const cp = margenes.filter(p => p.precio_venta > 0)
@@ -542,8 +541,13 @@ export default function Finanzas() {
   const distribucionCostos = useMemo(() => {
     const totalMP = productos.reduce((a, p) => a + (p.costo_materiales || 0), 0)
     const totalMO = productos.reduce((a, p) => a + (p.mano_de_obra || 0), 0)
-    return [{ name: 'Materia Prima', value: totalMP }, { name: 'Mano de Obra', value: totalMO }]
-  }, [productos])
+    const arr = [
+      { name: 'Materia Prima', value: totalMP, color: colors.brand },
+      { name: 'Mano de Obra', value: totalMO, color: colors.info },
+    ]
+    if (totalCIF > 0) arr.push({ name: 'CIF', value: totalCIF, color: '#f59e0b' })
+    return arr
+  }, [productos, totalCIF])
 
   const tieneDiff = prevSnapshot != null
 
@@ -1453,25 +1457,43 @@ export default function Finanzas() {
               </div>
 
               <div className="p-4" style={SURFACE}>
-                <h3 className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>
-                  Distribución de costos (Materia Prima vs. Mano de Obra)
+                <h3 className="text-sm font-semibold" style={{ color: colors.textPrimary }}>
+                  Estructura de costos
                 </h3>
-                {distribucionCostos.some(d => d.value > 0) ? (
-                  <ResponsiveContainer width="100%" height={280}>
-                    <PieChart>
-                      <Pie data={distribucionCostos} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label>
-                        {distribucionCostos.map((_, i) => (
-                          <Cell key={i} fill={[colors.brand, colors.info][i]} />
+                <p className="text-xs mb-3" style={{ color: colors.textMuted }}>
+                  Proporción de materia prima, mano de obra{totalCIF > 0 ? ' y CIF' : ''} en el costo de las recetas.
+                </p>
+                {(() => {
+                  const total = distribucionCostos.reduce((a, d) => a + (d.value || 0), 0)
+                  if (total <= 0) return (
+                    <EmptyState icon={TrendingUp} title="Sin datos de costos"
+                      subtitle="Cargá ingredientes y mano de obra en la pestaña Costos para ver la distribución" />
+                  )
+                  return (
+                    <div className="space-y-3">
+                      <div className="flex h-7 w-full rounded-lg overflow-hidden" style={{ border: `1px solid ${colors.border}` }}>
+                        {distribucionCostos.filter(d => d.value > 0).map(d => (
+                          <div key={d.name} title={`${d.name}: $${pesos(d.value)}`}
+                            style={{ width: `${(d.value / total) * 100}%`, backgroundColor: d.color }} />
                         ))}
-                      </Pie>
-                      <Tooltip formatter={v => `$${pesos(v)}`} />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <EmptyState icon={TrendingUp} title="Sin datos de costos"
-                    subtitle="Cargá ingredientes y mano de obra en la pestaña Costos para ver la distribución" />
-                )}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {distribucionCostos.map(d => (
+                          <div key={d.name} className="flex items-center gap-2 min-w-0">
+                            <span className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: d.color }} />
+                            <div className="min-w-0">
+                              <p className="text-xs truncate" style={{ color: colors.textMuted }}>{d.name}</p>
+                              <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>
+                                ${pesos(d.value)}
+                                <span className="text-xs font-normal ml-1" style={{ color: colors.textMuted }}>· {((d.value / total) * 100).toFixed(1)}%</span>
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
           )}

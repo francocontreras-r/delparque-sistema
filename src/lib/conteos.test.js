@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { esDiscrepancia, resumenSemanal, UMBRAL_CONTEO } from './conteos'
+import { esDiscrepancia, resumenSemanal, discrepanciasSinResolver, UMBRAL_CONTEO } from './conteos'
 
 describe('esDiscrepancia', () => {
   it('sin diferencia → false', () => {
@@ -67,4 +67,33 @@ describe('resumenSemanal', () => {
 
 describe('UMBRAL_CONTEO', () => {
   it('es 5%', () => expect(UMBRAL_CONTEO).toBe(0.05))
+})
+
+describe('discrepanciasSinResolver', () => {
+  it('devuelve solo diferencias ≠ 0 sin motivo', () => {
+    const rows = [
+      { tipo: 'deposito', producto_nombre: 'LECHE', diferencia: -5, motivo: null, fecha: '2026-07-02' },
+      { tipo: 'deposito', producto_nombre: 'AZÚCAR', diferencia: -2, motivo: 'Rotura', fecha: '2026-07-02' }, // resuelta
+      { tipo: 'deposito', producto_nombre: 'SAL', diferencia: 0, motivo: null, fecha: '2026-07-02' },          // sin dif
+    ]
+    const r = discrepanciasSinResolver(rows)
+    expect(r).toHaveLength(1)
+    expect(r[0].producto_nombre).toBe('LECHE')
+  })
+
+  it('se queda con el último por área+producto; motivo posterior lo resuelve', () => {
+    const rows = [
+      { tipo: 'deposito', producto_nombre: 'LECHE', diferencia: -5, motivo: null, fecha: '2026-07-01' },
+      { tipo: 'deposito', producto_nombre: 'LECHE', diferencia: -5, motivo: 'Ajuste', fecha: '2026-07-01' }, // mismo día, con motivo
+    ]
+    expect(discrepanciasSinResolver(rows)).toHaveLength(0)
+  })
+
+  it('mismo producto en distinta área cuenta por separado', () => {
+    const rows = [
+      { tipo: 'deposito', producto_nombre: 'DULCE', diferencia: -1, motivo: null, fecha: '2026-07-02' },
+      { tipo: 'camara', producto_nombre: 'DULCE', diferencia: -1, motivo: null, fecha: '2026-07-02' },
+    ]
+    expect(discrepanciasSinResolver(rows)).toHaveLength(2)
+  })
 })

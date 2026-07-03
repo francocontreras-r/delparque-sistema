@@ -101,6 +101,7 @@ export default function Dashboard() {
   const [stockBases, setStockBases] = useState([])
   const [vencimientosData, setVencimientosData] = useState([])
   const [productosVenta, setProductosVenta] = useState([]) // sabores+impulsivos con costo_final y precio
+  const [conteosRecientes, setConteosRecientes] = useState([])
 
   const hoy = hoyISO()
 
@@ -128,6 +129,7 @@ export default function Dashboard() {
       { data: vencData },
       { data: sabVenta },
       { data: impVenta },
+      { data: conteos },
     ] = await Promise.all([
       supabase.from('producciones').select('*').gte('fecha', inicioSemana).lte('fecha', finSemana),
       supabase.from('ordenes_produccion').select('*').eq('estado', 'en_proceso').order('fecha_inicio', { ascending: true }),
@@ -140,6 +142,7 @@ export default function Dashboard() {
       supabase.from('movimientos_deposito').select('producto_nombre,lote,fecha_vencimiento,created_at').eq('tipo', 'ingreso').not('fecha_vencimiento', 'is', null).order('created_at', { ascending: false }).limit(500),
       supabase.from('sabores').select('nombre,costo_final,precio_venta'),
       supabase.from('impulsivos').select('nombre,costo_final,precio_venta'),
+      supabase.from('conteos_stock').select('*').gte('fecha', sumarDias(hoy, -14)).order('fecha', { ascending: false }).limit(2000),
     ])
 
     setProducciones(prods || [])
@@ -152,6 +155,7 @@ export default function Dashboard() {
     setStockBases(basesDisp || [])
     setVencimientosData(vencData || [])
     setProductosVenta([...(sabVenta || []), ...(impVenta || [])])
+    setConteosRecientes(conteos || [])
     setLoading(false)
   }
 
@@ -207,8 +211,8 @@ export default function Dashboard() {
 
   // ── Centro de control: motor de excepciones priorizadas ─────────────────────
   const centroAlertas = useMemo(() => construirAlertas({
-    insumos, camaras, ordenesPendientes, vencimientos: vencimientosDedup, margenes, hoy,
-  }), [insumos, camaras, ordenesPendientes, vencimientosDedup, margenes, hoy])
+    insumos, camaras, ordenesPendientes, vencimientos: vencimientosDedup, margenes, conteos: conteosRecientes, hoy,
+  }), [insumos, camaras, ordenesPendientes, vencimientosDedup, margenes, conteosRecientes, hoy])
   const resumenCtrl = useMemo(() => resumenSeveridad(centroAlertas), [centroAlertas])
   const totalAlertas = resumenCtrl.total
 

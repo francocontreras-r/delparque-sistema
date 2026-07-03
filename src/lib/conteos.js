@@ -117,6 +117,28 @@ export async function cargarCiclos({ desde = null, hasta = null } = {}) {
   return Object.values(porCiclo).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))
 }
 
+// Discrepancias SIN RESOLVER: de un lote de conteos, se queda con el último por
+// (área, producto) y devuelve las que tienen diferencia ≠ 0 y NINGÚN motivo
+// cargado. Es "el faltante/sobrante que nadie explicó ni reconcilió todavía".
+// Puro: sirve para el Centro de control sin tocar la DB.
+export function discrepanciasSinResolver(rows = []) {
+  const latest = {}
+  rows.forEach(r => {
+    const k = `${r.tipo}::${norm(r.producto_nombre)}`
+    const prev = latest[k]
+    if (!prev) { latest[k] = r; return }
+    const nf = r.fecha || '', pf = prev.fecha || ''
+    const rTieneMotivo = !!(r.motivo && String(r.motivo).trim())
+    const pTieneMotivo = !!(prev.motivo && String(prev.motivo).trim())
+    // Más nueva por fecha; empate el mismo día → la que tiene motivo (resuelta) gana.
+    if (nf > pf) latest[k] = r
+    else if (nf === pf && !pTieneMotivo && rTieneMotivo) latest[k] = r
+  })
+  return Object.values(latest).filter(r =>
+    (Number(r.diferencia) || 0) !== 0 && !(r.motivo && String(r.motivo).trim())
+  )
+}
+
 // Consolida los conteos de la semana: se queda con el ÚLTIMO conteo por
 // (área, producto) para no duplicar si algo se contó en dos lugares, y separa
 // faltantes (dif<0) de sobrantes (dif>0). Devuelve totales valorizados.

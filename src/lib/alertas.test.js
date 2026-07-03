@@ -71,6 +71,18 @@ describe('construirAlertas', () => {
     expect(a.find(x => x.id === 'venc-pronto')).toMatchObject({ severidad: 'alto', count: 1 })
   })
 
+  it('conteos con diferencia sin motivo → alto; los que tienen motivo no cuentan', () => {
+    const conteos = [
+      { tipo: 'deposito', producto_nombre: 'LECHE', diferencia: -5, valor_impacto: -500, motivo: null, fecha: '2026-07-02' },
+      { tipo: 'camara', producto_nombre: 'VAINILLA', diferencia: 3, valor_impacto: 900, motivo: '', fecha: '2026-07-02' },
+      { tipo: 'deposito', producto_nombre: 'AZÚCAR', diferencia: -2, valor_impacto: -200, motivo: 'Rotura', fecha: '2026-07-02' }, // resuelta
+    ]
+    const a = construirAlertas({ conteos })
+    const c = a.find(x => x.id === 'conteo-sin-resolver')
+    expect(c).toMatchObject({ severidad: 'alto', count: 2 })
+    expect(c.detalle).toContain('$500') // faltante valorizado sin explicar
+  })
+
   it('órdenes atrasadas (>1 día sin iniciar) es medio; requiere hoy', () => {
     const ordenesPendientes = [
       { numero: 12, fecha_produccion: enDias(-3) }, // atrasada

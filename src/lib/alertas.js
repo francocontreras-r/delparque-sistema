@@ -8,6 +8,7 @@
 // Puro y testeable: no toca la DB. El Dashboard le pasa los datos ya cargados.
 // ════════════════════════════════════════════════════════════════════════════
 import { clasificarVencimiento, esAlertaVencimiento } from './vencimientos'
+import { discrepanciasSinResolver } from './conteos'
 
 // Menor número = más urgente (para ordenar).
 export const SEVERIDAD = { critico: 0, alto: 1, medio: 2, info: 3 }
@@ -29,7 +30,7 @@ const plural = (n, sing, plur) => `${n} ${n === 1 ? sing : plur}`
 // vencimientos: [{ producto_nombre, lote, fecha_vencimiento }] (ya deduplicado).
 export function construirAlertas({
   insumos = [], camaras = [], ordenesPendientes = [], vencimientos = [],
-  margenes = [], hoy = null, margenMinimo = MARGEN_MINIMO,
+  margenes = [], conteos = [], hoy = null, margenMinimo = MARGEN_MINIMO,
 } = {}) {
   const A = []
   const push = (a) => A.push(a)
@@ -107,6 +108,21 @@ export function construirAlertas({
     detalle: listar(porVencer.map(v => v.producto_nombre)), count: porVencer.length, to: '/deposito',
     items: porVencer.map(v => v.producto_nombre),
   })
+
+  // 7b. Conteos con diferencia SIN RESOLVER (faltante/sobrante sin motivo).
+  const sinResolver = discrepanciasSinResolver(conteos)
+  if (sinResolver.length) {
+    const faltantes = sinResolver.filter(r => (Number(r.diferencia) || 0) < 0)
+    const valorFaltante = faltantes.reduce((s, r) => s + Math.abs(Number(r.valor_impacto) || 0), 0)
+    const areaDe = r => r.tipo === 'camara' ? 'Cámara' : 'Depósito'
+    push({
+      id: 'conteo-sin-resolver', severidad: 'alto', categoria: 'Conteo', emoji: '🧮',
+      titulo: `${plural(sinResolver.length, 'diferencia de conteo sin resolver', 'diferencias de conteo sin resolver')}`,
+      detalle: (valorFaltante > 0 ? `Faltante sin explicar $${Math.round(valorFaltante).toLocaleString('es-AR')} · ` : '') +
+        listar(sinResolver.map(r => `${r.producto_nombre} (${areaDe(r)})`)),
+      count: sinResolver.length, to: '/deposito', items: sinResolver.map(r => r.producto_nombre),
+    })
+  }
 
   // 8. Órdenes programadas hace más de 1 día que siguen sin iniciar.
   if (hoy) {

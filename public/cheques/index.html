@@ -408,6 +408,62 @@ async function cambiarRol(id, rol){
     toast('Permiso actualizado');
   }catch(e){ toast('No se pudo cambiar: '+e.message); }
 }
+// Llama al endpoint seguro /api/cheques-usuarios con el token de la sesión.
+async function apiUsuarios(payload){
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session) throw new Error('Sin sesión');
+  const r = await fetch('/api/cheques-usuarios', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+session.access_token },
+    body: JSON.stringify(payload),
+  });
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error || ('Error '+r.status));
+  return j;
+}
+function modalNuevoUsuario(){
+  openModal(`<div class="modal" style="max-width:440px">
+    <div class="modal-h"><h3>Agregar usuario</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-b">
+      <div class="field"><label>Email</label><input id="nuEmail" type="email" autocomplete="off" placeholder="persona@email.com"></div>
+      <div class="field"><label>Contraseña</label><input id="nuPass" type="text" autocomplete="off" placeholder="mínimo 6 caracteres"></div>
+      <div class="field"><label>Permiso</label><select id="nuRol">
+        <option value="carga">Cargador (ve y carga)</option>
+        <option value="lectura">Solo lectura</option>
+        <option value="admin">Administrador</option>
+      </select></div>
+      <div class="hint">Se crea el acceso al instante. Pasale a la persona el email y la contraseña que pusiste.</div>
+      <div id="nuMsg"></div>
+    </div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn" id="nuBtn">Crear usuario</button></div>
+  </div>`);
+  $('#nuBtn').onclick = async ()=>{
+    const email=$('#nuEmail').value.trim(), password=$('#nuPass').value, rol=$('#nuRol').value;
+    if(!email||password.length<6){ $('#nuMsg').innerHTML='<div class="login-msg">Completá email y una contraseña de 6+ caracteres.</div>'; return; }
+    const btn=$('#nuBtn'); btn.textContent='Creando…'; btn.disabled=true;
+    try{ await apiUsuarios({action:'create',email,password,rol}); closeModal(); usuariosCache=null; render(); toast('Usuario creado'); }
+    catch(e){ $('#nuMsg').innerHTML=`<div class="login-msg">${esc(traducirApiErr(e.message))}</div>`; btn.textContent='Crear usuario'; btn.disabled=false; }
+  };
+}
+function traducirApiErr(m){
+  m=String(m||'');
+  if(/CHEQUES_SERVICE_ROLE_KEY/i.test(m)) return 'Falta configurar la clave secreta en Vercel (CHEQUES_SERVICE_ROLE_KEY). Ver los pasos que te pasé.';
+  if(/already been registered|already exists|duplicate/i.test(m)) return 'Ese email ya tiene usuario.';
+  if(/administrador/i.test(m)) return 'Necesitás ser administrador.';
+  return m;
+}
+async function resetUsuario(id, email){
+  const password = prompt('Nueva contraseña para '+email+' (mínimo 6 caracteres):');
+  if(!password) return;
+  if(password.length<6){ toast('Mínimo 6 caracteres'); return; }
+  try{ await apiUsuarios({action:'reset',userId:id,password}); toast('Contraseña actualizada'); }
+  catch(e){ toast(traducirApiErr(e.message)); }
+}
+async function eliminarUsuario(id, email){
+  if(!confirm('¿Eliminar el acceso de '+email+'? No se borran sus cheques, solo el usuario.')) return;
+  try{ await apiUsuarios({action:'delete',userId:id}); usuariosCache=null; render(); toast('Usuario eliminado'); }
+  catch(e){ toast(traducirApiErr(e.message)); }
+}
 
 async function cloudPull(){
   if(!cloudOn()) return false;
@@ -721,6 +777,7 @@ function viewCheques(){
   </div>
   <div class="noprint" style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
     ${puedeEditar()?`<button class="btn" data-act="nuevo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Nuevo cheque</button>`:''}
+    ${puedeEditar()?`<button class="btn ghost" data-act="importar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>Importar Excel</button>`:''}
     <button class="btn ghost" data-act="csv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Exportar CSV</button>
   </div>`;
 }
@@ -803,15 +860,22 @@ function usuariosCard(){
   if(!esAdmin() || !cloudOn()) return '';
   if(usuariosCache === null){ cargarUsuarios(); return `<div class="card" style="margin-bottom:16px"><h2>Usuarios y permisos</h2><div class="empty" style="padding:18px">Cargando usuarios…</div></div>`; }
   const rows = usuariosCache.map(u=>`<tr>
-    <td><b>${esc(u.email||'—')}</b>${u.id===sbUser?.id?' <span class="mut3">(vos)</span>':''}</td>
-    <td class="right"><select class="f" data-rol-user="${u.id}" style="min-width:148px">
+    <td><b>${esc(u.email||'—')}</b>${u.id===sbUser?.id?' <span class="mut3">(vos)</span>':''}
+      <div style="margin-top:4px;display:flex;gap:10px">
+        <button class="linkbtn" style="padding:2px 4px;font-size:12px" data-reset-user="${u.id}" data-email="${esc(u.email||'')}">Cambiar clave</button>
+        ${u.id!==sbUser?.id?`<button class="linkbtn" style="padding:2px 4px;font-size:12px;color:var(--red)" data-del-user="${u.id}" data-email="${esc(u.email||'')}">Eliminar</button>`:''}
+      </div>
+    </td>
+    <td class="right" style="vertical-align:top"><select class="f" data-rol-user="${u.id}" style="min-width:148px">
       ${Object.entries(ROLES).map(([v,l])=>`<option value="${v}" ${u.rol===v?'selected':''}>${l}</option>`).join('')}
     </select></td>
   </tr>`).join('');
   return `<div class="card" style="margin-bottom:16px">
-    <h2>Usuarios y permisos</h2>
-    <div class="hint">Para sumar una persona: creala primero en Supabase (Authentication → Add user) y después elegí su permiso acá.
-      <br><b>Administrador</b>: todo + gestiona usuarios · <b>Cargador</b>: ve y carga cheques · <b>Solo lectura</b>: solo mira.</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <h2>Usuarios y permisos</h2>
+      <button class="btn sm" data-nuevo-user><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Agregar</button>
+    </div>
+    <div class="hint"><b>Administrador</b>: todo + usuarios · <b>Cargador</b>: ve y carga · <b>Solo lectura</b>: solo mira. Podés crear personas nuevas con "Agregar" (email + contraseña).</div>
     <div class="tblwrap"><table><tbody>${rows||'<tr><td class="mut3">Sin usuarios</td></tr>'}</tbody></table></div>
   </div>`;
 }
@@ -992,11 +1056,19 @@ function modalBanco(id){
    EVENTOS
    ══════════════════════════════════════════════════════════════════════════ */
 document.addEventListener('click', e=>{
-  const t = e.target.closest('[data-view],[data-act],[data-more],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
+  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
   if(!t) return;
 
+  // Importar Excel/CSV
+  if(t.dataset.imp){ const m=t.dataset.imp; if(m==='template') plantillaImport(); else if(m==='do') ejecutarImport(); return; }
+
+  // Gestión de usuarios (admin)
+  if(t.hasAttribute('data-nuevo-user')){ modalNuevoUsuario(); return; }
+  if(t.dataset.resetUser){ resetUsuario(t.dataset.resetUser, t.dataset.email); return; }
+  if(t.dataset.delUser){ eliminarUsuario(t.dataset.delUser, t.dataset.email); return; }
+
   // Bloqueo de escritura para usuarios de solo lectura
-  const WRITE_ACTS = new Set(['nuevo','nueva-razon','nuevo-banco','wipe','import-json']);
+  const WRITE_ACTS = new Set(['nuevo','nueva-razon','nuevo-banco','wipe','import-json','importar']);
   if(RO() && ( t.matches('[data-save-cheque],[data-del-cheque],[data-save-razon],[data-del-razon],[data-save-banco],[data-del-banco],[data-edit-razon],[data-edit-banco]') || WRITE_ACTS.has(t.dataset.act) )){
     toast('Tu usuario es de solo lectura'); return;
   }
@@ -1032,6 +1104,7 @@ document.addEventListener('click', e=>{
   if(act==='limpiar'){ filtros={razon:'',tipo:'',estado:''}; render(); return; }
   if(act==='nuevo'||act===undefined && t.id==='fab'){ }
   if(act==='nuevo'){ modalCheque(); return; }
+  if(act==='importar'){ abrirImportar(); return; }
   if(act==='csv'){ exportCSV(); return; }
   if(act==='nueva-razon'){ modalRazon(); return; }
   if(act==='nuevo-banco'){ if(!state.razones.length){toast('Primero cargá una razón social');return;} modalBanco(); return; }
@@ -1089,6 +1162,11 @@ function saveCheque(){
   if(!d.razon_social_id){ toast('Elegí una razón social'); return; }
   if(!(Number(d.importe)>0)){ toast('Poné el importe'); return; }
   d.importe=Number(d.importe)||0;
+  // Aviso de posible duplicado (mismo tipo + banco + número)
+  if(d.numero && String(d.numero).trim()){
+    const dup=state.cheques.find(c=>c.id!==d.id && c.tipo===d.tipo && _norm(c.banco)===_norm(d.banco) && String(c.numero).trim()===String(d.numero).trim());
+    if(dup && !confirm(`Ya existe un cheque ${TIPOS[d.tipo].label} del banco "${d.banco||'—'}" N° ${d.numero} (${pesos(dup.importe)}). ¿Guardar igual?`)) return;
+  }
   if(d.id){ const i=state.cheques.findIndex(c=>c.id===d.id); state.cheques[i]={...d}; }
   else { d.id=uid(); state.cheques.push({...d}); }
   const guardado={...d}; save(); closeModal(); render(); toast('Cheque guardado'); cloudPush('cheques',guardado);
@@ -1167,6 +1245,168 @@ function abrirMenuMas(){
       <button class="sheet-btn" data-more="print"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></span><span>PDF / Imprimir<small>Guardar o imprimir el informe</small></span></button>
       <button class="sheet-btn" data-more="backup"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></span><span>Copia de datos<small>Respaldar o restaurar</small></span></button>
     </div></div>`);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   IMPORTAR CHEQUES DESDE EXCEL (.xlsx) O CSV
+   ══════════════════════════════════════════════════════════════════════════ */
+const _norm = s => String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
+const IMP_MAP = {
+  tipo:['tipo','tipo cheque','clase'],
+  razon_social:['razon social','empresa','sociedad','razon','cliente empresa'],
+  contraparte:['contraparte','beneficiario','librador','cliente','proveedor','a nombre de','tercero','pagar a'],
+  banco:['banco','entidad','banco emisor'],
+  numero:['numero','nro','num','n°','nro cheque','numero de cheque','cheque nro','nro de cheque'],
+  importe:['importe','monto','valor','total','pesos','$'],
+  fecha_emision:['fecha emision','emision','fecha de emision','libramiento','fecha libramiento','emitido'],
+  fecha_pago:['fecha pago','pago','fecha de pago','cobro','fecha de cobro','vencimiento','fecha de vencimiento','vence','fecha vencimiento','pago diferido'],
+  formato:['formato','tipo de cheque','soporte'],
+  estado:['estado','situacion','status'],
+  concepto:['concepto','detalle','descripcion','referencia'],
+  observaciones:['observaciones','notas','obs','comentario'],
+};
+function pad2(n){ return String(n).padStart(2,'0'); }
+function isoLocalDate(d){ return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
+function parseImporteImp(v){
+  if(typeof v==='number') return Math.abs(v);
+  let s=String(v==null?'':v).replace(/[^\d,.\-]/g,'').trim();
+  if(!s) return 0;
+  if(s.includes(',')&&s.includes('.')) s=s.replace(/\./g,'').replace(',','.');
+  else if(s.includes(',')) s=s.replace(',','.');
+  else if((s.split('.').length-1)>1) s=s.replace(/\./g,'');
+  else if(s.includes('.')){ const dec=s.split('.')[1]; if(dec&&dec.length===3) s=s.replace(/\./g,''); }
+  const n=parseFloat(s); return isNaN(n)?0:Math.abs(n);
+}
+function parseFechaImp(v){
+  if(v==null||v==='') return '';
+  if(v instanceof Date && !isNaN(v)) return isoLocalDate(v);
+  const s=String(v).trim();
+  let m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if(m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
+  m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  if(m){ let y=m[3]; if(y.length===2) y='20'+y; return `${y}-${pad2(m[2])}-${pad2(m[1])}`; }
+  if(/^\d{5}$/.test(s)){ const d=new Date(Date.UTC(1899,11,30)+(+s)*86400000); return isoLocalDate(d); }
+  return '';
+}
+function mapTipoImp(v){ return /recib|cobr|tercero|entrant/.test(_norm(v)) ? 'recibido' : 'emitido'; }
+function mapFormatoImp(v){ return /echeq|electr|e-cheq|digital/.test(_norm(v)) ? 'echeq' : 'fisico'; }
+function mapEstadoImp(v,tipo){
+  const n=_norm(v); const lista=ESTADOS[tipo]||[];
+  const hit=lista.find(e=>_norm(e.l)===n || e.v===n); if(hit) return hit.v;
+  if(/cobr/.test(n)) return tipo==='recibido'?'cobrado':'pagado';
+  if(/pag/.test(n)) return tipo==='emitido'?'pagado':'cobrado';
+  if(/rechaz/.test(n)) return 'rechazado';
+  if(/deposit/.test(n)) return 'depositado';
+  if(/entreg/.test(n)) return 'entregado';
+  if(/anul/.test(n)) return 'anulado';
+  return lista[0].v;
+}
+function parseCSVImp(text){
+  text=String(text).replace(/^﻿/,'').replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  const nl=text.indexOf('\n'); const first=nl<0?text:text.slice(0,nl);
+  const delim=(first.split(';').length>first.split(',').length)?';':',';
+  const rows=[]; let row=[],cur='',q=false;
+  for(let i=0;i<text.length;i++){ const ch=text[i];
+    if(q){ if(ch==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=ch; }
+    else if(ch==='"') q=true;
+    else if(ch===delim){ row.push(cur); cur=''; }
+    else if(ch==='\n'){ row.push(cur); rows.push(row); row=[]; cur=''; }
+    else cur+=ch;
+  }
+  if(cur!==''||row.length){ row.push(cur); rows.push(row); }
+  if(!rows.length) return [];
+  const headers=rows[0].map(h=>String(h).trim());
+  return rows.slice(1).filter(r=>r.some(c=>String(c).trim()!==''))
+    .map(r=>{ const o={}; headers.forEach((h,i)=>{ o[h]=r[i]??''; }); return o; });
+}
+function cargarScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('No se pudo cargar el lector de Excel')); document.head.appendChild(s); }); }
+async function parseXLSXImp(file){
+  if(!window.XLSX) await cargarScript('vendor/xlsx.mini.js');
+  const buf=await file.arrayBuffer();
+  const wb=XLSX.read(buf,{type:'array',cellDates:true});
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(ws,{defval:'',raw:true});
+}
+function mapearImport(raw, razonDefault){
+  if(!raw||!raw.length) return {cheques:[],warns:0,nuevas:[]};
+  const keys=Object.keys(raw[0]);
+  const fieldOf={};
+  keys.forEach(k=>{ const nk=_norm(k);
+    for(const [field,syns] of Object.entries(IMP_MAP)){
+      if(Object.values(fieldOf).includes(field)) continue;
+      if(syns.some(s=>{ const ns=_norm(s); return nk===ns || (ns.length>=4 && nk.includes(ns)); })){ fieldOf[k]=field; break; }
+    }
+  });
+  const byName={}; state.razones.forEach(r=>byName[_norm(r.nombre)]=r.id);
+  const cheques=[]; let warns=0; const nuevas=new Map();
+  raw.forEach(row=>{
+    const g=f=>{ const k=keys.find(k=>fieldOf[k]===f); return k?row[k]:''; };
+    const importe=parseImporteImp(g('importe'));
+    if(!(importe>0)){ warns++; return; }
+    const tipo=mapTipoImp(g('tipo'));
+    const razName=String(g('razon_social')||'').trim();
+    let rid=razonDefault, nuevoNombre=null;
+    if(razName){ const nn=_norm(razName); if(byName[nn]) rid=byName[nn]; else { rid='__NEW__'; nuevoNombre=razName; nuevas.set(nn,razName); } }
+    cheques.push({ tipo, formato:mapFormatoImp(g('formato')), razon_social_id:rid, _nuevo:nuevoNombre,
+      banco:String(g('banco')||'').trim(), numero:String(g('numero')||'').trim(), importe,
+      fecha_emision:parseFechaImp(g('fecha_emision')), fecha_pago:parseFechaImp(g('fecha_pago')),
+      estado:mapEstadoImp(g('estado'),tipo), contraparte:String(g('contraparte')||'').trim(),
+      concepto:String(g('concepto')||'').trim(), observaciones:String(g('observaciones')||'').trim() });
+  });
+  return {cheques, warns, nuevas:[...nuevas.values()]};
+}
+function plantillaImport(){
+  const H=['Tipo','Razon social','Contraparte','Banco','Numero','Formato','Importe','Fecha emision','Fecha pago','Estado','Concepto','Observaciones'];
+  const ej1=['A pagar','Helados del Parque S.A.S.','Lácteos del Valle','Banco Nación','20481123','E-cheq','850000','20/06/2026','01/07/2026','Pendiente','FC 0001-00234',''];
+  const ej2=['A cobrar','DPA S.A.S.','Heladería Central','BBVA','77120934','E-cheq','600000','15/06/2026','08/07/2026','En cartera','',''];
+  const csv='﻿'+[H,ej1,ej2].map(r=>r.map(c=>/[",;\n]/.test(String(c))?'"'+String(c).replace(/"/g,'""')+'"':c).join(';')).join('\r\n');
+  download('plantilla-cheques.csv', new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  toast('Plantilla descargada');
+}
+function abrirImportar(){
+  if(RO()){ toast('Tu usuario es de solo lectura'); return; }
+  const rzOpts=state.razones.map(r=>`<option value="${r.id}">${esc(r.nombre)}</option>`).join('');
+  openModal(`<div class="modal" style="max-width:560px">
+    <div class="modal-h"><h3>Importar cheques</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-b">
+      <div class="hint">Subí un archivo <b>Excel (.xlsx)</b> o <b>CSV</b>. La <b>primera fila</b> deben ser los títulos (Tipo, Banco, Importe, Fecha pago, etc.). Bajá la plantilla para ver el formato exacto.</div>
+      <button class="btn ghost sm" data-imp="template" style="margin-bottom:14px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>Descargar plantilla</button>
+      ${state.razones.length? `<div class="field"><label>Empresa por defecto <span class="mut3">(para las filas sin "Razón social")</span></label><select id="impRazon">${rzOpts}</select></div>
+      <div class="field"><label>Archivo (.xlsx o .csv)</label><input id="impFile" type="file" accept=".csv,.xlsx,.xls,text/csv"></div>`
+      : `<div class="login-msg">Primero cargá al menos una razón social en Config.</div>`}
+      <div id="impPrev"></div>
+    </div>
+    <div class="modal-f" id="impFoot"><button class="btn ghost" data-close>Cancelar</button></div>
+  </div>`);
+  const fi=$('#impFile'); if(fi) fi.addEventListener('change', onImportFile);
+}
+async function onImportFile(e){
+  const file=e.target.files[0]; if(!file) return;
+  $('#impPrev').innerHTML='<div class="empty" style="padding:16px">Leyendo archivo…</div>';
+  try{
+    const raw = /\.(xlsx|xls)$/i.test(file.name) ? await parseXLSXImp(file) : parseCSVImp(await file.text());
+    const razonDefault=$('#impRazon')?.value || state.razones[0]?.id;
+    const {cheques,warns,nuevas}=mapearImport(raw, razonDefault);
+    window._imp={cheques};
+    if(!cheques.length){ $('#impPrev').innerHTML=`<div class="login-msg">No se detectaron cheques válidos. Revisá que haya una columna de <b>Importe</b> con montos mayores a 0 y que la primera fila tenga los títulos. Probá con la plantilla.</div>`; $('#impFoot').innerHTML='<button class="btn ghost" data-close>Cancelar</button>'; return; }
+    $('#impPrev').innerHTML=`
+      <div class="cloudbar" style="background:#EAF7EF;border-color:#CDECD7"><span class="dot" style="background:var(--green)"></span>Listos para importar: <b style="color:var(--ink)">${cheques.length}</b> cheque(s)${nuevas.length?` · se crearán ${nuevas.length} razón(es) nuevas: ${esc(nuevas.slice(0,3).join(', '))}${nuevas.length>3?'…':''}`:''}</div>
+      <div class="tblwrap" style="max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:10px">
+        <table><thead><tr><th>Tipo</th><th>Contraparte</th><th class="right">Importe</th><th class="center">Pago</th></tr></thead>
+        <tbody>${cheques.slice(0,25).map(c=>`<tr><td><span class="pill" style="background:${c.tipo==='emitido'?'#E3ECF5':'#DEF4F1'};color:${TIPOS[c.tipo].color}">${TIPOS[c.tipo].label}</span></td><td>${esc(c.contraparte||'—')}</td><td class="right num">${pesos(c.importe)}</td><td class="center" style="font-size:12.5px">${fmtFecha(c.fecha_pago)}</td></tr>`).join('')}</tbody></table>
+      </div>
+      ${cheques.length>25?`<div class="mut3" style="font-size:12px;text-align:center;margin-top:6px">…y ${cheques.length-25} más</div>`:''}
+      ${warns?`<div class="hint" style="color:var(--amber);margin-top:8px">⚠️ ${warns} fila(s) se saltearon (sin importe válido).</div>`:''}`;
+    $('#impFoot').innerHTML=`<button class="btn ghost" data-close>Cancelar</button><button class="btn" data-imp="do">Importar ${cheques.length}</button>`;
+  }catch(err){ $('#impPrev').innerHTML=`<div class="login-msg">No se pudo leer el archivo: ${esc(err.message||err)}</div>`; }
+}
+function ejecutarImport(){
+  const imp=window._imp; if(!imp||!imp.cheques.length) return;
+  const nameToId={};
+  imp.cheques.forEach(c=>{ if(c.razon_social_id==='__NEW__'){ const nn=_norm(c._nuevo); if(!nameToId[nn]){ const r={id:uid(),nombre:c._nuevo,cuit:'',activo:true}; state.razones.push(r); nameToId[nn]=r.id; } c.razon_social_id=nameToId[nn]; } delete c._nuevo; c.id=uid(); state.cheques.push(c); });
+  save(); closeModal(); render();
+  toast(`${imp.cheques.length} cheque(s) importados`);
+  if(cloudOn()) cloudPushAll();
+  window._imp=null;
 }
 
 async function descargarImagen(){

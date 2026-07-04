@@ -3,7 +3,7 @@ import { Search, LayoutGrid, List, Printer, ArrowUp, ArrowDown, FileDown, Plus, 
 import { supabase } from '../lib/supabase'
 import { deduplicarOperarios } from '../lib/operarios'
 import { exportarCSV } from '../lib/exportar'
-import { registrarConteoStock, nuevoCiclo } from '../lib/conteos'
+import { registrarConteoStock, nuevoCiclo, cargarCiclos, cargarConteosCiclo } from '../lib/conteos'
 import { generarComprobanteConteo } from '../lib/comprobanteConteo'
 import { normalizarNombre } from '../lib/texto'
 import { construirPrecioMapCamara, valorizarItemCamara } from '../lib/valorCamara'
@@ -1243,6 +1243,35 @@ export default function Camaras() {
   const [modalAgregar, setModalAgregar] = useState(false)
   const [modalConteo, setModalConteo]   = useState(false)
   const [savingAgregar, setSavingAgregar] = useState(false)
+  const [modalHistConteos, setModalHistConteos] = useState(false)
+  const [ciclosConteo, setCiclosConteo] = useState([])
+  const [cargandoCiclos, setCargandoCiclos] = useState(false)
+  const [reimprimiendoConteo, setReimprimiendoConteo] = useState(null)
+
+  async function abrirHistorialConteos() {
+    setModalHistConteos(true)
+    setCargandoCiclos(true)
+    try {
+      const lista = await cargarCiclos({}) // todo el período disponible
+      setCiclosConteo(lista.filter(c => c.area === 'camara'))
+    } catch { setCiclosConteo([]) }
+    finally { setCargandoCiclos(false) }
+  }
+
+  async function reimprimirComprobanteConteo(ciclo) {
+    if (!ciclo.ciclo_id) { mostrarToast('Conteo anterior al historial, no se puede reimprimir', 'error'); return }
+    setReimprimiendoConteo(ciclo.clave)
+    try {
+      const rows = await cargarConteosCiclo(ciclo.ciclo_id)
+      if (!rows.length) { mostrarToast('No se encontraron datos de este conteo', 'error'); return }
+      generarComprobanteConteo({ rows, area: 'camara', fecha: ciclo.fecha, responsable: ciclo.responsable })
+        .save(`comprobante_conteo_camara_${ciclo.fecha}.pdf`)
+    } catch (err) {
+      mostrarToast(err.message || 'No se pudo reimprimir', 'error')
+    } finally {
+      setReimprimiendoConteo(null)
+    }
+  }
 
   useEffect(() => {
     async function cargar() {
@@ -1960,6 +1989,11 @@ export default function Camaras() {
             </Button>
           )}
           {isAdmin && (
+            <Button variant="secondary" onClick={abrirHistorialConteos} disabled={loading || !!errorCarga}>
+              <FileDown size={15} /> Conteos / Comprobantes
+            </Button>
+          )}
+          {isAdmin && (
             <Button variant="primary" onClick={() => setModalAgregar(true)} disabled={loading}>
               <Plus size={14} /> Agregar producto
             </Button>
@@ -2528,6 +2562,45 @@ export default function Camaras() {
           onClose={() => setModalConteo(false)}
           onApply={aplicarConteoCamara}
         />
+      )}
+
+      {modalHistConteos && (
+        <Modal open onClose={() => setModalHistConteos(false)} title="Conteos de cámara — comprobantes" maxWidth="max-w-2xl">
+          <div className="space-y-3">
+            <p className="text-xs" style={{ color: colors.textMuted }}>
+              Cada conteo físico de cámara queda guardado. Reimprimí su comprobante (faltantes, sobrantes, motivos y costos) cuando quieras.
+              El <b style={{ color: colors.textSecondary }}>informe semanal consolidado</b> (depósito + cámara) está en <b style={{ color: colors.textSecondary }}>Depósito → Control Semanal</b>.
+            </p>
+            {cargandoCiclos ? (
+              <p className="text-sm py-6 text-center" style={{ color: colors.textMuted }}>Cargando…</p>
+            ) : ciclosConteo.length === 0 ? (
+              <p className="text-sm py-6 text-center" style={{ color: colors.textMuted }}>Todavía no hay conteos de cámara registrados.</p>
+            ) : (
+              <div className="space-y-2 max-h-[55vh] overflow-y-auto">
+                {ciclosConteo.map(c => (
+                  <div key={c.clave} className="flex items-center justify-between gap-3 p-3 rounded-lg"
+                    style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>
+                        {(c.fecha || '').split('-').reverse().join('/')}
+                        {c.modo === 'ciego' && <span className="ml-1" title="A ciegas">🙈</span>}
+                      </p>
+                      <p className="text-xs" style={{ color: colors.textMuted }}>
+                        {c.responsable || '—'} · {c.n} producto{c.n !== 1 ? 's' : ''}
+                        {c.faltantes > 0 && <span style={{ color: colors.danger }}> · {c.faltantes} faltante{c.faltantes !== 1 ? 's' : ''}{c.valorFaltante > 0 ? ` ($${pesos(c.valorFaltante)})` : ''}</span>}
+                        {c.sobrantes > 0 && <span style={{ color: colors.warning }}> · {c.sobrantes} sobrante{c.sobrantes !== 1 ? 's' : ''}</span>}
+                      </p>
+                    </div>
+                    <Button variant="secondary" size="sm" onClick={() => reimprimirComprobanteConteo(c)}
+                      loading={reimprimiendoConteo === c.clave} disabled={!c.ciclo_id}>
+                      <FileDown size={13} /> Comprobante
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Modal>
       )}
 
       {/* Gráficos ocultos para captura PDF */}

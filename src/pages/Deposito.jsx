@@ -1662,8 +1662,8 @@ export default function Deposito() {
       const pw  = doc.internal.pageSize.getWidth()
       const ph  = doc.internal.pageSize.getHeight()
       const hoy = new Date().toLocaleString('es-AR')
-      const MOD = 'DEPÓSITO'
-      const TIT = 'CONTROL SEMANAL DE STOCK'
+      const MOD = 'CONTROL DE STOCK'
+      const TIT = 'CONTROL SEMANAL — DEPÓSITO Y CÁMARA'
       const EST = getEstiloInforme()
       const peri = `${fmtFecha(rangoCS.desde)} – ${fmtFecha(rangoCS.hasta)}`
       const areaLbl = a => a === 'camara' ? 'Cámara' : 'Depósito'

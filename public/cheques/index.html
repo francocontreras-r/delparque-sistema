@@ -45,7 +45,8 @@ a{color:var(--brand);text-decoration:none}
 .appbar{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.82);backdrop-filter:saturate(1.6) blur(14px);-webkit-backdrop-filter:saturate(1.6) blur(14px);border-bottom:1px solid var(--line)}
 .appbar .wrap{padding-top:calc(12px + var(--safe-t));padding-bottom:10px}
 .topbar{display:flex;align-items:center;gap:11px}
-.logo{height:30px;width:auto;display:block;flex:none}
+.logo{height:38px;width:auto;display:block;flex:none}
+@media(max-width:400px){.logo{height:32px}}
 .brandtxt{flex:1;min-width:0}
 .apptitle{font-size:17px;font-weight:800;letter-spacing:-.02em;line-height:1.12}
 @media(min-width:420px){.apptitle{font-size:19px}}
@@ -219,16 +220,49 @@ body.locked{padding-bottom:0}
 .hidden{display:none!important}
 @media(min-width:768px){ .bottomnav,.fab{display:none} body{padding-bottom:24px} }
 
-/* Print */
+/* Encabezado y pie del INFORME (solo impresión/PDF) */
+.print-only{display:none}
 @media print{
-  .appbar .actions,.tabs,.filters,.bottomnav,.fab,.noprint{display:none!important}
-  body{background:#fff;padding:0}
-  .card,.stat,.hero{box-shadow:none;border:1px solid #ddd;break-inside:avoid}
-  .appbar{position:static;background:#fff}
+  @page{ margin:14mm 12mm 20mm; }
+  html,body{background:#fff!important}
+  body{padding:0!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .appbar,.bottomnav,.fab,.noprint,.filters,.tabs{display:none!important}
+  main.wrap{padding:0!important;max-width:100%!important}
+  .print-only{display:block}
+  .hero,.stat,.badge,.pill,.b-info,.b-warn,.b-ok,.b-danger,.b-mut,.b-purple{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .card,.stat{box-shadow:none;border:1px solid #d6dae2;break-inside:avoid}
+  .hero{box-shadow:none;color:#fff!important}
+  .section-title{margin-top:16px}
+  /* Encabezado del informe */
+  .print-header{display:flex;align-items:center;gap:14px;padding-bottom:12px;margin-bottom:16px;border-bottom:2.5px solid #063F6D}
+  .print-header .plogo{height:52px;width:auto}
+  .print-header .pmid{flex:1}
+  .print-title{font-size:22px;font-weight:800;color:#0f1b2b;letter-spacing:-.01em}
+  .print-firm{font-size:12.5px;color:#5B6472;font-weight:600;letter-spacing:.03em}
+  .print-meta{text-align:right;font-size:11.5px;color:#5B6472;line-height:1.5}
+  .print-meta b{color:#0f1b2b}
+  /* Pie confidencial en cada página */
+  .print-footer{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;
+    padding-top:6px;border-top:1px solid #d6dae2;font-size:9.5px;color:#7a828e;letter-spacing:.02em}
+  .print-footer .conf{font-weight:700;color:#5B6472}
 }
 </style>
 </head>
 <body>
+
+<!-- Encabezado del informe (aparece SOLO en el PDF/impresión) -->
+<div class="print-only print-header">
+  <img class="plogo" src="logo-ciaf.png" alt="CIAF Consultora Integral" />
+  <div class="pmid">
+    <div class="print-title">Informe de Cheques</div>
+    <div class="print-firm">CIAF · CONSULTORA INTEGRAL</div>
+  </div>
+  <div class="print-meta" id="printMeta">—</div>
+</div>
+<div class="print-only print-footer">
+  <span class="conf">CIAF Consultora Integral · Información de uso confidencial</span>
+  <span id="printFoot">—</span>
+</div>
 
 <header class="appbar">
   <div class="wrap">
@@ -530,9 +564,17 @@ let view = 'dashboard';
 let filtros = {razon:'', tipo:'', estado:''};
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
-const pesos = n => '$ '+Math.round(Number(n)||0).toLocaleString('es-AR');
+// Miles con punto, decimal con coma (formato AR) — sin depender de toLocaleString
+// (que falla en algunos navegadores/impresión y dejaba los números sin separar).
+function fmtMiles(n){
+  n = Math.round(Number(n)||0);
+  const neg = n<0; n=Math.abs(n);
+  const s = String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return (neg?'-':'')+s;
+}
+const pesos = n => '$ '+fmtMiles(n);
 const nChe = n => n+' cheque'+(n!==1?'s':'');
-const pesosK = n => { n=Number(n)||0; return Math.abs(n)>=1e6 ? '$ '+(n/1e6).toLocaleString('es-AR',{maximumFractionDigits:1})+'M' : pesos(n); };
+const pesosK = n => { n=Number(n)||0; const a=Math.abs(n); if(a>=1e6) return '$ '+(n/1e6).toFixed(1).replace('.',',')+'M'; if(a>=1e4) return '$ '+fmtMiles(Math.round(n/1e3))+'k'; return pesos(n); };
 function fmtFecha(f){ if(!f) return '—'; const [y,m,d]=String(f).slice(0,10).split('-'); return d&&m&&y?`${d}/${m}/${y}`:'—'; }
 function hoyISO(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
 function diasHasta(f){ if(!f) return null; const h=new Date(); h.setHours(0,0,0,0); const t=new Date(String(f).slice(0,10)+'T00:00:00'); return Math.round((t-h)/86400000); }
@@ -543,7 +585,7 @@ function clasif(ch){
   if(!esAbierto(ch) || !ch.fecha_pago) return null;
   const d = diasHasta(ch.fecha_pago);
   if(d<0)  return {est:'vencido', d, label:'Vencido',   color:'var(--purple)', b:'purple'};
-  if(d<=2) return {est:'urgente', d, label:d<=0?'Hoy':'Inminente', color:'var(--red)',    b:'danger'};
+  if(d<=2) return {est:'urgente', d, label:'Vence', color:'var(--red)',    b:'danger'};
   if(d<=7) return {est:'pronto',  d, label:'Vence pronto', color:'var(--amber)', b:'warn'};
   return         {est:'ok',      d, label:'En fecha',    color:'var(--green)', b:'ok'};
 }
@@ -1119,7 +1161,7 @@ document.addEventListener('click', e=>{
   // menú "Más"
   if(t.dataset.more){ const m=t.dataset.more; closeModal();
     if(m==='img'){ descargarImagen(); }
-    else if(m==='print'){ view='dashboard'; render(); setTimeout(()=>window.print(),150); }
+    else if(m==='print'){ view='dashboard'; render(); prepararImpresion(); setTimeout(()=>window.print(),150); }
     else if(m==='backup'){ view='config'; render(); setTimeout(()=>window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'}),60); }
     return; }
   if(act==='sync-now'){ toast('Sincronizando…'); cloudFlush().then(()=>cargarPerfil()).then(cloudPull).then(()=>{ usuariosCache=null; render(); toast('Sincronizado ✓'); }); return; }
@@ -1210,6 +1252,16 @@ function importJSON(){
   inp.click();
 }
 function download(name,blob){ const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u); }
+
+// Completa el encabezado y el pie del informe antes de imprimir/guardar PDF.
+function prepararImpresion(){
+  const rz = filtros.razon ? razonNombre(filtros.razon) : 'Todas las razones sociales';
+  const total = state.cheques.length;
+  const m = $('#printMeta');
+  if(m) m.innerHTML = `<b>${esc(rz)}</b><br>Fecha base: <b>${fmtFecha(hoyISO())}</b><br>${nChe(total)} en cartera`;
+  const f = $('#printFoot');
+  if(f) f.textContent = 'Generado el ' + fmtFecha(hoyISO());
+}
 
 /* ── Compartir vencimientos (WhatsApp / Mail / share nativo) ─────────────── */
 function resumenVencimientos(){

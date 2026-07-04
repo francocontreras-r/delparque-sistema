@@ -1121,7 +1121,7 @@ document.addEventListener('click', e=>{
     else if(m==='print'){ view='dashboard'; render(); setTimeout(()=>window.print(),150); }
     else if(m==='backup'){ view='config'; render(); setTimeout(()=>window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'}),60); }
     return; }
-  if(act==='sync-now'){ toast('Sincronizando…'); cloudFlush().then(cloudPull).then(()=>{ render(); toast('Sincronizado ✓'); }); return; }
+  if(act==='sync-now'){ toast('Sincronizando…'); cloudFlush().then(()=>cargarPerfil()).then(cloudPull).then(()=>{ usuariosCache=null; render(); toast('Sincronizado ✓'); }); return; }
 
   // guardar/eliminar cheque
   if(t.hasAttribute('data-save-cheque')){ saveCheque(); return; }

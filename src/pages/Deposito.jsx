@@ -1679,27 +1679,59 @@ export default function Deposito() {
       let y = PDF_CONTENT_Y
       y = dibujarSeccion(doc, pw, 'Resumen de la semana', y)
       const cont = R.porArea
-      const resumenTxt =
-        `En el período ${peri.toLowerCase()} se contaron ${R.totalContados} productos ` +
-        `(${cont.deposito.contados} en depósito, ${cont.camara.contados} en cámara). ` +
-        `Se detectaron ${R.faltantes.length} faltante${R.faltantes.length !== 1 ? 's' : ''} y ` +
-        `${R.sobrantes.length} sobrante${R.sobrantes.length !== 1 ? 's' : ''}. ` +
-        `Impacto valorizado en depósito: faltante $${pesos(R.valorFaltante)}, sobrante $${pesos(R.valorSobrante)} ` +
-        `(neto ${R.impactoNeto >= 0 ? '+' : '-'}$${pesos(Math.abs(R.impactoNeto))}). ` +
-        `Las pérdidas de cámara quedan valorizadas en Mermas.`
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...PDF_NEGRO)
-      const lines = doc.splitTextToSize(resumenTxt, pw - 28)
-      doc.text(lines, 14, y + 2)
-      y += lines.length * 5 + 8
 
       if (R.totalContados === 0) {
-        doc.setTextColor(...PDF_GRIS_OSC)
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...PDF_GRIS_OSC)
         doc.text('No hay conteos registrados en el período. Realizá un conteo en Depósito o Cámara para generar el informe.', 14, y + 4)
         dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
         doc.save(`control_stock_${rangoCS.desde}_a_${rangoCS.hasta}.pdf`)
         setGenerandoInformeSem(false)
         return
       }
+
+      // Tablero de impacto valorizado — lo resaltado: faltante, sobrante y neto.
+      const cardW = (pw - 28 - 12) / 3
+      const cardH = 20
+      dibujarKpiCard(doc, 14, y, cardW, cardH, 'Faltante valorizado', `-$${pesos(R.valorFaltante)}`, PDF_SEM_NEG)
+      dibujarKpiCard(doc, 14 + cardW + 6, y, cardW, cardH, 'Sobrante valorizado', `+$${pesos(R.valorSobrante)}`, PDF_SEM_OK)
+      const netoAccent = R.impactoNeto < 0 ? PDF_SEM_NEG : PDF_SEM_OK
+      dibujarKpiCard(doc, 14 + 2 * (cardW + 6), y, cardW, cardH, 'Impacto neto',
+        `${R.impactoNeto >= 0 ? '+' : '-'}$${pesos(Math.abs(R.impactoNeto))}`, netoAccent)
+      y += cardH + 8
+
+      // Texto de contexto (los números finos van en las tablas siguientes).
+      const resumenTxt =
+        `En el período ${peri.toLowerCase()} se contaron ${R.totalContados} productos ` +
+        `(${cont.deposito.contados} en depósito, ${cont.camara.contados} en cámara). ` +
+        `Se detectaron ${R.faltantes.length} faltante${R.faltantes.length !== 1 ? 's' : ''} y ` +
+        `${R.sobrantes.length} sobrante${R.sobrantes.length !== 1 ? 's' : ''}. ` +
+        `Las pérdidas de cámara quedan valorizadas también en Mermas.`
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...PDF_NEGRO)
+      const lines = doc.splitTextToSize(resumenTxt, pw - 28)
+      doc.text(lines, 14, y + 2)
+      y += lines.length * 5 + 6
+
+      // Cuadro explicativo — cómo leer los valores.
+      const expItems = [
+        ['Faltante', 'el stock físico fue MENOR al del sistema. Posible merma, robo o error de carga. Se valoriza a costo.', PDF_SEM_NEG],
+        ['Sobrante', 'el físico fue MAYOR al del sistema. Suele ser un ingreso, devolución o ajuste no registrado.', PDF_SEM_OK],
+        ['Impacto neto', 'sobrantes menos faltantes. Un neto negativo (en rojo) es la pérdida económica del período.', PDF_GRIS_OSC],
+      ]
+      doc.setFontSize(8)
+      const expWrapped = expItems.map(([lab, txt, col]) => ({ col, w: doc.splitTextToSize(`${lab}: ${txt}`, pw - 28 - 10) }))
+      const boxH = 11 + expWrapped.reduce((a, e) => a + e.w.length * 4.2 + 1.8, 0)
+      doc.setFillColor(247, 247, 247); doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.2)
+      doc.rect(14, y, pw - 28, boxH, 'FD')
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...PDF_NEGRO)
+      doc.text('Cómo leer estos números', 18, y + 6)
+      let ty = y + 12
+      expWrapped.forEach(e => {
+        doc.setFillColor(...e.col); doc.circle(19.5, ty - 1.2, 1, 'F')
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(60, 60, 60)
+        doc.text(e.w, 23, ty)
+        ty += e.w.length * 4.2 + 1.8
+      })
+      y += boxH + 6
       dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
 
       // P3 — Faltantes (lo que faltó, con el porqué)
@@ -1716,7 +1748,9 @@ export default function Deposito() {
             (Number(r.stock_sistema) || 0).toFixed(2), (Number(r.stock_fisico) || 0).toFixed(2),
             fmtDif(r), fmtVal(r), r.responsable || '—', r.motivo || '—',
           ]),
-          columnStyles: { 7: { cellWidth: 42 } },
+          foot: [['', '', '', '', 'TOTAL', `$${pesos(filas.reduce((a, r) => a + Math.abs(Number(r.valor_impacto) || 0), 0))}`, '', '']],
+          footStyles: { fillColor: headColor, textColor: PDF_BLANCO, fontStyle: 'bold', halign: 'left' },
+          columnStyles: { 5: { fontStyle: 'bold' }, 7: { cellWidth: 42 } },
           didDrawPage: () => {
             dibujarEncabezado(doc, pw, MOD, TIT, hoy)
             dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)

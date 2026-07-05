@@ -173,18 +173,21 @@ tbody tr:hover{background:#F8FAFC}
 @keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:translateY(0);opacity:1}}
 .modal-h{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line)}
 .modal-h h3{font-size:18px}
-.modal-b{padding:18px;overflow-y:auto}
-.modal-f{padding:14px 18px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end}
+.modal-b{padding:20px;overflow-y:auto}
+.modal-f{padding:14px 18px calc(14px + var(--safe-b));border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end}
 .close{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--ink2)}
 .close:hover{background:#F1F3F6}
 
 /* Form */
-.field{margin-bottom:13px}
-.field label{display:block;font-weight:700;font-size:12.5px;color:var(--ink2);margin-bottom:5px}
-.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff;color:var(--ink)}
+.field{margin-bottom:17px}
+.field label{display:block;font-weight:700;font-size:13px;color:var(--ink2);margin-bottom:7px}
+.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:11px;padding:13px 14px;background:#fff;color:var(--ink);font-size:16px;min-height:50px;line-height:1.3}
+.field textarea{min-height:auto}
+/* iOS: los input date se veían centrados y con alto raro; los emparejamos */
+.field input[type=date]{-webkit-appearance:none;appearance:none;text-align:left}
 .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(6,63,109,.16)}
-.frow{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:520px){.frow{grid-template-columns:1fr}}
+.frow{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:520px){.frow{grid-template-columns:1fr;gap:0}}
 .seg{display:flex;gap:6px;background:#F1F3F6;padding:4px;border-radius:12px}
 .seg button{flex:1;padding:9px;border-radius:9px;font-weight:700;color:var(--ink2);font-size:13.5px}
 .seg button.on{background:#fff;color:var(--ink);box-shadow:var(--shadow)}
@@ -523,9 +526,9 @@ async function eliminarUsuario(id, email){
   catch(e){ toast(traducirApiErr(e.message)); }
 }
 
-let subiendo = false; // lock: evita que un pull pise datos locales mientras se sube
+let pushLock = 0; // >0 mientras se sube algo: evita que un pull pise datos locales
 async function cloudPull(){
-  if(!cloudOn() || subiendo) return false;
+  if(!cloudOn() || pushLock>0 || state._queue.length) return false;
   try{
     const [rz,bk,ch] = await Promise.all([
       sb.from('razones_sociales').select('*').order('created_at'),
@@ -540,13 +543,17 @@ async function cloudPull(){
 function queueOp(op){ state._queue.push(op); save(); }
 async function cloudPush(tabla,row){
   if(!cloudOn()) return;
+  pushLock++;
   try{ const {error}=await sb.from(REMOTE[tabla]).upsert(toRemote(tabla,row)); if(error) throw error; }
   catch(e){ queueOp({t:'up',tabla,row}); }
+  finally{ pushLock--; }
 }
 async function cloudDelete(tabla,id){
   if(!cloudOn()) return;
+  pushLock++;
   try{ const {error}=await sb.from(REMOTE[tabla]).delete().eq('id',id); if(error) throw error; }
   catch(e){ queueOp({t:'del',tabla,id}); }
+  finally{ pushLock--; }
 }
 async function cloudFlush(){
   if(!cloudOn() || !state._queue.length) return;
@@ -568,7 +575,7 @@ async function cloudPushAll(){
   state.bancos.forEach(b=>{ if(remap[b.razon_social_id]) b.razon_social_id=remap[b.razon_social_id]; if(!isUuid(b.id)) b.id=uid(); });
   state.cheques.forEach(c=>{ if(remap[c.razon_social_id]) c.razon_social_id=remap[c.razon_social_id]; if(!isUuid(c.id)) c.id=uid(); });
   save();
-  subiendo = true;
+  pushLock++;
   try{
     // Orden importante: razones → bancos → cheques (por la referencia de empresa)
     if(state.razones.length) { const {error}=await sb.from('razones_sociales').upsert(state.razones.map(r=>toRemote('razones',r))); if(error) throw error; }
@@ -576,7 +583,7 @@ async function cloudPushAll(){
     if(state.cheques.length) { const {error}=await sb.from('cheques').upsert(state.cheques.map(c=>toRemote('cheques',c))); if(error) throw error; }
     return true;
   }catch(e){ console.warn('pushAll:', e.message); toast('No se pudo subir a la nube: '+e.message); return false; }
-  finally{ subiendo = false; }
+  finally{ pushLock--; }
 }
 async function cloudCount(){
   try{
@@ -1047,9 +1054,12 @@ function viewConfig(){
         ${[3,5,7,10,15,30].map(d=>`<option value="${d}" ${state.settings.notifDias===d?'selected':''}>${d} días</option>`).join('')}
       </select>
     </div>
-    <button class="btn ${state.settings.notif?'green':'ghost'}" data-act="toggle-notif">
-      ${state.settings.notif?'🔔 Notificaciones activadas':'Activar notificaciones'}
-    </button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn ${state.settings.notif?'green':'ghost'}" data-act="toggle-notif">
+        ${state.settings.notif?'🔔 Notificaciones activadas':'Activar notificaciones'}
+      </button>
+      <button class="btn ghost" data-act="probar-notif">Probar notificación</button>
+    </div>
     <hr style="border:none;border-top:1px solid var(--line);margin:18px 0">
     <h2 style="font-size:15px">Copia de seguridad</h2>
     <div class="hint">Guardá un archivo con todos tus datos y restauralo en otro dispositivo (compu ⇄ celular).</div>
@@ -1213,6 +1223,7 @@ document.addEventListener('click', e=>{
   if(act==='nueva-razon'){ modalRazon(); return; }
   if(act==='nuevo-banco'){ if(!state.razones.length){toast('Primero cargá una razón social');return;} modalBanco(); return; }
   if(act==='toggle-notif'){ toggleNotif(); return; }
+  if(act==='probar-notif'){ notifPrueba(); return; }
   if(act==='export-json'){ exportJSON(); return; }
   if(act==='import-json'){ importJSON(); return; }
   if(act==='wipe'){ if(confirm('¿Borrar TODOS los datos de este dispositivo? Esta acción no se puede deshacer.')){ state={razones:[],bancos:[],cheques:[],settings:{notif:false,notifDias:7},notifLog:{},_queue:[]}; save(); render(); toast('Datos borrados'); } return; }
@@ -1551,6 +1562,19 @@ async function descargarImagen(){
 }
 
 /* ── Notificaciones ─────────────────────────────────────────────────────── */
+async function notifPrueba(){
+  if(!('Notification' in window)){ toast('Para probar en iPhone, primero instalá la app (Agregar a pantalla de inicio)'); return; }
+  let perm = Notification.permission;
+  if(perm !== 'granted') perm = await Notification.requestPermission();
+  if(perm !== 'granted'){ toast('Permiso denegado — activalo en los ajustes del navegador'); return; }
+  try{
+    new Notification('💳 Cheques — notificación de prueba', {
+      body: 'Así te van a llegar los avisos de cheques por vencer. ✅',
+      icon:'icon-192.png', badge:'icon-192.png', tag:'cheques-prueba',
+    });
+    toast('¡Enviada! Mirá tus notificaciones 🔔');
+  }catch(e){ toast('No se pudo mostrar: '+e.message); }
+}
 async function toggleNotif(){
   if(!('Notification' in window)){ toast('Este dispositivo no soporta notificaciones'); return; }
   if(state.settings.notif){ state.settings.notif=false; save(); renderSubtitle(); if(view==='config')render(); toast('Notificaciones desactivadas'); return; }

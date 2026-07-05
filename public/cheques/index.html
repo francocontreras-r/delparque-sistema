@@ -242,6 +242,8 @@ body.locked{padding-bottom:0}
 .chq-emp svg{width:12px;height:12px;flex:none;opacity:.7}
 .chq-amt{font-weight:800;font-size:16.5px;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--ink)}
 .chq-badges{margin-top:5px;display:flex;justify-content:flex-end;gap:6px}
+.est-quick{cursor:pointer;font-family:inherit;gap:2px}
+.est-quick:active{transform:scale(.95)}
 .chq-meta{margin-top:9px;padding-top:8px;border-top:1px solid var(--line);font-size:12px;color:var(--ink3);display:flex;flex-wrap:wrap;align-items:center;gap:4px}
 .chq-meta .venc{font-weight:700;margin-left:auto}
 .chq-r{text-align:right;flex:none}
@@ -858,7 +860,9 @@ function chequeCard(ch){
         </div>
         <div class="chq-r">
           <div class="chq-amt">${pesos(ch.importe)}</div>
-          <div class="chq-badges"><span class="badge b-${est.b}">${est.l}</span></div>
+          <div class="chq-badges">${puedeEditar()
+            ? `<button class="badge b-${est.b} est-quick" data-estado-quick="${ch.id}">${est.l}<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" style="margin-left:1px"><path d="M6 9l6 6 6-6"/></svg></button>`
+            : `<span class="badge b-${est.b}">${est.l}</span>`}</div>
         </div>
       </div>
       <div class="chq-meta">
@@ -868,6 +872,25 @@ function chequeCard(ch){
       </div>
     </div>
   </div>`;
+}
+// Menú rápido: cambiar el estado de un cheque desde la lista.
+function estadoRapido(id){
+  if(RO()){ toast('Tu usuario es de solo lectura'); return; }
+  const ch = state.cheques.find(c=>c.id===id); if(!ch) return;
+  const opts = ESTADOS[ch.tipo].map(e=>`<button class="sheet-btn" data-set-estado="${id}|${e.v}" style="justify-content:space-between">
+    <span class="badge b-${e.b}">${e.l}</span>${ch.estado===e.v?'<span class="mut3" style="font-size:12px">actual</span>':''}</button>`).join('');
+  openModal(`<div class="modal" style="max-width:440px">
+    <div class="modal-h"><h3>Cambiar estado</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-b" style="padding:10px">
+      <div class="hint" style="padding:4px 8px 12px"><b style="color:var(--ink)">${esc(ch.contraparte||ch.librador||'—')}</b> · ${pesos(ch.importe)} · N° ${esc(ch.numero||'—')} · ${razonNombre(ch.razon_social_id)}</div>
+      ${opts}
+    </div></div>`);
+}
+function aplicarEstado(id, estado){
+  const ch = state.cheques.find(c=>c.id===id); if(!ch) return;
+  ch.estado = estado; save(); closeModal(); render();
+  toast('Estado: ' + estadoInfo(ch.tipo, estado).l);
+  cloudPush('cheques', {...ch});
 }
 function viewCheques(){
   const chs = chequesFiltrados().slice().sort((a,b)=>{
@@ -1183,8 +1206,12 @@ function modalBanco(id){
    EVENTOS
    ══════════════════════════════════════════════════════════════════════════ */
 document.addEventListener('click', e=>{
-  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
+  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
   if(!t) return;
+
+  // Cambio rápido de estado desde la lista
+  if(t.dataset.estadoQuick){ estadoRapido(t.dataset.estadoQuick); return; }
+  if(t.dataset.setEstado){ const [id,estado]=t.dataset.setEstado.split('|'); aplicarEstado(id,estado); return; }
 
   // Importar Excel/CSV
   if(t.dataset.imp){ const m=t.dataset.imp; if(m==='template') plantillaImport(); else if(m==='do') ejecutarImport(); return; }

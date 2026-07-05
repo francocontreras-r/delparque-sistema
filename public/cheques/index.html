@@ -500,8 +500,9 @@ async function eliminarUsuario(id, email){
   catch(e){ toast(traducirApiErr(e.message)); }
 }
 
+let subiendo = false; // lock: evita que un pull pise datos locales mientras se sube
 async function cloudPull(){
-  if(!cloudOn()) return false;
+  if(!cloudOn() || subiendo) return false;
   try{
     const [rz,bk,ch] = await Promise.all([
       sb.from('razones_sociales').select('*').order('created_at'),
@@ -544,11 +545,15 @@ async function cloudPushAll(){
   state.bancos.forEach(b=>{ if(remap[b.razon_social_id]) b.razon_social_id=remap[b.razon_social_id]; if(!isUuid(b.id)) b.id=uid(); });
   state.cheques.forEach(c=>{ if(remap[c.razon_social_id]) c.razon_social_id=remap[c.razon_social_id]; if(!isUuid(c.id)) c.id=uid(); });
   save();
+  subiendo = true;
   try{
+    // Orden importante: razones → bancos → cheques (por la referencia de empresa)
     if(state.razones.length) { const {error}=await sb.from('razones_sociales').upsert(state.razones.map(r=>toRemote('razones',r))); if(error) throw error; }
     if(state.bancos.length)  { const {error}=await sb.from('bancos').upsert(state.bancos.map(b=>toRemote('bancos',b))); if(error) throw error; }
     if(state.cheques.length) { const {error}=await sb.from('cheques').upsert(state.cheques.map(c=>toRemote('cheques',c))); if(error) throw error; }
-  }catch(e){ console.warn('pushAll:', e.message); toast('No se pudo subir a la nube: '+e.message); }
+    return true;
+  }catch(e){ console.warn('pushAll:', e.message); toast('No se pudo subir a la nube: '+e.message); return false; }
+  finally{ subiendo = false; }
 }
 async function cloudCount(){
   try{
@@ -579,6 +584,8 @@ function fmtFecha(f){ if(!f) return '—'; const [y,m,d]=String(f).slice(0,10).s
 function hoyISO(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
 function diasHasta(f){ if(!f) return null; const h=new Date(); h.setHours(0,0,0,0); const t=new Date(String(f).slice(0,10)+'T00:00:00'); return Math.round((t-h)/86400000); }
 function razonNombre(id){ return state.razones.find(r=>r.id===id)?.nombre || 'Sin razón social'; }
+// Cheques cuya empresa no existe (huérfanos) — para poder reasignarlos.
+function chequesSinRazon(){ const ids=new Set(state.razones.map(r=>r.id)); return state.cheques.filter(c=>!c.razon_social_id || !ids.has(c.razon_social_id)); }
 
 // Clasificación de vencimiento (solo cheques abiertos). Mismos umbrales/colores.
 function clasif(ch){
@@ -944,8 +951,20 @@ function viewConfig(){
     <div class="cloudbar"><span class="dot" style="background:var(--amber)"></span>Estás en <b style="color:var(--ink)">modo local</b> (los datos no se comparten entre dispositivos).</div>
     <button class="btn sm" data-act="ir-login">Iniciar sesión para sincronizar</button>
   </div>`);
+  const orph = puedeE ? chequesSinRazon() : [];
+  const orphCard = orph.length ? `
+  <div class="card" style="margin-bottom:16px;border:1px solid #F0C58A;background:#FFF9F0">
+    <h2>⚠️ ${orph.length} cheque(s) sin empresa</h2>
+    <div class="hint">Asignales una razón social. Si ya existe, elegila de la lista; si no, escribí el nombre y se crea sola.</div>
+    <div class="field"><label>Empresa</label>
+      <input id="orphRazon" list="orphList" value="${esc(state.razones[0]?.nombre || 'DPA S.A.S.')}" placeholder="Nombre de la empresa" autocomplete="off">
+      <datalist id="orphList">${state.razones.map(r=>`<option value="${esc(r.nombre)}">`).join('')}</datalist>
+    </div>
+    <button class="btn" data-act="asignar-orph">Asignar a los ${orph.length} cheques</button>
+  </div>` : '';
   return `
   ${cloudCard}
+  ${orphCard}
   ${usuariosCard()}
   <div class="card" style="margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
@@ -1111,7 +1130,7 @@ document.addEventListener('click', e=>{
   if(t.dataset.delUser){ eliminarUsuario(t.dataset.delUser, t.dataset.email); return; }
 
   // Bloqueo de escritura para usuarios de solo lectura
-  const WRITE_ACTS = new Set(['nuevo','nueva-razon','nuevo-banco','wipe','import-json','importar']);
+  const WRITE_ACTS = new Set(['nuevo','nueva-razon','nuevo-banco','wipe','import-json','importar','asignar-orph']);
   if(RO() && ( t.matches('[data-save-cheque],[data-del-cheque],[data-save-razon],[data-del-razon],[data-save-banco],[data-del-banco],[data-edit-razon],[data-edit-banco]') || WRITE_ACTS.has(t.dataset.act) )){
     toast('Tu usuario es de solo lectura'); return;
   }
@@ -1165,6 +1184,17 @@ document.addEventListener('click', e=>{
     else if(m==='backup'){ view='config'; render(); setTimeout(()=>window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'}),60); }
     return; }
   if(act==='sync-now'){ toast('Sincronizando…'); cloudFlush().then(()=>cargarPerfil()).then(cloudPull).then(()=>{ usuariosCache=null; render(); toast('Sincronizado ✓'); }); return; }
+  if(act==='asignar-orph'){
+    const nombre=$('#orphRazon').value.trim(); if(!nombre){ toast('Escribí una empresa'); return; }
+    let r=state.razones.find(x=>_norm(x.nombre)===_norm(nombre));
+    if(!r){ r={id:uid(),nombre,cuit:'',activo:true}; state.razones.push(r); }
+    const ids=new Set(state.razones.map(x=>x.id));
+    const orphans=state.cheques.filter(c=>!c.razon_social_id || !ids.has(c.razon_social_id));
+    orphans.forEach(c=>c.razon_social_id=r.id);
+    save(); render(); toast(`${orphans.length} cheque(s) asignados a ${nombre}`);
+    if(cloudOn()) cloudPushAll();
+    return;
+  }
 
   // guardar/eliminar cheque
   if(t.hasAttribute('data-save-cheque')){ saveCheque(); return; }
@@ -1452,14 +1482,14 @@ async function onImportFile(e){
     $('#impFoot').innerHTML=`<button class="btn ghost" data-close>Cancelar</button><button class="btn" data-imp="do">Importar ${cheques.length}</button>`;
   }catch(err){ $('#impPrev').innerHTML=`<div class="login-msg">No se pudo leer el archivo: ${esc(err.message||err)}</div>`; }
 }
-function ejecutarImport(){
+async function ejecutarImport(){
   const imp=window._imp; if(!imp||!imp.cheques.length) return;
   const nameToId={};
   imp.cheques.forEach(c=>{ if(c.razon_social_id==='__NEW__'){ const nn=_norm(c._nuevo); if(!nameToId[nn]){ const r={id:uid(),nombre:c._nuevo,cuit:'',activo:true}; state.razones.push(r); nameToId[nn]=r.id; } c.razon_social_id=nameToId[nn]; } delete c._nuevo; c.id=uid(); state.cheques.push(c); });
+  const cant=imp.cheques.length; window._imp=null;
   save(); closeModal(); render();
-  toast(`${imp.cheques.length} cheque(s) importados`);
-  if(cloudOn()) cloudPushAll();
-  window._imp=null;
+  toast(`${cant} cheque(s) importados`);
+  if(cloudOn()){ const ok=await cloudPushAll(); if(ok) toast(`${cant} cheque(s) importados y sincronizados`); }
 }
 
 async function descargarImagen(){

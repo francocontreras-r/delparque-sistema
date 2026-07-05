@@ -220,6 +220,29 @@ body.locked{padding-bottom:0}
 .hidden{display:none!important}
 @media(min-width:768px){ .bottomnav,.fab{display:none} body{padding-bottom:24px} }
 
+/* Lista de cheques — tarjetas (mobile-first, estilo premium) */
+.chq-search{display:flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:0 12px;box-shadow:var(--shadow);margin-bottom:12px}
+.chq-search svg{width:18px;height:18px;color:var(--ink3);flex:none}
+.chq-search input{flex:1;border:none;outline:none;background:transparent;padding:12px 0;font-size:15px;color:var(--ink)}
+.chq-totals{display:flex;gap:10px;margin-bottom:14px}
+.chq-totals .t{flex:1;background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:11px 14px}
+.chq-totals .t span{display:block;font-size:11.5px;color:var(--ink3);font-weight:600}
+.chq-totals .t b{font-size:17px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.chq{display:flex;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);margin-bottom:10px;overflow:hidden;cursor:pointer;transition:box-shadow .14s,transform .05s}
+.chq:hover{box-shadow:var(--shadow-lg)}
+.chq:active{transform:scale(.995)}
+.chq-bar{width:5px;flex:none}
+.chq-body{flex:1;min-width:0;padding:12px 14px}
+.chq-line{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.chq-who{font-weight:800;font-size:15px;color:var(--ink);line-height:1.2;word-break:break-word}
+.chq-emp{font-size:12px;color:var(--ink2);font-weight:600;margin-top:3px;display:inline-flex;align-items:center;gap:5px}
+.chq-emp svg{width:12px;height:12px;flex:none;opacity:.7}
+.chq-amt{font-weight:800;font-size:16.5px;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--ink)}
+.chq-badges{margin-top:5px;display:flex;justify-content:flex-end;gap:6px}
+.chq-meta{margin-top:9px;padding-top:8px;border-top:1px solid var(--line);font-size:12px;color:var(--ink3);display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.chq-meta .venc{font-weight:700;margin-left:auto}
+.chq-r{text-align:right;flex:none}
+
 /* Encabezado y pie del INFORME (solo impresión/PDF) */
 .print-only{display:none}
 @media print{
@@ -801,30 +824,49 @@ function chartProximos30(chs){
 }
 
 /* ── CHEQUES (tabla + alta) ─────────────────────────────────────────────── */
+function chequeCard(ch){
+  const c=clasif(ch), est=estadoInfo(ch.tipo,ch.estado), emp=razonNombre(ch.razon_social_id);
+  const bar = c ? c.color : (esAbierto(ch)?'var(--line)':'#cfd5df');
+  const txt = _norm([ch.contraparte,ch.librador,ch.banco,ch.numero,emp,est.l,TIPOS[ch.tipo].label].join(' '));
+  return `<div class="chq" data-edit="${ch.id}" data-txt="${esc(txt)}">
+    <div class="chq-bar" style="background:${bar}"></div>
+    <div class="chq-body">
+      <div class="chq-line">
+        <div style="min-width:0">
+          <div class="chq-who">${esc(ch.contraparte||ch.librador||'—')}</div>
+          <div class="chq-emp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M6 21V7l6-4 6 4v14M10 9h.01M14 9h.01M10 13h.01M14 13h.01M10 17h.01M14 17h.01"/></svg>${esc(emp)}</div>
+        </div>
+        <div class="chq-r">
+          <div class="chq-amt">${pesos(ch.importe)}</div>
+          <div class="chq-badges"><span class="badge b-${est.b}">${est.l}</span></div>
+        </div>
+      </div>
+      <div class="chq-meta">
+        <span class="pill" style="background:${ch.tipo==='emitido'?'#E3ECF5':'#DEF4F1'};color:${TIPOS[ch.tipo].color};padding:1px 7px">${TIPOS[ch.tipo].label}</span>
+        <span>${esc(ch.banco||'—')} · N° ${esc(ch.numero||'—')} · ${FORMATOS[ch.formato]||'Físico'}</span>
+        <span class="venc" style="color:${c&&c.est!=='ok'?c.color:'var(--ink3)'}">${fmtFecha(ch.fecha_pago)}${c&&c.est!=='ok'?' · '+c.label+' '+labelDias(c.d):''}</span>
+      </div>
+    </div>
+  </div>`;
+}
 function viewCheques(){
   const chs = chequesFiltrados().slice().sort((a,b)=>{
     const da=a.fecha_pago||'9999', db=b.fecha_pago||'9999'; return da<db?-1:da>db?1:0;
   });
-  const rows = chs.map(ch=>{
-    const c=clasif(ch), est=estadoInfo(ch.tipo,ch.estado);
-    return `<tr data-edit="${ch.id}" style="cursor:pointer">
-      <td><span class="pill" style="background:${ch.tipo==='emitido'?'#E3ECF5':'#DEF4F1'};color:${TIPOS[ch.tipo].color}">${TIPOS[ch.tipo].label}</span></td>
-      <td><b>${esc(ch.contraparte||ch.librador||'—')}</b>${state.razones.length>1?`<div class="mut3" style="font-size:11px">${esc(razonNombre(ch.razon_social_id))}</div>`:''}</td>
-      <td>${esc(ch.banco||'—')}<div class="mut3" style="font-size:11px">N° ${esc(ch.numero||'—')} · ${FORMATOS[ch.formato]||'Físico'}</div></td>
-      <td class="right num">${pesos(ch.importe)}</td>
-      <td class="center">${fmtFecha(ch.fecha_pago)}${c&&c.est!=='ok'?`<div class="mut3" style="font-size:11px;color:${c.color}">${c.label} ${labelDias(c.d)}</div>`:''}</td>
-      <td><span class="badge b-${est.b}">${est.l}</span></td>
-    </tr>`;
-  }).join('');
+  const cobrar=suma(chs.filter(c=>c.tipo==='recibido')), pagar=suma(chs.filter(c=>c.tipo==='emitido'));
+  const cards = chs.map(chequeCard).join('');
   return `${filtrosBar()}
-  <div class="card" style="padding:0;overflow:hidden">
-    ${chs.length? `<div class="tblwrap"><table>
-      <thead><tr><th>Tipo</th><th>Contraparte</th><th>Banco / N°</th><th class="right">Importe</th><th class="center">Fecha pago</th><th>Estado</th></tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot><tr style="border-top:2px solid var(--line)"><td colspan="3" style="padding:12px;font-weight:800">${chs.length} cheque${chs.length!==1?'s':''}</td><td class="right num" style="padding:12px">${pesos(suma(chs))}</td><td colspan="2"></td></tr></tfoot>
-    </table></div>`
-    : emptyState('No hay cheques con estos filtros.', state.cheques.length===0?'Agregá tu primer cheque con el botón +':'Probá limpiar los filtros.')}
-  </div>
+  ${state.cheques.length?`<div class="chq-search noprint">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+    <input id="chqSearch" type="search" placeholder="Buscar proveedor, banco, N°…" value="${esc(filtros.q||'')}" autocomplete="off">
+  </div>`:''}
+  ${chs.length?`<div class="chq-totals">
+    <div class="t"><span>Cheques</span><b>${chs.length}</b></div>
+    ${cobrar?`<div class="t"><span>A cobrar</span><b style="color:var(--teal)">${pesos(cobrar)}</b></div>`:''}
+    ${pagar?`<div class="t"><span>A pagar</span><b style="color:var(--brand)">${pesos(pagar)}</b></div>`:''}
+  </div>`:''}
+  <div id="chqList">${chs.length? cards : emptyState('No hay cheques con estos filtros.', state.cheques.length===0?'Agregá tu primer cheque con el botón + o importá un Excel':'Probá limpiar los filtros.')}</div>
+  <div id="chqNoRes" class="empty hidden">Sin resultados para tu búsqueda.</div>
   <div class="noprint" style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
     ${puedeEditar()?`<button class="btn" data-act="nuevo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Nuevo cheque</button>`:''}
     ${puedeEditar()?`<button class="btn ghost" data-act="importar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>Importar Excel</button>`:''}
@@ -1535,6 +1577,17 @@ function chequearVencimientos(forzar){
 /* ── Post-render (nada extra por ahora) ─────────────────────────────────── */
 function postRender(){
   const fab = $('#fab'); if(fab) fab.style.display = RO() ? 'none' : 'flex';
+  const s = $('#chqSearch');
+  if(s){
+    const apply = ()=>{
+      const q = _norm(s.value); filtros.q = s.value;
+      let vis = 0;
+      $$('#chqList .chq').forEach(el=>{ const m = !q || el.dataset.txt.includes(q); el.style.display = m?'':'none'; if(m) vis++; });
+      const nr = $('#chqNoRes'); if(nr) nr.classList.toggle('hidden', vis>0 || !q);
+    };
+    s.oninput = apply;
+    if(filtros.q) apply();
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

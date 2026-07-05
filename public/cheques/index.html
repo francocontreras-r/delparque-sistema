@@ -246,31 +246,43 @@ body.locked{padding-bottom:0}
 .chq-meta .venc{font-weight:700;margin-left:auto}
 .chq-r{text-align:right;flex:none}
 
-/* Encabezado y pie del INFORME (solo impresión/PDF) */
+/* ── INFORME PDF (documento dedicado, solo impresión) ──────────────────── */
 .print-only{display:none}
 @media print{
-  @page{ margin:14mm 12mm 20mm; }
+  @page{ margin:12mm 11mm 17mm; }
   html,body{background:#fff!important}
   body{padding:0!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .appbar,.bottomnav,.fab,.noprint,.filters,.tabs{display:none!important}
-  main.wrap{padding:0!important;max-width:100%!important}
+  .appbar,.bottomnav,.fab,.noprint,#app{display:none!important}
   .print-only{display:block}
-  .hero,.stat,.badge,.pill,.b-info,.b-warn,.b-ok,.b-danger,.b-mut,.b-purple{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .card,.stat{box-shadow:none;border:1px solid #d6dae2;break-inside:avoid}
-  .hero{box-shadow:none;color:#fff!important}
-  .section-title{margin-top:16px}
-  /* Encabezado del informe */
-  .print-header{display:flex;align-items:center;gap:14px;padding-bottom:12px;margin-bottom:16px;border-bottom:2.5px solid #063F6D}
-  .print-header .plogo{height:52px;width:auto}
+  /* Encabezado */
+  .print-header{display:flex;align-items:center;gap:14px;padding-bottom:11px;margin-bottom:14px;border-bottom:2.5px solid #063F6D}
+  .print-header .plogo{height:50px;width:auto}
   .print-header .pmid{flex:1}
-  .print-title{font-size:22px;font-weight:800;color:#0f1b2b;letter-spacing:-.01em}
-  .print-firm{font-size:12.5px;color:#5B6472;font-weight:600;letter-spacing:.03em}
-  .print-meta{text-align:right;font-size:11.5px;color:#5B6472;line-height:1.5}
+  .print-title{font-size:21px;font-weight:800;color:#0f1b2b;letter-spacing:-.01em}
+  .print-firm{font-size:11.5px;color:#5B6472;font-weight:700;letter-spacing:.06em}
+  .print-meta{text-align:right;font-size:10.5px;color:#5B6472;line-height:1.55}
   .print-meta b{color:#0f1b2b}
   /* Pie confidencial en cada página */
-  .print-footer{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;
-    padding-top:6px;border-top:1px solid #d6dae2;font-size:9.5px;color:#7a828e;letter-spacing:.02em}
+  .print-footer{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:1px solid #d6dae2;font-size:9px;color:#7a828e}
   .print-footer .conf{font-weight:700;color:#5B6472}
+  /* Cuerpo del informe */
+  .pr-kpis{display:flex;gap:8px;margin-bottom:6px}
+  .pr-kpi{flex:1;border:1px solid #dfe4ec;border-radius:8px;padding:8px 11px;background:#fbfcfe}
+  .pr-kpi span{display:block;font-size:8.5px;color:#6b7280;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+  .pr-kpi b{font-size:15px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+  .pr-sec{font-size:12px;font-weight:800;color:#0f1b2b;margin:16px 0 6px;padding-bottom:3px;border-bottom:1.5px solid #063F6D;display:flex;justify-content:space-between;align-items:baseline}
+  .pr-sec .sub{font-weight:700;color:#5B6472;font-size:10.5px}
+  table.pr{width:100%;border-collapse:collapse;font-size:9.3px}
+  table.pr thead th{background:#063F6D;color:#fff;font-weight:700;text-align:left;padding:5px 6px;font-size:8.8px;letter-spacing:.02em}
+  table.pr thead th.r{text-align:right}
+  table.pr td{padding:4px 6px;border-bottom:1px solid #e9ecf1;vertical-align:top}
+  table.pr tbody tr:nth-child(even){background:#f6f8fb}
+  table.pr .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  table.pr .venc{color:#b71d2b;font-weight:700}
+  table.pr tfoot td{font-weight:800;border-top:1.5px solid #063F6D;background:#eef2f6;padding:5px 6px}
+  .pr-block{break-inside:auto}
+  table.pr tr{break-inside:avoid}
+  table.pr thead{display:table-header-group}
 }
 </style>
 </head>
@@ -285,6 +297,7 @@ body.locked{padding-bottom:0}
   </div>
   <div class="print-meta" id="printMeta">—</div>
 </div>
+<div class="print-only print-report" id="printReport"></div>
 <div class="print-only print-footer">
   <span class="conf">CIAF Consultora Integral · Información de uso confidencial</span>
   <span id="printFoot">—</span>
@@ -1336,14 +1349,58 @@ function importJSON(){
 }
 function download(name,blob){ const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u); }
 
-// Completa el encabezado y el pie del informe antes de imprimir/guardar PDF.
+// Arma el informe PDF completo (encabezado, resumen, detalle de cheques y bancos).
 function prepararImpresion(){
   const rz = filtros.razon ? razonNombre(filtros.razon) : 'Todas las razones sociales';
-  const total = state.cheques.length;
   const m = $('#printMeta');
-  if(m) m.innerHTML = `<b>${esc(rz)}</b><br>Fecha base: <b>${fmtFecha(hoyISO())}</b><br>${nChe(total)} en cartera`;
+  if(m) m.innerHTML = `<b>${esc(rz)}</b><br>Fecha base: <b>${fmtFecha(hoyISO())}</b><br>${nChe(chequesFiltrados().length)}`;
   const f = $('#printFoot');
   if(f) f.textContent = 'Generado el ' + fmtFecha(hoyISO());
+  const r = $('#printReport');
+  if(r) r.innerHTML = construirInforme();
+}
+function construirInforme(){
+  const chs = chequesFiltrados().slice().sort((a,b)=>((a.fecha_pago||'9999')<(b.fecha_pago||'9999')?-1:1));
+  const abCobrar=chs.filter(c=>c.tipo==='recibido'&&esAbierto(c)), abPagar=chs.filter(c=>c.tipo==='emitido'&&esAbierto(c));
+  const vencidos=chs.filter(c=>esAbierto(c)&&diasHasta(c.fecha_pago)!=null&&diasHasta(c.fecha_pago)<0);
+  const kpis = `<div class="pr-kpis">
+    <div class="pr-kpi"><span>Total a cobrar</span><b style="color:#0B7D70">${pesos(suma(abCobrar))}</b></div>
+    <div class="pr-kpi"><span>Total a pagar</span><b style="color:#063F6D">${pesos(suma(abPagar))}</b></div>
+    <div class="pr-kpi"><span>Vencidos</span><b style="color:#7A3FF2">${pesos(suma(vencidos))}</b></div>
+    <div class="pr-kpi"><span>Cheques</span><b>${chs.length}</b></div>
+  </div>`;
+  const grupo = (titulo, arr) => {
+    if(!arr.length) return '';
+    const rows = arr.map(ch=>{
+      const c=clasif(ch), est=estadoInfo(ch.tipo,ch.estado);
+      const vto = fmtFecha(ch.fecha_pago) + (c&&c.est!=='ok'?` <span class="venc">(${c.label} ${labelDias(c.d)})</span>`:'');
+      return `<tr>
+        <td>${vto}</td>
+        <td><b>${esc(ch.contraparte||ch.librador||'—')}</b></td>
+        <td>${esc(razonNombre(ch.razon_social_id))}</td>
+        <td>${esc(ch.banco||'—')} · N° ${esc(ch.numero||'—')}</td>
+        <td>${FORMATOS[ch.formato]||'Físico'}</td>
+        <td>${est.l}</td>
+        <td class="r">${pesos(ch.importe)}</td>
+      </tr>`;
+    }).join('');
+    return `<div class="pr-block">
+      <div class="pr-sec">${titulo}<span class="sub">${nChe(arr.length)} · ${pesos(suma(arr))}</span></div>
+      <table class="pr"><thead><tr><th>Vencimiento</th><th>Contraparte</th><th>Empresa</th><th>Banco / N°</th><th>Formato</th><th>Estado</th><th class="r">Importe</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="6">Subtotal · ${titulo.toLowerCase()}</td><td class="r">${pesos(suma(arr))}</td></tr></tfoot></table>
+    </div>`;
+  };
+  const pagar=chs.filter(c=>c.tipo==='emitido'), cobrar=chs.filter(c=>c.tipo==='recibido');
+  const dispo = disponibilidadBancaria();
+  let banco='';
+  if(dispo.rows.length){
+    banco = `<div class="pr-block"><div class="pr-sec">Disponibilidad bancaria<span class="sub">Disponible ${pesos(dispo.disp)}</span></div>
+      <table class="pr"><thead><tr><th>Entidad</th><th class="r">Saldo</th><th class="r">Acuerdo</th><th class="r">Disponible</th></tr></thead>
+      <tbody>${dispo.rows.map(r=>`<tr><td>${esc(r.entidad)}${r.razon?` · ${esc(r.razon)}`:''}</td><td class="r">${pesos(r.saldo)}</td><td class="r">${pesos(r.acuerdo)}</td><td class="r">${pesos(r.disp)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td>Total</td><td class="r">${pesos(dispo.saldo)}</td><td class="r">${pesos(dispo.acuerdo)}</td><td class="r">${pesos(dispo.disp)}</td></tr></tfoot></table></div>`;
+  }
+  return kpis + grupo('CHEQUES A PAGAR', pagar) + grupo('CHEQUES A COBRAR', cobrar) + banco;
 }
 
 /* ── Compartir vencimientos (WhatsApp / Mail / share nativo) ─────────────── */

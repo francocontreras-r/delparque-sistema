@@ -96,4 +96,25 @@ describe('discrepanciasSinResolver', () => {
     ]
     expect(discrepanciasSinResolver(rows)).toHaveLength(2)
   })
+
+  it('una recontada más nueva (id mayor) pisa a la vieja aunque sea el mismo día', () => {
+    const rows = [
+      { id: 10, tipo: 'deposito', producto_nombre: 'LECHE', diferencia: -5, motivo: 'Merma', fecha: '2026-07-02' }, // vieja, aprobada
+      { id: 20, tipo: 'deposito', producto_nombre: 'LECHE', diferencia: 0, motivo: null, fecha: '2026-07-02' },     // recontada OK
+    ]
+    // La corrección (id 20, sin diferencia) gana → ya no hay discrepancia.
+    expect(discrepanciasSinResolver(rows)).toHaveLength(0)
+  })
+})
+
+describe('resumenSemanal — recencia', () => {
+  it('toma el conteo corregido (id mayor), no el viejo erróneo', () => {
+    const rows = [
+      { id: 5, tipo: 'deposito', producto_nombre: 'AZUCAR', diferencia: -20, valor_impacto: -2000, fecha: '2026-07-02' }, // erróneo
+      { id: 9, tipo: 'deposito', producto_nombre: 'AZUCAR', diferencia: -2, valor_impacto: -200, fecha: '2026-07-02' },   // corregido
+    ]
+    const R = resumenSemanal(rows)
+    expect(R.faltantes).toHaveLength(1)
+    expect(R.valorFaltante).toBe(200) // el corregido, no 2000
+  })
 })

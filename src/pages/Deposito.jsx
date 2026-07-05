@@ -1670,20 +1670,19 @@ export default function Deposito() {
       const fmtDif = r => `${(Number(r.diferencia) || 0) > 0 ? '+' : ''}${(Number(r.diferencia) || 0).toFixed(2)}`
       const fmtVal = r => r.valor_impacto == null ? '—' : `$${pesos(Math.abs(Number(r.valor_impacto)))}`
 
-      // P1 — Portada
-      dibujarPortada(doc, pw, ph, MOD, TIT, peri, hoy)
-
-      // P2 — Resumen ejecutivo
-      doc.addPage()
+      // Encabezado en la primera hoja (con logo). Sin portada aparte: todo el
+      // informe fluye seguido y sólo salta de hoja si no entra.
       dibujarEncabezado(doc, pw, MOD, TIT, hoy)
-      let y = PDF_CONTENT_Y
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...PDF_GRIS_OSC)
+      doc.text(`Período: ${peri}`, 14, PDF_CONTENT_Y - 2)
+      let y = PDF_CONTENT_Y + 4
       y = dibujarSeccion(doc, pw, 'Resumen de la semana', y)
       const cont = R.porArea
 
       if (R.totalContados === 0) {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...PDF_GRIS_OSC)
         doc.text('No hay conteos registrados en el período. Realizá un conteo en Depósito o Cámara para generar el informe.', 14, y + 4)
-        dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+        dibujarPie(doc, pw, ph, 1)
         doc.save(`control_stock_${rangoCS.desde}_a_${rangoCS.hasta}.pdf`)
         setGenerandoInformeSem(false)
         return
@@ -1731,16 +1730,17 @@ export default function Deposito() {
         doc.text(e.w, 23, ty)
         ty += e.w.length * 4.2 + 1.8
       })
-      y += boxH + 6
-      dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
+      y += boxH + 8
 
-      // P3 — Faltantes (lo que faltó, con el porqué)
+      // Tablas — fluyen a continuación en la misma hoja; sólo saltan de página
+      // si no entran (autoTable pagina solo). El título va arriba de cada tabla.
       const drawTabla = (titulo, filas, headColor) => {
-        doc.addPage()
-        dibujarEncabezado(doc, pw, MOD, TIT, hoy)
+        if (y + 26 > ph - 18) { doc.addPage(); dibujarEncabezado(doc, pw, MOD, TIT, hoy); y = PDF_CONTENT_Y }
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...PDF_NEGRO)
+        doc.text(titulo, 14, y); y += 2
         autoTable(doc, {
           ...EST,
-          startY: PDF_CONTENT_Y,
+          startY: y + 1,
           head: [['ÁREA', 'PRODUCTO', 'SISTEMA', 'FÍSICO', 'DIF.', 'VALOR', 'RESPONSABLE', 'MOTIVO']],
           headStyles: { ...(EST.headStyles || {}), fillColor: headColor },
           body: filas.map(r => [
@@ -1751,19 +1751,18 @@ export default function Deposito() {
           foot: [['', '', '', '', 'TOTAL', `$${pesos(filas.reduce((a, r) => a + Math.abs(Number(r.valor_impacto) || 0), 0))}`, '', '']],
           footStyles: { fillColor: headColor, textColor: PDF_BLANCO, fontStyle: 'bold', halign: 'left' },
           columnStyles: { 5: { fontStyle: 'bold' }, 7: { cellWidth: 42 } },
-          didDrawPage: () => {
-            dibujarEncabezado(doc, pw, MOD, TIT, hoy)
-            dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
-          },
+          margin: { top: PDF_CONTENT_Y, left: 14, right: 14 },
+          didDrawPage: () => dibujarEncabezado(doc, pw, MOD, TIT, hoy),
         })
-        let yy = (doc.lastAutoTable?.finalY || PDF_CONTENT_Y) + 4
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...PDF_NEGRO)
-        doc.text(titulo, 14, yy)
+        y = (doc.lastAutoTable?.finalY || y) + 10
       }
 
-      if (R.faltantes.length > 0) drawTabla(`Total faltante valorizado (depósito): $${pesos(R.valorFaltante)}`, R.faltantes, PDF_SEM_CRIT)
-      if (R.sobrantes.length > 0) drawTabla(`Total sobrante valorizado (depósito): $${pesos(R.valorSobrante)}`, R.sobrantes, PDF_SEM_OK)
+      if (R.faltantes.length > 0) drawTabla(`Faltantes  ·  total -$${pesos(R.valorFaltante)}`, R.faltantes, PDF_SEM_NEG)
+      if (R.sobrantes.length > 0) drawTabla(`Sobrantes  ·  total +$${pesos(R.valorSobrante)}`, R.sobrantes, PDF_SEM_OK)
 
+      // Pie con numeración en todas las hojas (las que haya).
+      const totalPg = doc.internal.getNumberOfPages()
+      for (let p = 1; p <= totalPg; p++) { doc.setPage(p); dibujarPie(doc, pw, ph, p) }
       doc.save(`control_stock_${rangoCS.desde}_a_${rangoCS.hasta}.pdf`)
     } catch (err) {
       toast2(err.message || 'No se pudo generar el informe', 'error')

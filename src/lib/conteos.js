@@ -117,6 +117,21 @@ export async function cargarCiclos({ desde = null, hasta = null } = {}) {
   return Object.values(porCiclo).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))
 }
 
+// ¿`r` debe reemplazar a `prev` como conteo autoritativo del mismo producto?
+// Prioridad: id de inserción (una RECONTADA nueva pisa a la vieja, así una
+// corrección se refleja en el informe) → fecha → a igual fecha, la que tiene
+// motivo (aprobada) supera al conteo crudo.
+function masAutoritativa(r, prev) {
+  const ri = r.id != null ? Number(r.id) : null
+  const pi = prev.id != null ? Number(prev.id) : null
+  if (ri != null && pi != null && ri !== pi) return ri > pi
+  const rf = r.fecha || '', pf = prev.fecha || ''
+  if (rf !== pf) return rf > pf
+  const rm = !!(r.motivo && String(r.motivo).trim())
+  const pm = !!(prev.motivo && String(prev.motivo).trim())
+  return !pm && rm
+}
+
 // Discrepancias SIN RESOLVER: de un lote de conteos, se queda con el último por
 // (área, producto) y devuelve las que tienen diferencia ≠ 0 y NINGÚN motivo
 // cargado. Es "el faltante/sobrante que nadie explicó ni reconcilió todavía".
@@ -125,14 +140,7 @@ export function discrepanciasSinResolver(rows = []) {
   const latest = {}
   rows.forEach(r => {
     const k = `${r.tipo}::${norm(r.producto_nombre)}`
-    const prev = latest[k]
-    if (!prev) { latest[k] = r; return }
-    const nf = r.fecha || '', pf = prev.fecha || ''
-    const rTieneMotivo = !!(r.motivo && String(r.motivo).trim())
-    const pTieneMotivo = !!(prev.motivo && String(prev.motivo).trim())
-    // Más nueva por fecha; empate el mismo día → la que tiene motivo (resuelta) gana.
-    if (nf > pf) latest[k] = r
-    else if (nf === pf && !pTieneMotivo && rTieneMotivo) latest[k] = r
+    if (!latest[k] || masAutoritativa(r, latest[k])) latest[k] = r
   })
   return Object.values(latest).filter(r =>
     (Number(r.diferencia) || 0) !== 0 && !(r.motivo && String(r.motivo).trim())
@@ -146,12 +154,9 @@ export function resumenSemanal(rows) {
   const ultimoPorClave = {}
   rows.forEach(r => {
     const clave = `${r.tipo}::${norm(r.producto_nombre)}`
-    const prev = ultimoPorClave[clave]
-    // rows viene desc por fecha; el primero que vemos es el más nuevo. Como
-    // `fecha` es por día, si hay empate el mismo día preferimos la versión con
-    // motivo (la aprobada supera al conteo crudo).
-    if (!prev) ultimoPorClave[clave] = r
-    else if (!( prev.motivo && String(prev.motivo).trim()) && (r.motivo && String(r.motivo).trim())) ultimoPorClave[clave] = r
+    // Nos quedamos con el conteo autoritativo: una recontada más nueva (id mayor)
+    // pisa a la vieja, así una corrección se refleja y no queda el dato erróneo.
+    if (!ultimoPorClave[clave] || masAutoritativa(r, ultimoPorClave[clave])) ultimoPorClave[clave] = r
   })
   const items = Object.values(ultimoPorClave)
   const faltantes = items.filter(r => (Number(r.diferencia) || 0) < 0)

@@ -25,7 +25,7 @@ import { POSTRES } from '../lib/postres'
 import EtapasOrden from '../components/EtapasOrden'
 import ReconciliacionBases from '../components/ReconciliacionBases'
 import { usaEtapas } from '../lib/etapas'
-import { ClipboardList, Plus, Printer, FileDown, CheckCircle2, Warehouse, X, ChevronDown, ChevronUp, Package, Clock, BarChart2, AlertTriangle } from 'lucide-react'
+import { ClipboardList, Plus, Printer, FileDown, CheckCircle2, Warehouse, X, ChevronDown, ChevronUp, Package, Clock, BarChart2, AlertTriangle, Trash2 } from 'lucide-react'
 const logoUrl = '/logo-byn.png'
 
 function toDataURL(url) {
@@ -836,6 +836,14 @@ export default function Ordenes() {
   async function manejarCompletadaBase(item) {
     const receta = resolverReceta(item.sabor_nombre)
     if (receta?.tipo !== 'base') return false
+    // Anti-duplicado: si esta orden ya cargó ESTA base, no volver a insertarla
+    // (evita bases duplicadas si se "completa" dos veces).
+    const { data: yaCargada } = await supabase.from('stock_bases')
+      .select('id').eq('orden_origen', item.numero).eq('base_nombre', item.sabor_nombre).limit(1)
+    if (yaCargada && yaCargada.length) {
+      toast2(`La base ${item.sabor_nombre} de la orden ${item.numero} ya estaba cargada`, 'warn')
+      return true
+    }
     const litrosBase = receta.litrosBase || LITROS_BATCH
     const kgTeorico = (item.batches || 0) * litrosBase
     // Usar kg_producido real (escaneado en Producción); fallback al teórico si no hay dato
@@ -863,6 +871,15 @@ export default function Ordenes() {
     // se procesan en registrarMermaAutomatica (src/lib/ordenes.js).
   }
 
+  // Elimina una partida de base del stock (p. ej. una base duplicada por error).
+  async function eliminarBaseStock(b) {
+    if (!window.confirm(`¿Eliminar ${b.base_nombre} (${fmtNum(b.kg_disponible)} kg) del stock de bases?\nUsalo solo para corregir un duplicado o carga errónea.`)) return
+    const { error } = await supabase.from('stock_bases').delete().eq('id', b.id)
+    if (error) { toast2(error.message, 'error'); return }
+    toast2(`Base ${b.base_nombre} eliminada del stock`)
+    cargar()
+  }
+
   const grupos = useMemo(() => {
     const m = {}
     ordenes.forEach(o => {
@@ -876,6 +893,10 @@ export default function Ordenes() {
   const gruposFiltrados = useMemo(() => {
     let arr = grupos
     if (filtroEstado !== 'Todos') arr = arr.filter(g => g.items.some(i => i.estado === filtroEstado))
+    // Vista por defecto ("Todos") = órdenes ACTIVAS: las terminadas (todas sus
+    // líneas completadas o canceladas) se ocultan para no acumular. Se ven con
+    // el filtro "Completada".
+    else arr = arr.filter(g => !g.items.every(i => i.estado === 'completada' || i.estado === 'cancelada'))
     if (filtroFecha) arr = arr.filter(g => g.fecha === filtroFecha)
     if (filtroMes) arr = arr.filter(g => (g.fecha || '').startsWith(filtroMes))
     if (busqueda.trim()) {
@@ -1286,6 +1307,7 @@ export default function Ordenes() {
                 <Th>Fecha elaboración</Th>
                 <Th>Operario</Th>
                 <Th>Orden origen</Th>
+                {isAdmin && <Th></Th>}
               </Tr>
             </Thead>
             <Tbody>
@@ -1303,6 +1325,14 @@ export default function Ordenes() {
                     <Td>{b.fecha || '—'}</Td>
                     <Td>{b.operario_nombre || '—'}</Td>
                     <Td>{b.orden_origen || '—'}</Td>
+                    {isAdmin && (
+                      <Td className="text-right">
+                        <button onClick={() => eliminarBaseStock(b)} title="Eliminar del stock"
+                          className="p-1 rounded-md hover:opacity-80" style={{ color: colors.danger }}>
+                          <Trash2 size={15} />
+                        </button>
+                      </Td>
+                    )}
                   </Tr>
                 )
               })}

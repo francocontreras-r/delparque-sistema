@@ -544,17 +544,6 @@ async function desactivarPushServidor(){
   }catch(e){}
   state.settings.pushOn=false; save();
 }
-// Carga la lista de emails que reciben el aviso (panel admin en Config).
-async function cargarEmailsNotif(){
-  const box=$('#emailList'); if(!box) return;
-  try{
-    const j=await apiNotif({action:'email-list'});
-    const arr=j.emails||[];
-    box.innerHTML = arr.length
-      ? arr.map(e=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)"><span style="color:var(--ink2)">${esc(e.email)}</span><button class="linkbtn" style="color:var(--red);font-size:12px" data-email-del="${esc(e.email)}">Quitar</button></div>`).join('')
-      : '<div class="mut3" style="font-size:13px">Todavía no agregaste ningún email.</div>';
-  }catch(e){ box.innerHTML='<div class="mut3" style="font-size:12px;color:var(--amber)">No se pudo cargar la lista ('+esc(e.message)+'). ¿Corriste el SQL y configuraste Vercel?</div>'; }
-}
 function modalNuevoUsuario(){
   openModal(`<div class="modal" style="max-width:440px">
     <div class="modal-h"><h3>Agregar usuario</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
@@ -1175,18 +1164,7 @@ function viewConfig(){
         ${state.settings.pushOn?'✅ Push activado en este dispositivo':'Activar push en este dispositivo'}
       </button>
       ${state.settings.pushOn?`<button class="btn ghost" data-act="push-test">Probar push real</button>`:''}
-    </div>
-    ${esAdmin()?`
-    <div style="margin-top:16px">
-      <label style="font-size:12px;color:var(--ink2);font-weight:700;display:block;margin-bottom:6px">Emails que reciben el aviso de la mañana</label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-        <input id="emailNotif" type="email" placeholder="persona@email.com" style="flex:1;min-width:180px">
-        <button class="btn sm" data-act="email-add">Agregar</button>
-      </div>
-      <div id="emailList" class="mut3" style="font-size:13px">Cargando…</div>
-      <button class="btn ghost sm" data-act="email-test" style="margin-top:10px">✉️ Probar email ahora</button>
-      <div class="mut3" style="font-size:11.5px;margin-top:4px">Te manda un correo de prueba a la lista de arriba.</div>
-    </div>`:''}`:`
+    </div>`:`
     <div class="hint" style="margin-top:10px">💡 Para que el aviso llegue al celular con la app <b>cerrada</b>, iniciá sesión en la nube (arriba, botón de cuenta).</div>`}
     <hr style="border:none;border-top:1px solid var(--line);margin:18px 0">
     <h2 style="font-size:15px">Copia de seguridad</h2>
@@ -1322,7 +1300,7 @@ function modalBanco(id){
    EVENTOS
    ══════════════════════════════════════════════════════════════════════════ */
 document.addEventListener('click', e=>{
-  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-email-del],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-confirm-cheque],[data-volver-form],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
+  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-confirm-cheque],[data-volver-form],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
   if(!t) return;
 
   // Cambio rápido de estado desde la lista
@@ -1336,7 +1314,6 @@ document.addEventListener('click', e=>{
   if(t.hasAttribute('data-nuevo-user')){ modalNuevoUsuario(); return; }
   if(t.dataset.resetUser){ resetUsuario(t.dataset.resetUser, t.dataset.email); return; }
   if(t.dataset.delUser){ eliminarUsuario(t.dataset.delUser, t.dataset.email); return; }
-  if(t.dataset.emailDel){ (async()=>{ try{ await apiNotif({action:'email-del',email:t.dataset.emailDel}); toast('Email quitado'); cargarEmailsNotif(); }catch(e){ toast('Error: '+e.message); } })(); return; }
 
   // Bloqueo de escritura para usuarios de solo lectura
   const WRITE_ACTS = new Set(['nuevo','nueva-razon','nuevo-banco','wipe','import-json','importar','asignar-orph']);
@@ -1385,8 +1362,6 @@ document.addEventListener('click', e=>{
   if(act==='push-on'){ (async()=>{ toast('Activando…'); const ok=await activarPushServidor(); if(ok){ toast('Push activado en este dispositivo ✓'); if(view==='config')render(); } })(); return; }
   if(act==='push-off'){ (async()=>{ await desactivarPushServidor(); toast('Push desactivado en este dispositivo'); if(view==='config')render(); })(); return; }
   if(act==='push-test'){ (async()=>{ try{ toast('Enviando push de prueba…'); const j=await apiNotif({action:'test'}); toast(j.enviados?`Push enviado ✓ (mirá tu celular)`:'No hay dispositivos con push'); }catch(e){ toast('Error: '+e.message); } })(); return; }
-  if(act==='email-add'){ (async()=>{ const inp=$('#emailNotif'); const email=(inp?.value||'').trim(); if(!email){ toast('Escribí un email'); return; } try{ await apiNotif({action:'email-add',email}); if(inp)inp.value=''; toast('Email agregado ✓'); cargarEmailsNotif(); }catch(e){ toast('Error: '+e.message); } })(); return; }
-  if(act==='email-test'){ (async()=>{ try{ toast('Enviando email de prueba…'); const j=await apiNotif({action:'email-test'}); toast('Email enviado ✓ a '+(j.enviados||0)+' correo(s). Revisá tu casilla.'); }catch(e){ toast('Error: '+e.message); } })(); return; }
   if(act==='export-json'){ exportJSON(); return; }
   if(act==='import-json'){ importJSON(); return; }
   if(act==='wipe'){ if(confirm('¿Borrar TODOS los datos de este dispositivo? Esta acción no se puede deshacer.')){ state={razones:[],bancos:[],cheques:[],settings:{notif:false,notifDias:7},notifLog:{},_queue:[]}; save(); render(); toast('Datos borrados'); } return; }
@@ -1888,7 +1863,6 @@ function chequearVencimientos(forzar){
 /* ── Post-render (nada extra por ahora) ─────────────────────────────────── */
 function postRender(){
   const fab = $('#fab'); if(fab) fab.style.display = RO() ? 'none' : 'flex';
-  if(view==='config' && cloudOn() && esAdmin() && $('#emailList')) cargarEmailsNotif();
   const s = $('#chqSearch');
   if(s){
     const apply = ()=>{

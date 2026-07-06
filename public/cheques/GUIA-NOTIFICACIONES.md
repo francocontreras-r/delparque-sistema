@@ -35,18 +35,12 @@ Son 3 pasos. Hacelos una sola vez.
 
 > `CHEQUES_SERVICE_ROLE_KEY` ya la cargaste antes; no la toques.
 
-3. **(Opcional, para el email)** si querés que además llegue por correo:
+3. Después de guardar todo: **Deployments → (el último) → ⋯ → Redeploy**.
 
-| Nombre (KEY) | Valor (VALUE) |
-|---|---|
-| `RESEND_API_KEY` | *(la API key de tu cuenta de **resend.com**)* |
-| `RESEND_FROM` | `CIAF Cheques <avisos@TUDOMINIO.com>` |
-
-Sin `RESEND_API_KEY` el email simplemente no se manda y el push funciona igual.
-Para mandar a varios destinatarios, Resend pide **verificar un dominio** (te guío
-cuando quieras). Para probar, podés mandarte solo a vos mismo.
-
-4. Después de guardar todo: **Deployments → (el último) → ⋯ → Redeploy**.
+> **El email quedó para más adelante.** El motor de correo está listo en el
+> servidor, pero apagado. Cuando quieras activarlo se agregan las variables
+> `RESEND_API_KEY` / `RESEND_FROM` (cuenta de **resend.com**) y se vuelve a
+> mostrar la sección de emails en la app. Por ahora andamos solo con el push.
 
 ---
 

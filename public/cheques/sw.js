@@ -3,7 +3,7 @@
 // Cachea el shell para que la app abra y funcione sin conexión.
 // Subí SW_VERSION en cada cambio para invalidar la caché vieja.
 // ─────────────────────────────────────────────────────────────────────────────
-const SW_VERSION = 'cheques-v14';
+const SW_VERSION = 'cheques-v15';
 const SHELL = ['./', 'index.html', 'manifest.json', 'logo-ciaf.png', 'vendor/supabase.js', 'icon.svg', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

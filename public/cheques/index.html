@@ -763,7 +763,7 @@ function viewDashboard(){
     ${statCard('Vencidos',           pesos(suma(vencidos)),    nChe(vencidos.length),'var(--purple)','venc')}
   </div>
 
-  <div class="section-title">Cheques — próximos 30 días</div>
+  <div class="section-title">Vencimientos por semana</div>
   <div class="card">${chartProximos30(chs)}</div>
 
   <div class="section-title">Disponibilidad bancaria</div>
@@ -820,27 +820,30 @@ function disponibilidadBancaria(){
 
 /* ── Gráfico próximos 30 días (SVG, sin librerías) ──────────────────────── */
 function chartProximos30(chs){
-  const dias=30, buckets=Array.from({length:dias},()=>({cobrar:0,pagar:0}));
+  const defs=[{k:'venc',l:'Vencidos'},{k:'w0',l:'Esta sem.'},{k:'w1',l:'Próx. sem.'},{k:'w2',l:'En 3ª'},{k:'w3',l:'En 4ª'},{k:'mas',l:'+4 sem.'}];
+  const B={}; defs.forEach(d=>B[d.k]={cobrar:0,pagar:0});
   chs.forEach(ch=>{
     if(!esAbierto(ch)||!ch.fecha_pago) return;
-    const d=diasHasta(ch.fecha_pago);
-    if(d==null||d<0||d>=dias) return;
-    buckets[d][ch.tipo==='emitido'?'pagar':'cobrar'] += Number(ch.importe)||0;
+    const d=diasHasta(ch.fecha_pago); if(d==null) return;
+    const k = d<0?'venc':d<7?'w0':d<14?'w1':d<21?'w2':d<28?'w3':'mas';
+    B[k][ch.tipo==='emitido'?'pagar':'cobrar'] += Number(ch.importe)||0;
   });
-  const max = Math.max(1, ...buckets.map(b=>Math.max(b.cobrar,b.pagar)));
-  const W=920,H=210,padL=64,padR=18,padT=14,padB=26,bw=(W-padL-padR)/dias,plotH=H-padT-padB;
+  const totC=suma(chs.filter(c=>esAbierto(c)&&c.tipo==='recibido'&&c.fecha_pago));
+  const totP=suma(chs.filter(c=>esAbierto(c)&&c.tipo==='emitido'&&c.fecha_pago));
+  if(totC+totP===0) return `<div class="empty" style="padding:22px">Sin cheques abiertos con vencimiento cargado.</div>`;
+  const buckets=defs.filter(d=> d.k!=='venc' || (B.venc.cobrar+B.venc.pagar>0));
+  const max=Math.max(1,...buckets.map(d=>Math.max(B[d.k].cobrar,B[d.k].pagar)));
+  const n=buckets.length, W=920,H=250,padL=66,padR=16,padT=24,padB=36,plotH=H-padT-padB,plotW=W-padL-padR,step=plotW/n;
   let bars='';
-  buckets.forEach((b,i)=>{
-    const x=padL+i*bw;
-    const hc=b.cobrar/max*plotH, hp=b.pagar/max*plotH;
-    const w=Math.max(2,bw*0.36);
-    if(b.cobrar>0) bars+=`<rect x="${x+bw*0.12}" y="${H-padB-hc}" width="${w}" height="${hc}" rx="2" fill="var(--teal)"><title>Día +${i}: cobrar ${pesos(b.cobrar)}</title></rect>`;
-    if(b.pagar>0)  bars+=`<rect x="${x+bw*0.52}" y="${H-padB-hp}" width="${w}" height="${hp}" rx="2" fill="var(--brand)"><title>Día +${i}: pagar ${pesos(b.pagar)}</title></rect>`;
-    if(i%5===0) bars+=`<text x="${x+bw/2}" y="${H-padB+15}" font-size="10" fill="var(--ink3)" text-anchor="middle">+${i}d</text>`;
+  buckets.forEach((d,i)=>{
+    const b=B[d.k], cx=padL+step*i+step/2, bw=Math.min(40,step*0.30);
+    const draw=(val,dx,fill)=>{ if(val<=0) return ''; const h=Math.max(2,val/max*plotH), x=cx+dx-bw/2, y=H-padB-h;
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${fill}"><title>${d.l}: ${pesos(val)}</title></rect>`+
+        `<text x="${(x+bw/2).toFixed(1)}" y="${(y-5).toFixed(1)}" font-size="10.5" font-weight="700" fill="${fill}" text-anchor="middle">${pesosK(val)}</text>`; };
+    bars+=draw(b.cobrar,-bw*0.62,'var(--teal)')+draw(b.pagar,bw*0.62,'var(--brand)');
+    bars+=`<text x="${cx.toFixed(1)}" y="${H-padB+18}" font-size="11.5" fill="${d.k==='venc'?'#7A3FF2':'var(--ink2)'}" font-weight="${d.k==='venc'?'700':'600'}" text-anchor="middle">${d.l}</text>`;
   });
   const grid=[0,.5,1].map(g=>{ const y=H-padB-g*plotH; return `<line x1="${padL}" x2="${W-padR}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${padL-8}" y="${y+3}" font-size="10" fill="var(--ink3)" text-anchor="end">${pesosK(g*max)}</text>`; }).join('');
-  const totC=suma(chs.filter(c=>esAbierto(c)&&c.tipo==='recibido'&&(d=>d!=null&&d>=0&&d<dias)(diasHasta(c.fecha_pago))));
-  const totP=suma(chs.filter(c=>esAbierto(c)&&c.tipo==='emitido' &&(d=>d!=null&&d>=0&&d<dias)(diasHasta(c.fecha_pago))));
   return `<svg viewBox="0 0 ${W} ${H}" class="chart" preserveAspectRatio="xMidYMid meet">${grid}${bars}</svg>
     <div class="legend"><span><b style="background:var(--teal)"></b>A cobrar (${pesos(totC)})</span><span><b style="background:var(--brand)"></b>A pagar (${pesos(totP)})</span></div>`;
 }
@@ -901,7 +904,8 @@ function viewCheques(){
   return `${filtrosBar()}
   ${state.cheques.length?`<div class="chq-search noprint">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
-    <input id="chqSearch" type="search" placeholder="Buscar proveedor, banco, N°…" value="${esc(filtros.q||'')}" autocomplete="off">
+    <input id="chqSearch" type="search" list="chqSuggest" placeholder="Buscar proveedor, banco, N°…" value="${esc(filtros.q||'')}">
+    <datalist id="chqSuggest">${[...new Set([...state.cheques.map(c=>c.contraparte),...state.cheques.map(c=>c.librador),...state.cheques.map(c=>c.banco),...state.razones.map(r=>r.nombre)].filter(Boolean))].sort().map(s=>`<option value="${esc(s)}">`).join('')}</datalist>
   </div>`:''}
   ${chs.length?`<div class="chq-totals">
     <div class="t"><span>Cheques</span><b>${chs.length}</b></div>
@@ -1133,7 +1137,12 @@ function renderChequeForm(d, editing){
   const contrapLbl = d.tipo==='emitido'?'Beneficiario (a quién se lo das)':'Librador (quién te lo dio)';
   const ro = RO();
   openModal(`<div class="modal">
-    <div class="modal-h"><h3>${ro?'Ver cheque':(editing?'Editar cheque':'Nuevo cheque')}</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-h"><h3>${ro?'Ver cheque':(editing?'Editar cheque':'Nuevo cheque')}</h3>
+      <div style="display:flex;align-items:center;gap:8px">
+        ${ro?'':`<button class="btn sm" data-save-cheque><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 13l4 4L19 7"/></svg>${editing?'Guardar':'Agregar'}</button>`}
+        <button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+    </div>
     <fieldset ${ro?'disabled':''} style="border:none;padding:0;margin:0;min-width:0">
     <div class="modal-b">
       <div class="seg" style="margin-bottom:14px">
@@ -1168,7 +1177,7 @@ function renderChequeForm(d, editing){
       ${ro ? '<button class="btn ghost" data-close>Cerrar</button>'
            : `${editing?'<button class="btn danger" data-del-cheque>Eliminar</button>':''}
       <button class="btn ghost" data-close>Cancelar</button>
-      <button class="btn" data-save-cheque>${editing?'Guardar':'Agregar'}</button>`}
+      <button class="btn" data-save-cheque style="flex:1;justify-content:center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 13l4 4L19 7"/></svg>${editing?'Guardar cambios':'Agregar cheque'}</button>`}
     </div>
   </div>
   <datalist id="bancosList">${[...new Set(state.cheques.map(c=>c.banco).filter(Boolean))].map(b=>`<option value="${esc(b)}">`).join('')}</datalist>`);
@@ -1206,7 +1215,7 @@ function modalBanco(id){
    EVENTOS
    ══════════════════════════════════════════════════════════════════════════ */
 document.addEventListener('click', e=>{
-  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
+  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-confirm-cheque],[data-volver-form],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
   if(!t) return;
 
   // Cambio rápido de estado desde la lista
@@ -1291,6 +1300,8 @@ document.addEventListener('click', e=>{
 
   // guardar/eliminar cheque
   if(t.hasAttribute('data-save-cheque')){ saveCheque(); return; }
+  if(t.hasAttribute('data-confirm-cheque')){ commitCheque(); return; }
+  if(t.hasAttribute('data-volver-form')){ renderChequeForm(window._draft, !!window._draft.id); return; }
   if(t.hasAttribute('data-del-cheque')){ if(confirm('¿Eliminar este cheque?')){ const id=window._draft.id; state.cheques=state.cheques.filter(c=>c.id!==id); save(); closeModal(); render(); toast('Cheque eliminado'); cloudDelete('cheques',id); } return; }
 
   // razones
@@ -1333,9 +1344,38 @@ function saveCheque(){
     const dup=state.cheques.find(c=>c.id!==d.id && c.tipo===d.tipo && _norm(c.banco)===_norm(d.banco) && String(c.numero).trim()===String(d.numero).trim());
     if(dup && !confirm(`Ya existe un cheque ${TIPOS[d.tipo].label} del banco "${d.banco||'—'}" N° ${d.numero} (${pesos(dup.importe)}). ¿Guardar igual?`)) return;
   }
+  if(d.id) return commitCheque();          // edición: guarda directo
+  confirmarNuevoCheque();                   // nuevo: muestra el resumen antes de cargar
+}
+// Pantalla de confirmación: muestra lo que se va a cargar antes de guardar.
+function confirmarNuevoCheque(){
+  const d=window._draft; const est=estadoInfo(d.tipo,d.estado); const c=clasif(d);
+  const fila=(l,v)=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)"><span class="mut3">${l}</span><span style="font-weight:700;text-align:right">${v}</span></div>`;
+  openModal(`<div class="modal" style="max-width:460px">
+    <div class="modal-h"><h3>¿Confirmás este cheque?</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-b">
+      <div style="text-align:center;margin-bottom:12px">
+        <span class="pill" style="background:${d.tipo==='emitido'?'#E3ECF5':'#DEF4F1'};color:${TIPOS[d.tipo].color};font-size:13px;padding:4px 12px">${TIPOS[d.tipo].label}</span>
+        <div style="font-size:30px;font-weight:800;margin-top:8px;letter-spacing:-.02em">${pesos(d.importe)}</div>
+      </div>
+      ${fila('Empresa', esc(razonNombre(d.razon_social_id)))}
+      ${fila(d.tipo==='emitido'?'Beneficiario':'Librador', esc(d.contraparte||'—'))}
+      ${fila('Banco', esc(d.banco||'—'))}
+      ${fila('N° / Formato', 'N° '+esc(d.numero||'—')+' · '+(FORMATOS[d.formato]||'Físico'))}
+      ${fila('Vencimiento', fmtFecha(d.fecha_pago)+(c&&c.est!=='ok'?` <span style="color:${c.color}">(${c.label} ${labelDias(c.d)})</span>`:''))}
+      ${fila('Estado', `<span class="badge b-${est.b}">${est.l}</span>`)}
+    </div>
+    <div class="modal-f">
+      <button class="btn ghost" data-volver-form>Volver a editar</button>
+      <button class="btn" data-confirm-cheque style="flex:1;justify-content:center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 13l4 4L19 7"/></svg>Confirmar y cargar</button>
+    </div>
+  </div>`);
+}
+function commitCheque(){
+  const d=window._draft; if(!d) return;
   if(d.id){ const i=state.cheques.findIndex(c=>c.id===d.id); state.cheques[i]={...d}; }
   else { d.id=uid(); state.cheques.push({...d}); }
-  const guardado={...d}; save(); closeModal(); render(); toast('Cheque guardado'); cloudPush('cheques',guardado);
+  const guardado={...d}; save(); closeModal(); render(); toast(d.id?'Cheque guardado ✓':'Cheque cargado ✓'); cloudPush('cheques',guardado);
 }
 function saveRazon(id){
   const nombre=$('#rzNombre').value.trim(); if(!nombre){ toast('Poné un nombre'); return; }

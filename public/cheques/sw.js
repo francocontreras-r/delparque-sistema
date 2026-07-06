@@ -3,17 +3,17 @@
 // Cachea el shell para que la app abra y funcione sin conexión.
 // Subí SW_VERSION en cada cambio para invalidar la caché vieja.
 // ─────────────────────────────────────────────────────────────────────────────
-const SW_VERSION = 'cheques-v22';
+const SW_VERSION = 'cheques-v23';
 const SHELL = ['./', 'index.html', 'manifest.json', 'logo-ciaf.png', 'vendor/supabase.js', 'icon.svg', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 
-// OJO: no llamamos skipWaiting() acá a propósito. Cuando hay una versión nueva,
-// el SW queda "esperando" y la app muestra un cartel para actualizar. Recién
-// cuando el usuario toca "Actualizar" mandamos SKIP_WAITING (ver más abajo).
+// Activamos la versión nueva ENSEGUIDA (skipWaiting). En el PWA de iPhone, el
+// esquema de "esperar la confirmación" quedaba trancado; activar directo es lo
+// más confiable. La app detecta el cambio y ofrece refrescar.
 self.addEventListener('install', e => {
+  self.skipWaiting();
   e.waitUntil(caches.open(SW_VERSION).then(c => c.addAll(SHELL).catch(() => {})));
 });
 
-// La app pide activar la versión nueva al tocar el cartel de actualización.
 self.addEventListener('message', e => {
   if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
 });

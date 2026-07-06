@@ -2038,33 +2038,26 @@ async function boot(){
   boot2();
 }
 
-/* ── Actualización automática de la app (cartel visible) ─────────────────── */
-function mostrarCartelUpdate(reg){
+/* ── Aviso de nueva versión (cartel visible) ─────────────────────────────── */
+// El SW nuevo se activa solo (skipWaiting). Cuando eso pasa, mostramos el cartel
+// y, al tocarlo, simplemente recargamos: como la versión nueva ya está activa,
+// el refresco toma el código nuevo sí o sí. Sin handshakes frágiles = no se traba.
+function mostrarCartelUpdate(){
   const bar=document.getElementById('updateBar'); if(!bar || bar._shown) return; bar._shown=true; bar.hidden=false;
-  let aplicando=false;
-  bar.addEventListener('click', ()=>{ if(aplicando) return; aplicando=true; window._updating=true;
+  let go=false;
+  bar.addEventListener('click', ()=>{ if(go) return; go=true;
     bar.querySelector('.upd-btn').textContent='Actualizando…';
-    try{ sessionStorage.setItem('chq-updating','1'); }catch(e){}
-    if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
-    // Respaldo: en iPhone a veces no dispara "controllerchange"; recargamos igual
-    // para tomar la versión nueva sí o sí.
-    setTimeout(()=>location.reload(), 1500);
+    location.reload();
   });
 }
 if('serviceWorker' in navigator){
   // ¿La página ya estaba controlada por un SW al cargar? Si NO, es la primera
-  // instalación y no hay que mostrar el cartel de "nueva versión".
+  // instalación y no hay que avisar de "nueva versión".
   const yaControlada = !!navigator.serviceWorker.controller;
-  // ¿Venimos de tocar "Actualizar" recién? Entonces activamos en silencio (sin
-  // volver a mostrar el cartel), para no quedar en un ida y vuelta.
-  let volviendoDeUpd=false; try{ volviendoDeUpd=sessionStorage.getItem('chq-updating')==='1'; sessionStorage.removeItem('chq-updating'); }catch(e){}
+  const avisar = ()=>{ if(yaControlada) mostrarCartelUpdate(); };
   navigator.serviceWorker.register('sw.js').then(reg=>{
-    const alHaberNueva=()=>{
-      if(volviendoDeUpd){ volviendoDeUpd=false; window._updating=true; if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'}); return; }
-      mostrarCartelUpdate(reg);
-    };
-    const vigilar=w=>{ if(!w) return; w.addEventListener('statechange',()=>{ if(w.state==='installed' && yaControlada) alHaberNueva(); }); };
-    if(reg.waiting && yaControlada) alHaberNueva();
+    if(reg.waiting) avisar();
+    const vigilar=w=>{ if(!w) return; w.addEventListener('statechange',()=>{ if(w.state==='installed'||w.state==='activated') avisar(); }); };
     vigilar(reg.installing);
     reg.addEventListener('updatefound',()=>vigilar(reg.installing));
     // Buscar nuevas versiones al abrir, al volver el foco y cada 20 min.
@@ -2072,8 +2065,8 @@ if('serviceWorker' in navigator){
     document.addEventListener('visibilitychange',()=>{ if(!document.hidden) chequear(); });
     setInterval(chequear, 20*60*1000);
   }).catch(()=>{});
-  // Cuando el SW nuevo toma el control (tras tocar "Actualizar"), recargar una vez.
-  navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(window._updating){ window._updating=false; location.reload(); } });
+  // El SW nuevo tomó el control → hay versión nueva disponible: avisamos.
+  navigator.serviceWorker.addEventListener('controllerchange', avisar);
 }
 /* ── Init ───────────────────────────────────────────────────────────────── */
 boot();

@@ -2042,19 +2042,29 @@ async function boot(){
 function mostrarCartelUpdate(reg){
   const bar=document.getElementById('updateBar'); if(!bar || bar._shown) return; bar._shown=true; bar.hidden=false;
   let aplicando=false;
-  const aplicar=()=>{ if(aplicando) return; aplicando=true; window._updating=true;
+  bar.addEventListener('click', ()=>{ if(aplicando) return; aplicando=true; window._updating=true;
     bar.querySelector('.upd-btn').textContent='Actualizando…';
-    const w=reg.waiting||reg.installing; if(w) w.postMessage({type:'SKIP_WAITING'}); else location.reload();
-  };
-  bar.addEventListener('click', aplicar);
+    try{ sessionStorage.setItem('chq-updating','1'); }catch(e){}
+    if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
+    // Respaldo: en iPhone a veces no dispara "controllerchange"; recargamos igual
+    // para tomar la versión nueva sí o sí.
+    setTimeout(()=>location.reload(), 1500);
+  });
 }
 if('serviceWorker' in navigator){
   // ¿La página ya estaba controlada por un SW al cargar? Si NO, es la primera
   // instalación y no hay que mostrar el cartel de "nueva versión".
   const yaControlada = !!navigator.serviceWorker.controller;
+  // ¿Venimos de tocar "Actualizar" recién? Entonces activamos en silencio (sin
+  // volver a mostrar el cartel), para no quedar en un ida y vuelta.
+  let volviendoDeUpd=false; try{ volviendoDeUpd=sessionStorage.getItem('chq-updating')==='1'; sessionStorage.removeItem('chq-updating'); }catch(e){}
   navigator.serviceWorker.register('sw.js').then(reg=>{
-    const vigilar=w=>{ if(!w) return; w.addEventListener('statechange',()=>{ if(w.state==='installed' && yaControlada) mostrarCartelUpdate(reg); }); };
-    if(reg.waiting && yaControlada) mostrarCartelUpdate(reg);
+    const alHaberNueva=()=>{
+      if(volviendoDeUpd){ volviendoDeUpd=false; window._updating=true; if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'}); return; }
+      mostrarCartelUpdate(reg);
+    };
+    const vigilar=w=>{ if(!w) return; w.addEventListener('statechange',()=>{ if(w.state==='installed' && yaControlada) alHaberNueva(); }); };
+    if(reg.waiting && yaControlada) alHaberNueva();
     vigilar(reg.installing);
     reg.addEventListener('updatefound',()=>vigilar(reg.installing));
     // Buscar nuevas versiones al abrir, al volver el foco y cada 20 min.

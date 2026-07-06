@@ -432,7 +432,7 @@ const REMOTE = { razones:'razones_sociales', bancos:'bancos', cheques:'cheques' 
 const COLS = {
   razones:['id','nombre','cuit','activo'],
   bancos :['id','razon_social_id','entidad','saldo','acuerdo'],
-  cheques:['id','razon_social_id','tipo','formato','banco','numero','importe','fecha_emision','fecha_pago','fecha_acreditacion','estado','librador','cuit_librador','contraparte','concepto','observaciones'],
+  cheques:['id','razon_social_id','tipo','formato','banco','numero','importe','fecha_emision','fecha_pago','fecha_acreditacion','estado','librador','cuit_librador','contraparte','concepto','observaciones','creado_por','historial'],
 };
 const DATE_COLS = new Set(['fecha_emision','fecha_pago','fecha_acreditacion']);
 const NUM_COLS  = new Set(['importe','saldo','acuerdo']);
@@ -627,6 +627,12 @@ const nChe = n => n+' cheque'+(n!==1?'s':'');
 const pesosK = n => { n=Number(n)||0; const a=Math.abs(n); if(a>=1e6) return '$ '+(n/1e6).toFixed(1).replace('.',',')+'M'; if(a>=1e4) return '$ '+fmtMiles(Math.round(n/1e3))+'k'; return pesos(n); };
 function fmtFecha(f){ if(!f) return '—'; const [y,m,d]=String(f).slice(0,10).split('-'); return d&&m&&y?`${d}/${m}/${y}`:'—'; }
 function hoyISO(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
+function nowISO(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); } // 'YYYY-MM-DDTHH:MM'
+// Quién está operando: en la nube, el email logueado; en modo local, "Local".
+function usuarioActual(){ return (cloudOn() && sbUser?.email) ? sbUser.email : 'Local'; }
+// Agrega una entrada al historial (auditoría) del cheque.
+function logHist(ch, accion, extra){ (ch.historial ||= []).push({ts:nowISO(), por:usuarioActual(), accion, ...(extra||{})}); }
+function fmtHist(ts){ if(!ts) return ''; const s=String(ts).replace('T',' '); const [f,h]=s.split(' '); const [y,m,d]=(f||'').split('-'); return d&&m&&y?`${d}/${m}/${y}${h?' '+h:''}`:s; }
 function diasHasta(f){ if(!f) return null; const h=new Date(); h.setHours(0,0,0,0); const t=new Date(String(f).slice(0,10)+'T00:00:00'); return Math.round((t-h)/86400000); }
 function razonNombre(id){ return state.razones.find(r=>r.id===id)?.nombre || 'Sin razón social'; }
 // Cheques cuya empresa no existe (huérfanos) — para poder reasignarlos.
@@ -891,6 +897,7 @@ function estadoRapido(id){
 }
 function aplicarEstado(id, estado){
   const ch = state.cheques.find(c=>c.id===id); if(!ch) return;
+  if(ch.estado!==estado) logHist(ch,'estado',{de:ch.estado,a:estado});
   ch.estado = estado; save(); closeModal(); render();
   toast('Estado: ' + estadoInfo(ch.tipo, estado).l);
   cloudPush('cheques', {...ch});
@@ -917,6 +924,7 @@ function viewCheques(){
   <div class="noprint" style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
     ${puedeEditar()?`<button class="btn" data-act="nuevo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Nuevo cheque</button>`:''}
     ${puedeEditar()?`<button class="btn ghost" data-act="importar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>Importar Excel</button>`:''}
+    <button class="btn ghost" data-act="xlsx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13l3 4M11 13l-3 4"/></svg>Exportar Excel</button>
     <button class="btn ghost" data-act="csv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Exportar CSV</button>
   </div>`;
 }
@@ -1087,7 +1095,7 @@ function viewConfig(){
 
   <div class="card">
     <h2>Alertas y notificaciones</h2>
-    <div class="hint">Avisos de cheques por vencer. Las notificaciones del navegador aparecen aunque tengas la app minimizada (con la pestaña abierta).</div>
+    <div class="hint">Avisos de cheques por vencer. Te avisamos en <b>hitos</b> (no todos los días): cuando el cheque entra en la ventana elegida, cuando faltan <b>2 días</b> y el <b>día del vencimiento</b>. Cada cheque avisa una sola vez por hito. Aparecen aunque tengas la app minimizada (con la pestaña abierta).</div>
     <div class="field">
       <label>Avisar cheques que vencen dentro de</label>
       <select class="f" data-set="notifDias" style="width:auto">
@@ -1129,6 +1137,24 @@ function modalCheque(id){
   const draft = ch ? {...ch} : {id:'', tipo, formato:'fisico', razon_social_id: filtros.razon||state.razones[0]?.id||'', estado: ESTADOS[tipo][0].v, fecha_emision:hoyISO(), fecha_pago:''};
   window._draft = draft;
   renderChequeForm(draft, !!ch);
+}
+// Historial de auditoría (quién cargó y quién cambió el estado, con fecha).
+function histHTML(d){
+  const h=(d.historial||[]).slice().reverse();
+  if(!h.length && !d.creado_por) return '';
+  const creador = d.creado_por ? `<div class="mut3" style="font-size:12px;margin-bottom:10px">Cargado por <b style="color:var(--ink2)">${esc(d.creado_por)}</b></div>` : '';
+  const accLabel={creado:'Cargado',importado:'Importado',estado:'Cambió estado',editado:'Editado'};
+  const el=v=>{ try{ return estadoInfo(d.tipo,v).l; }catch(e){ return v||'—'; } };
+  const items=h.map(e=>{
+    const det = e.accion==='estado' ? ` · ${el(e.de)} → <b style="color:var(--ink2)">${el(e.a)}</b>` : '';
+    return `<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:12.5px">
+      <span><b style="color:var(--ink2)">${accLabel[e.accion]||e.accion}</b>${det}<br><span class="mut3">${esc(e.por||'—')}</span></span>
+      <span class="mut3" style="white-space:nowrap">${fmtHist(e.ts)}</span></div>`;
+  }).join('');
+  return `<details style="border:1px solid var(--line);border-radius:12px;padding:10px 13px"${h.length<=3?' open':''}>
+    <summary style="cursor:pointer;font-weight:700;font-size:13px;color:var(--ink2)">📋 Historial${h.length?` · ${h.length} mov.`:''}</summary>
+    <div style="margin-top:9px">${creador}${items||'<div class="mut3" style="font-size:12px">Sin movimientos registrados.</div>'}</div>
+  </details>`;
 }
 function renderChequeForm(d, editing){
   const estOpts = ESTADOS[d.tipo].map(e=>`<option value="${e.v}" ${d.estado===e.v?'selected':''}>${e.l}</option>`).join('');
@@ -1173,6 +1199,7 @@ function renderChequeForm(d, editing){
       <div class="field"><label>Observaciones <span class="mut3">(opcional)</span></label><textarea data-d="observaciones" rows="2" placeholder="Notas...">${esc(d.observaciones)}</textarea></div>
     </div>
     </fieldset>
+    ${editing?`<div style="padding:2px 16px 10px">${histHTML(d)}</div>`:''}
     <div class="modal-f">
       ${ro ? '<button class="btn ghost" data-close>Cerrar</button>'
            : `${editing?'<button class="btn danger" data-del-cheque>Eliminar</button>':''}
@@ -1269,6 +1296,7 @@ document.addEventListener('click', e=>{
   if(act==='nuevo'){ modalCheque(); return; }
   if(act==='importar'){ abrirImportar(); return; }
   if(act==='csv'){ exportCSV(); return; }
+  if(act==='xlsx'){ exportXLSX(); return; }
   if(act==='nueva-razon'){ modalRazon(); return; }
   if(act==='nuevo-banco'){ if(!state.razones.length){toast('Primero cargá una razón social');return;} modalBanco(); return; }
   if(act==='toggle-notif'){ toggleNotif(); return; }
@@ -1373,9 +1401,18 @@ function confirmarNuevoCheque(){
 }
 function commitCheque(){
   const d=window._draft; if(!d) return;
-  if(d.id){ const i=state.cheques.findIndex(c=>c.id===d.id); state.cheques[i]={...d}; }
-  else { d.id=uid(); state.cheques.push({...d}); }
-  const guardado={...d}; save(); closeModal(); render(); toast(d.id?'Cheque guardado ✓':'Cheque cargado ✓'); cloudPush('cheques',guardado);
+  const editando=!!d.id;
+  if(editando){
+    const i=state.cheques.findIndex(c=>c.id===d.id); const prev=state.cheques[i]||{};
+    d.historial=(prev.historial||[]).slice();
+    if(prev.estado!==d.estado) logHist(d,'estado',{de:prev.estado,a:d.estado});
+    else logHist(d,'editado');
+    state.cheques[i]={...d};
+  } else {
+    d.id=uid(); d.creado_por=usuarioActual(); d.historial=[]; logHist(d,'creado');
+    state.cheques.push({...d});
+  }
+  const guardado={...d}; save(); closeModal(); render(); toast(editando?'Cheque guardado ✓':'Cheque cargado ✓'); cloudPush('cheques',guardado);
 }
 function saveRazon(id){
   const nombre=$('#rzNombre').value.trim(); if(!nombre){ toast('Poné un nombre'); return; }
@@ -1400,6 +1437,33 @@ function exportCSV(){
   const csv='﻿'+cols.map(c=>c[0]).join(';')+'\r\n'+rows.map(r=>cols.map(c=>esc2(c[1](r))).join(';')).join('\r\n');
   download('cheques-'+hoyISO()+'.csv', new Blob([csv],{type:'text/csv;charset=utf-8'}));
   toast('CSV descargado');
+}
+async function exportXLSX(){
+  try{
+    if(!window.XLSX) await cargarScript('vendor/xlsx.mini.js');
+  }catch(e){ toast('No se pudo cargar el generador de Excel'); return; }
+  const rows=chequesFiltrados().slice().sort((a,b)=>((a.fecha_pago||'9999')<(b.fecha_pago||'9999')?-1:1));
+  if(!rows.length){ toast('No hay cheques para exportar'); return; }
+  const H=['Tipo','Razón social','Contraparte / Librador','Banco','N°','Formato','Importe','Emisión','Vencimiento','Estado','Concepto','Observaciones','Cargado por'];
+  const aoa=[H];
+  rows.forEach(c=>aoa.push([
+    TIPOS[c.tipo].label, razonNombre(c.razon_social_id), c.contraparte||c.librador||'',
+    c.banco||'', c.numero||'', FORMATOS[c.formato]||'Físico', Number(c.importe)||0,
+    c.fecha_emision||'', c.fecha_pago||'', estadoInfo(c.tipo,c.estado).l,
+    c.concepto||'', c.observaciones||'', c.creado_por||'' ]));
+  // Fila de total
+  aoa.push([]); aoa.push(['','','','','','','TOTAL','','','','','','']);
+  aoa[aoa.length-1][6]=suma(rows);
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:10},{wch:24},{wch:24},{wch:20},{wch:12},{wch:9},{wch:14},{wch:12},{wch:12},{wch:14},{wch:20},{wch:24},{wch:22}];
+  // Formato de moneda para la columna Importe (G) y freeze de encabezado
+  for(let r=1;r<aoa.length;r++){ const cell=ws['G'+(r+1)]; if(cell&&typeof cell.v==='number'){ cell.z='#,##0.00'; } }
+  ws['!freeze']={xSplit:0,ySplit:1};
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Cheques');
+  const wbout=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+  download('cheques-'+hoyISO()+'.xlsx', new Blob([wbout],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  toast('Excel descargado ✓');
 }
 function exportJSON(){
   download('cheques-backup-'+hoyISO()+'.json', new Blob([JSON.stringify(state,null,2)],{type:'application/json'}));
@@ -1662,7 +1726,7 @@ async function onImportFile(e){
 async function ejecutarImport(){
   const imp=window._imp; if(!imp||!imp.cheques.length) return;
   const nameToId={};
-  imp.cheques.forEach(c=>{ if(c.razon_social_id==='__NEW__'){ const nn=_norm(c._nuevo); if(!nameToId[nn]){ const r={id:uid(),nombre:c._nuevo,cuit:'',activo:true}; state.razones.push(r); nameToId[nn]=r.id; } c.razon_social_id=nameToId[nn]; } delete c._nuevo; c.id=uid(); state.cheques.push(c); });
+  imp.cheques.forEach(c=>{ if(c.razon_social_id==='__NEW__'){ const nn=_norm(c._nuevo); if(!nameToId[nn]){ const r={id:uid(),nombre:c._nuevo,cuit:'',activo:true}; state.razones.push(r); nameToId[nn]=r.id; } c.razon_social_id=nameToId[nn]; } delete c._nuevo; c.id=uid(); c.creado_por=usuarioActual(); c.historial=[]; logHist(c,'importado'); state.cheques.push(c); });
   const cant=imp.cheques.length; window._imp=null;
   save(); closeModal(); render();
   toast(`${cant} cheque(s) importados`);
@@ -1707,18 +1771,29 @@ async function toggleNotif(){
   if(perm==='granted'){ state.settings.notif=true; save(); renderSubtitle(); if(view==='config')render(); toast('Notificaciones activadas'); chequearVencimientos(true); }
   else toast('Permiso de notificaciones denegado');
 }
+// Avisos por HITOS (no diarios): cada cheque avisa una sola vez al entrar en la
+// ventana elegida, otra a 2 días y otra el día del vencimiento/vencido.
 function chequearVencimientos(forzar){
   if(!state.settings.notif || !('Notification' in window) || Notification.permission!=='granted') return;
-  const hoy=hoyISO();
-  if(!forzar && state.notifLog[hoy]) return; // ya avisamos hoy
   const dias = state.settings.notifDias||7;
-  const venc = state.cheques.filter(ch=>{const c=clasif(ch); return c && (c.est!=='ok' || c.d<=dias);});
-  if(!venc.length) return;
-  const totPagar=suma(venc.filter(c=>c.tipo==='emitido')), totCobrar=suma(venc.filter(c=>c.tipo==='recibido'));
-  let cuerpo=[]; if(totPagar) cuerpo.push('A pagar: '+pesos(totPagar)); if(totCobrar) cuerpo.push('A cobrar: '+pesos(totCobrar));
+  const bucket = d => d==null ? null : d<=0 ? 'venc' : d<=2 ? 'urg' : d<=dias ? 'out' : null;
+  const abiertos = state.cheques.filter(ch=>esAbierto(ch) && ch.fecha_pago);
+  // Purga avisos de cheques ya cobrados/pagados o eliminados
+  const vivos = new Set(abiertos.map(c=>c.id));
+  Object.keys(state.notifLog).forEach(k=>{ if(k.includes(':') && !vivos.has(k.split(':')[0])) delete state.notifLog[k]; });
+  const nuevos=[];
+  abiertos.forEach(ch=>{ const b=bucket(diasHasta(ch.fecha_pago)); if(!b) return; const key=ch.id+':'+b; if(forzar || !state.notifLog[key]) nuevos.push({ch,key}); });
+  if(!nuevos.length){ save(); return; }
+  nuevos.forEach(n=>state.notifLog[n.key]=true); save();
+  const chs=nuevos.map(n=>n.ch);
+  const totPagar=suma(chs.filter(c=>c.tipo==='emitido')), totCobrar=suma(chs.filter(c=>c.tipo==='recibido'));
+  const urg=nuevos.slice().sort((a,b)=>diasHasta(a.ch.fecha_pago)-diasHasta(b.ch.fecha_pago))[0];
+  const cuerpo=[];
+  if(totPagar) cuerpo.push('A pagar '+pesos(totPagar));
+  if(totCobrar) cuerpo.push('A cobrar '+pesos(totCobrar));
+  cuerpo.push('El más próximo: '+(urg.ch.contraparte||urg.ch.librador||'—')+', '+labelDias(diasHasta(urg.ch.fecha_pago)));
   try{
-    new Notification('💳 '+venc.length+' cheque'+(venc.length!==1?'s':'')+' por vencer', {body:cuerpo.join(' · '), icon:'icon-192.png', badge:'icon-192.png', tag:'cheques-venc'});
-    state.notifLog={[hoy]:true}; save();
+    new Notification('💳 '+chs.length+' cheque'+(chs.length!==1?'s':'')+' por vencer', {body:cuerpo.join(' · '), icon:'icon-192.png', badge:'icon-192.png', tag:'cheques-venc', renotify:true});
   }catch(e){}
 }
 

@@ -9,12 +9,18 @@ import webpush from 'web-push'
 //   POST { action: 'email-list' }                       (admin)
 //   POST { action: 'email-add', email }                 (admin)
 //   POST { action: 'email-del', email }                 (admin)
+//   POST { action: 'email-test' }                        (admin — envía email de prueba)
 //   POST { action: 'config-get' | 'config-set', dias, email_activo }  (config-set = admin)
 // Variables de entorno en Vercel:
 //   CHEQUES_SERVICE_ROLE_KEY, CHEQUES_SUPABASE_URL (opcional),
-//   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT (opcional)
+//   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT (opcional),
+//   RESEND_API_KEY, RESEND_FROM (opcional, para el email)
 // ─────────────────────────────────────────────────────────────────────────────
 const DEFAULT_URL = 'https://wzaqkenrlwilbyisvlhw.supabase.co'
+const ABIERTOS = new Set(['en_cartera', 'depositado', 'pendiente', 'entregado'])
+const fmtMiles = n => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+const pesos = n => '$ ' + fmtMiles(n)
+const escHtml = s => String(s == null ? '' : s).replace(/[&<>"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]))
 
 function vapidReady() {
   const pub = process.env.VAPID_PUBLIC_KEY, priv = process.env.VAPID_PRIVATE_KEY
@@ -107,6 +113,43 @@ export default async function handler(req, res) {
       if (!requireAdmin()) return
       await admin.from('notif_emails').delete().eq('email', String(body.email || '').trim().toLowerCase())
       return res.status(200).json({ ok: true })
+    }
+
+    // ── Enviar un email de prueba a la lista (o al que llama) ────────────────
+    if (action === 'email-test') {
+      if (!requireAdmin()) return
+      if (!process.env.RESEND_API_KEY) return res.status(400).json({ error: 'Falta configurar RESEND_API_KEY en Vercel (ver GUIA-NOTIFICACIONES.md)' })
+      const { data: emails } = await admin.from('notif_emails').select('email').eq('activo', true)
+      let dest = (emails || []).map(e => e.email).filter(Boolean)
+      if (!dest.length) dest = [caller.email]
+      // Preview con cheques reales por vencer (si hay); si no, ejemplos
+      const { data: cheques } = await admin.from('cheques').select('*')
+      const dias = f => f ? Math.round((new Date(String(f).slice(0, 10) + 'T00:00:00Z').getTime() - Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate())) / 86400000) : null
+      const lbl = d => d == null ? '' : d < 0 ? `venció hace ${-d} d` : d === 0 ? 'vence hoy' : d === 1 ? 'vence mañana' : `vence en ${d} d`
+      let prox = (cheques || []).filter(c => ABIERTOS.has(c.estado) && c.fecha_pago).map(c => ({ c, d: dias(c.fecha_pago) })).filter(x => x.d != null && x.d <= 30).sort((a, b) => a.d - b.d).slice(0, 5)
+      let ejemplo = false
+      if (!prox.length) { ejemplo = true; prox = [{ c: { tipo: 'emitido', contraparte: 'Icardi', importe: 2500000 }, d: 1 }, { c: { tipo: 'recibido', contraparte: 'Heladería Central', importe: 600000 }, d: 4 }] }
+      const filas = prox.map(x => {
+        const c = x.c, quien = c.contraparte || c.librador || '—'
+        const tipo = c.tipo === 'emitido' ? '🔴 A pagar' : '🟢 A cobrar'
+        return `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee">${tipo}</td><td style="padding:6px 10px;border-bottom:1px solid #eee">${escHtml(quien)}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right;font-weight:700">${pesos(c.importe)}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;color:#b71d2b">${lbl(x.d)}</td></tr>`
+      }).join('')
+      const html = `<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;max-width:560px;margin:auto;color:#12203a">
+        <div style="background:#063F6D;color:#fff;padding:16px 20px;border-radius:12px 12px 0 0"><b style="font-size:16px">CIAF · Informe de Cheques</b></div>
+        <div style="border:1px solid #e3e7ee;border-top:none;border-radius:0 0 12px 12px;padding:18px 20px">
+          <p style="margin:0 0 4px"><b>💳 Prueba de aviso por email</b></p>
+          <p style="margin:0 0 14px;color:#5b6472">Así te va a llegar el aviso de la mañana con los cheques por vencer.${ejemplo ? ' <i>(Estos son datos de ejemplo porque no hay cheques por vencer ahora.)</i>' : ''}</p>
+          <table style="width:100%;border-collapse:collapse;font-size:14px">${filas}</table>
+          <p style="margin:16px 0 0;font-size:12px;color:#8a93a3">CIAF Consultora Integral · Información de uso confidencial. Este es un aviso automático.</p>
+        </div></div>`
+      const r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + process.env.RESEND_API_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: process.env.RESEND_FROM || 'CIAF Cheques <onboarding@resend.dev>', to: dest, subject: '💳 Prueba de aviso — CIAF Cheques', html }),
+      })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) return res.status(400).json({ error: 'Resend: ' + (j.message || j.error || ('error ' + r.status)) })
+      return res.status(200).json({ ok: true, enviados: dest.length, destinatarios: dest })
     }
 
     // ── Config ──────────────────────────────────────────────────────────────

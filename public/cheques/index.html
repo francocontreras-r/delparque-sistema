@@ -1184,6 +1184,8 @@ function viewConfig(){
         <button class="btn sm" data-act="email-add">Agregar</button>
       </div>
       <div id="emailList" class="mut3" style="font-size:13px">Cargando…</div>
+      <button class="btn ghost sm" data-act="email-test" style="margin-top:10px">✉️ Probar email ahora</button>
+      <div class="mut3" style="font-size:11.5px;margin-top:4px">Te manda un correo de prueba a la lista de arriba.</div>
     </div>`:''}`:`
     <div class="hint" style="margin-top:10px">💡 Para que el aviso llegue al celular con la app <b>cerrada</b>, iniciá sesión en la nube (arriba, botón de cuenta).</div>`}
     <hr style="border:none;border-top:1px solid var(--line);margin:18px 0">
@@ -1384,6 +1386,7 @@ document.addEventListener('click', e=>{
   if(act==='push-off'){ (async()=>{ await desactivarPushServidor(); toast('Push desactivado en este dispositivo'); if(view==='config')render(); })(); return; }
   if(act==='push-test'){ (async()=>{ try{ toast('Enviando push de prueba…'); const j=await apiNotif({action:'test'}); toast(j.enviados?`Push enviado ✓ (mirá tu celular)`:'No hay dispositivos con push'); }catch(e){ toast('Error: '+e.message); } })(); return; }
   if(act==='email-add'){ (async()=>{ const inp=$('#emailNotif'); const email=(inp?.value||'').trim(); if(!email){ toast('Escribí un email'); return; } try{ await apiNotif({action:'email-add',email}); if(inp)inp.value=''; toast('Email agregado ✓'); cargarEmailsNotif(); }catch(e){ toast('Error: '+e.message); } })(); return; }
+  if(act==='email-test'){ (async()=>{ try{ toast('Enviando email de prueba…'); const j=await apiNotif({action:'email-test'}); toast('Email enviado ✓ a '+(j.enviados||0)+' correo(s). Revisá tu casilla.'); }catch(e){ toast('Error: '+e.message); } })(); return; }
   if(act==='export-json'){ exportJSON(); return; }
   if(act==='import-json'){ importJSON(); return; }
   if(act==='wipe'){ if(confirm('¿Borrar TODOS los datos de este dispositivo? Esta acción no se puede deshacer.')){ state={razones:[],bancos:[],cheques:[],settings:{notif:false,notifDias:7},notifLog:{},_queue:[]}; save(); render(); toast('Datos borrados'); } return; }

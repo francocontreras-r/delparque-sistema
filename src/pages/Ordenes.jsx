@@ -164,16 +164,29 @@ function computeMateriasPrimas(item, ctx) {
 
   const insumoPorNombre = {}
   ctx.insumosStock.forEach(i => { insumoPorNombre[normalizarNombre(i.nombre)] = i })
+  // Bases (viven en stock_bases) y sabores intermedios: no se controlan contra
+  // el depósito. Una base se mide por lo producido; un sabor intermedio se
+  // produce aparte.
+  const baseNombres = new Set((ctx.bases || []).map(b => normalizarNombre(b.nombre)))
+  const saborNombres = new Set((ctx.sabores || []).map(s => normalizarNombre(s.nombre)))
+  const baseDisp = {}
+  ;(ctx.stockBases || []).forEach(b => { const k = normalizarNombre(b.base_nombre); baseDisp[k] = (baseDisp[k] || 0) + (Number(b.kg_disponible) || 0) })
 
   return ingredientes.map(ing => {
     const cantidadPorBatch = ing.cantidad || 0
     const necesario = cantidadPorBatch * factor
     const fila = { nombre: ing.insumo_nombre, cantidadPorBatch, batches: factor, necesario, unidad: ing.unidad }
+    const nk = normalizarNombre(ing.insumo_nombre)
     // El agua no se controla (es "sin límite") de forma intencional.
-    if (normalizarNombre(ing.insumo_nombre).includes('agua')) {
-      return { ...fila, disponible: null, estado: 'sinlimite' }
+    if (nk.includes('agua')) return { ...fila, disponible: null, estado: 'sinlimite' }
+    // Base como ingrediente → disponibilidad desde stock_bases (lo producido).
+    if (baseNombres.has(nk)) {
+      const disponible = baseDisp[nk] || 0
+      return { ...fila, disponible, estado: disponible >= necesario ? 'ok' : 'insuficiente', esBase: true }
     }
-    const insumo = insumoPorNombre[normalizarNombre(ing.insumo_nombre)]
+    // Sabor intermedio → se produce aparte, no bloquea.
+    if (saborNombres.has(nk)) return { ...fila, disponible: null, estado: 'sinlimite', intermedio: true }
+    const insumo = insumoPorNombre[nk]
     // Ingrediente que NO matchea ningún insumo del depósito: se marca como
     // "no vinculado" (visible) en vez de fingir que está disponible.
     if (!insumo) return { ...fila, disponible: null, estado: 'no_vinculado' }
@@ -532,11 +545,30 @@ export default function Ordenes() {
   function compararConStock(requeridos) {
     const insumoPorNombre = {}
     insumosStock.forEach(i => { insumoPorNombre[normalizarNombre(i.nombre)] = i })
+    // Las BASES no viven en el depósito: su disponibilidad sale de stock_bases
+    // (lo que se produjo). Antes se buscaban en insumos → siempre faltaban.
+    const baseDisp = {}
+    stockBases.forEach(b => { const k = normalizarNombre(b.base_nombre); baseDisp[k] = (baseDisp[k] || 0) + (Number(b.kg_disponible) || 0) })
+    const esBase  = new Set(bases.map(b => normalizarNombre(b.nombre)))
+    const esSabor = new Set(sabores.map(s => normalizarNombre(s.nombre)))
     return requeridos.map(r => {
+      const nk = normalizarNombre(r.nombre)
       if ((r.nombre || '').toLowerCase().includes('agua')) {
         return { nombre: r.nombre, necesario: r.cantidad, unidad: r.unidad, disponible: Infinity, diferencia: Infinity, estado: 'ok' }
       }
-      const insumo = insumoPorNombre[normalizarNombre(r.nombre)]
+      // Ingrediente que es una BASE → se controla contra lo producido (stock_bases).
+      if (esBase.has(nk)) {
+        const disponible = baseDisp[nk] || 0
+        const diferencia = disponible - r.cantidad
+        const severo = r.cantidad > 0 && (r.cantidad - disponible) / r.cantidad >= 0.5
+        const estado = diferencia >= 0 ? 'ok' : (severo ? 'critico' : 'bajo')
+        return { nombre: r.nombre, necesario: r.cantidad, unidad: r.unidad, disponible, diferencia, estado, esBase: true }
+      }
+      // Ingrediente que es un SABOR intermedio → se produce aparte, no bloquea acá.
+      if (esSabor.has(nk)) {
+        return { nombre: r.nombre, necesario: r.cantidad, unidad: r.unidad, disponible: Infinity, diferencia: Infinity, estado: 'ok', intermedio: true }
+      }
+      const insumo = insumoPorNombre[nk]
       const disponible = insumo ? (insumo.stock_actual || 0) : 0
       const diferencia = disponible - r.cantidad
       const severo = r.cantidad > 0 && (r.cantidad - disponible) / r.cantidad >= 0.5
@@ -546,7 +578,7 @@ export default function Ordenes() {
   }
 
   function materiasPrimasDe(item) {
-    return computeMateriasPrimas(item, { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes, impulsivos })
+    return computeMateriasPrimas(item, { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes, impulsivos, stockBases })
   }
 
   const basesNecesarias = useMemo(() => {
@@ -1081,7 +1113,7 @@ export default function Ordenes() {
   }
 
   async function _cargarDatosOrden() {
-    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes, impulsivos }
+    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes, impulsivos, stockBases }
     if (!saborIngredientes.length || !insumosStock.length) {
       const [{ data: ings }, { data: ins }, { data: baseIngs }] = await Promise.all([
         supabase.from('sabor_ingredientes').select('*'),
@@ -1107,7 +1139,7 @@ export default function Ordenes() {
   async function imprimirListaMP(grupo, item) {
     const w = window.open('', '_blank')
 
-    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes, impulsivos }
+    let ctx = { sabores, bases, saborIngredientes, baseIngredientes, insumosStock, impulsivoIngredientes, impulsivos, stockBases }
     let mp = computeMateriasPrimas(item, ctx)
 
     if (mp.length === 0) {

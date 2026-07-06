@@ -352,19 +352,6 @@ body.locked{padding-bottom:0}
 
 <div id="modalRoot"></div>
 <div id="toast"></div>
-<style>
-  .upd-bar{position:fixed;top:0;left:0;right:0;z-index:100000;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;
-    background:linear-gradient(90deg,#E2661F,#f4a259);color:#fff;text-align:center;
-    padding:calc(env(safe-area-inset-top,0px) + 13px) 16px 13px;font-weight:800;font-size:15.5px;letter-spacing:-.01em;
-    box-shadow:0 6px 26px rgba(0,0,0,.28);cursor:pointer;animation:updIn .35s ease, updPulse 1.8s ease-in-out infinite .4s}
-  .upd-bar .upd-btn{background:#fff;color:#c24e12;border:none;border-radius:999px;padding:10px 20px;font-weight:800;font-size:14.5px;cursor:pointer;white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,.18)}
-  @keyframes updIn{from{transform:translateY(-100%)}to{transform:translateY(0)}}
-  @keyframes updPulse{0%,100%{box-shadow:0 6px 22px rgba(226,102,31,.40)}50%{box-shadow:0 8px 34px rgba(226,102,31,.95)}}
-</style>
-<div id="updateBar" class="upd-bar" role="alert" aria-live="assertive" hidden>
-  <span>🔄 Hay una versión nueva de la app</span>
-  <button class="upd-btn" type="button">Actualizar ahora</button>
-</div>
 
 <script src="vendor/supabase.js"></script>
 <script>
@@ -2038,36 +2025,27 @@ async function boot(){
   boot2();
 }
 
-/* ── Aviso de nueva versión (cartel visible) ─────────────────────────────── */
-// El SW nuevo se activa solo (skipWaiting). Cuando eso pasa, mostramos el cartel
-// y, al tocarlo, simplemente recargamos: como la versión nueva ya está activa,
-// el refresco toma el código nuevo sí o sí. Sin handshakes frágiles = no se traba.
-function mostrarCartelUpdate(){
-  const bar=document.getElementById('updateBar'); if(!bar || bar._shown) return; bar._shown=true; bar.hidden=false;
-  let go=false;
-  bar.addEventListener('click', ()=>{ if(go) return; go=true;
-    bar.querySelector('.upd-btn').textContent='Actualizando…';
+/* ── Actualización automática (silenciosa y confiable) ───────────────────── */
+// El SW nuevo se activa solo (skipWaiting). Cuando toma el control, recargamos
+// una vez para tomar el código nuevo. Sin botones ni carteles = nada que se
+// pueda trabar. Solo recargamos si la página YA estaba controlada (no en la
+// primera instalación) y una sola vez (guarda anti-bucle).
+if('serviceWorker' in navigator){
+  const yaControlada = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+  const chequear=()=>navigator.serviceWorker.getRegistration().then(r=>r&&r.update()).catch(()=>{});
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden) chequear(); });
+  setInterval(chequear, 30*60*1000);
+  let recargado=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    if(recargado || !yaControlada) return;
+    recargado=true;
+    try{ sessionStorage.setItem('chq-actualizada','1'); }catch(e){}
     location.reload();
   });
 }
-if('serviceWorker' in navigator){
-  // ¿La página ya estaba controlada por un SW al cargar? Si NO, es la primera
-  // instalación y no hay que avisar de "nueva versión".
-  const yaControlada = !!navigator.serviceWorker.controller;
-  const avisar = ()=>{ if(yaControlada) mostrarCartelUpdate(); };
-  navigator.serviceWorker.register('sw.js').then(reg=>{
-    if(reg.waiting) avisar();
-    const vigilar=w=>{ if(!w) return; w.addEventListener('statechange',()=>{ if(w.state==='installed'||w.state==='activated') avisar(); }); };
-    vigilar(reg.installing);
-    reg.addEventListener('updatefound',()=>vigilar(reg.installing));
-    // Buscar nuevas versiones al abrir, al volver el foco y cada 20 min.
-    const chequear=()=>{ reg.update().catch(()=>{}); };
-    document.addEventListener('visibilitychange',()=>{ if(!document.hidden) chequear(); });
-    setInterval(chequear, 20*60*1000);
-  }).catch(()=>{});
-  // El SW nuevo tomó el control → hay versión nueva disponible: avisamos.
-  navigator.serviceWorker.addEventListener('controllerchange', avisar);
-}
+// Aviso breve después de una actualización automática.
+try{ if(sessionStorage.getItem('chq-actualizada')==='1'){ sessionStorage.removeItem('chq-actualizada'); setTimeout(()=>{ try{ toast('App actualizada a la última versión ✓'); }catch(e){} }, 900); } }catch(e){}
 /* ── Init ───────────────────────────────────────────────────────────────── */
 boot();
 setInterval(()=>chequearVencimientos(false), 60*60*1000);

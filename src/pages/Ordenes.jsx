@@ -771,12 +771,27 @@ export default function Ordenes() {
     const { data: insumos } = await supabase.from('insumos').select('nombre,stock_actual,unidad')
     const insumoPorNombre = {}
     ;(insumos || []).forEach(i => { insumoPorNombre[normalizarNombre(i.nombre)] = i })
+    // Las BASES se controlan contra lo producido (stock_bases), no contra el
+    // depósito. Un sabor intermedio se produce aparte y no bloquea el inicio.
+    const esBase = new Set(bases.map(b => normalizarNombre(b.nombre)))
+    const esSaborInt = new Set(sabores.map(s => normalizarNombre(s.nombre)))
+    const baseDisp = {}
+    stockBases.forEach(b => { const k = normalizarNombre(b.base_nombre); baseDisp[k] = (baseDisp[k] || 0) + (Number(b.kg_disponible) || 0) })
 
     const faltantes = []
     for (const ing of ings) {
-      if (normalizarNombre(ing.insumo_nombre).includes('agua')) continue
+      const nk = normalizarNombre(ing.insumo_nombre)
+      if (nk.includes('agua')) continue
       const requerido = (ing.cantidad || 0) * ing.factor
-      const insumo = insumoPorNombre[normalizarNombre(ing.insumo_nombre)]
+      if (esBase.has(nk)) {
+        const disponible = baseDisp[nk] || 0
+        if (disponible + 0.5 < requerido) {
+          faltantes.push({ nombre: ing.insumo_nombre, requerido, disponible, faltan: requerido - disponible, unidad: ing.unidad || 'L', severo: requerido > 0 && ((requerido - disponible) / requerido) >= 0.5 })
+        }
+        continue
+      }
+      if (esSaborInt.has(nk)) continue // sabor intermedio → se produce aparte
+      const insumo = insumoPorNombre[nk]
       const disponible = insumo?.stock_actual ?? 0
       if (disponible < requerido) {
         const faltan = requerido - disponible

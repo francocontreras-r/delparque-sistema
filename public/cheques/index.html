@@ -331,7 +331,7 @@ body.locked{padding-bottom:0}
       <button class="tab" data-view="cheques">Cheques</button>
       <button class="tab" data-view="semanal">Semanal</button>
       <button class="tab" data-view="analisis">Análisis</button>
-      <button class="tab" data-view="config">Config</button>
+      <button class="tab" data-view="config" data-admin-only>Config</button>
     </nav>
   </div>
 </header>
@@ -347,7 +347,7 @@ body.locked{padding-bottom:0}
   <button data-view="cheques"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></span>Cheques</button>
   <button data-view="semanal"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Semanal</button>
   <button data-view="analisis"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></span>Análisis</button>
-  <button data-view="config"><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>Config</button>
+  <button data-view="config" data-admin-only><span class="nav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>Config</button>
 </nav>
 
 <div id="modalRoot"></div>
@@ -401,6 +401,16 @@ const TIPOS = {
   emitido :{label:'A pagar',  verbo:'pagar',  color:'var(--brand)'},
 };
 const FORMATOS = {fisico:'Físico', echeq:'E-cheq'};
+// Bancos más importantes de Argentina (para el desplegable del campo Banco).
+const BANCOS_AR = [
+  'Banco de la Nación Argentina','Banco Santander Argentina','Banco Galicia','BBVA Argentina',
+  'Banco Macro','Banco Provincia de Buenos Aires','Banco Credicoop','HSBC Bank Argentina',
+  'Banco Patagonia','Banco Supervielle','Banco Itaú Argentina','Banco Ciudad de Buenos Aires',
+  'Banco Comafi','Banco Hipotecario','ICBC Argentina','Banco de Córdoba (Bancor)',
+  'Nuevo Banco de Santa Fe','Banco de San Juan','Banco de Corrientes','Nuevo Banco del Chaco',
+  'Banco de La Pampa','Banco del Sol','Banco Industrial (BIND)','Banco Mariva',
+  'Banco CMF','Banco Columbia','Banco Roela','Banco Piano','Banco Bica','Brubank',
+];
 const ESTADOS = {
   recibido:[
     {v:'en_cartera',l:'En cartera',b:'info',  abierto:true },
@@ -739,6 +749,11 @@ function contarAlertas(){ return state.cheques.filter(ch=>{const c=clasif(ch);re
    RENDER
    ══════════════════════════════════════════════════════════════════════════ */
 function render(){
+  // Config es solo para el administrador. Ocultamos el botón y, si un no-admin
+  // quedó parado en esa vista, lo mandamos al panel.
+  const soloAdmin = esAdmin();
+  $$('[data-admin-only]').forEach(el=>{ el.style.display = soloAdmin ? '' : 'none'; });
+  if(view==='config' && !soloAdmin) view='dashboard';
   renderSubtitle();
   const app = $('#app');
   if(view==='dashboard') app.innerHTML = viewDashboard();
@@ -884,32 +899,35 @@ function disponibilidadBancaria(){
   return {rows, saldo:rows.reduce((s,r)=>s+r.saldo,0), acuerdo:rows.reduce((s,r)=>s+r.acuerdo,0), disp:rows.reduce((s,r)=>s+r.disp,0)};
 }
 
-/* ── Gráfico próximos 30 días (SVG, sin librerías) ──────────────────────── */
+/* ── Gráfico de vencimientos por semana (SVG, sin librerías) ─────────────── */
 function chartProximos30(chs){
   const defs=[{k:'venc',l:'Vencidos'},{k:'w0',l:'Esta sem.'},{k:'w1',l:'Próx. sem.'},{k:'w2',l:'En 3ª'},{k:'w3',l:'En 4ª'},{k:'mas',l:'+4 sem.'}];
-  const B={}; defs.forEach(d=>B[d.k]={cobrar:0,pagar:0});
+  const B={}; defs.forEach(d=>B[d.k]={cobrar:0,pagar:0,nc:0,np:0});
   chs.forEach(ch=>{
     if(!esAbierto(ch)||!ch.fecha_pago) return;
     const d=diasHasta(ch.fecha_pago); if(d==null) return;
     const k = d<0?'venc':d<7?'w0':d<14?'w1':d<21?'w2':d<28?'w3':'mas';
-    B[k][ch.tipo==='emitido'?'pagar':'cobrar'] += Number(ch.importe)||0;
+    if(ch.tipo==='emitido'){ B[k].pagar+=Number(ch.importe)||0; B[k].np++; }
+    else { B[k].cobrar+=Number(ch.importe)||0; B[k].nc++; }
   });
   const totC=suma(chs.filter(c=>esAbierto(c)&&c.tipo==='recibido'&&c.fecha_pago));
   const totP=suma(chs.filter(c=>esAbierto(c)&&c.tipo==='emitido'&&c.fecha_pago));
-  if(totC+totP===0) return `<div class="empty" style="padding:22px">Sin cheques abiertos con vencimiento cargado.</div>`;
+  if(totC+totP===0) return `<div class="empty" style="padding:26px">Sin cheques abiertos con vencimiento cargado.</div>`;
   const buckets=defs.filter(d=> d.k!=='venc' || (B.venc.cobrar+B.venc.pagar>0));
   const max=Math.max(1,...buckets.map(d=>Math.max(B[d.k].cobrar,B[d.k].pagar)));
-  const n=buckets.length, W=920,H=250,padL=66,padR=16,padT=24,padB=36,plotH=H-padT-padB,plotW=W-padL-padR,step=plotW/n;
+  const n=buckets.length, W=600,H=380,padL=58,padR=14,padT=30,padB=56,plotH=H-padT-padB,plotW=W-padL-padR,step=plotW/n;
   let bars='';
   buckets.forEach((d,i)=>{
-    const b=B[d.k], cx=padL+step*i+step/2, bw=Math.min(40,step*0.30);
-    const draw=(val,dx,fill)=>{ if(val<=0) return ''; const h=Math.max(2,val/max*plotH), x=cx+dx-bw/2, y=H-padB-h;
-      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${fill}"><title>${d.l}: ${pesos(val)}</title></rect>`+
-        `<text x="${(x+bw/2).toFixed(1)}" y="${(y-5).toFixed(1)}" font-size="10.5" font-weight="700" fill="${fill}" text-anchor="middle">${pesosK(val)}</text>`; };
-    bars+=draw(b.cobrar,-bw*0.62,'var(--teal)')+draw(b.pagar,bw*0.62,'var(--brand)');
-    bars+=`<text x="${cx.toFixed(1)}" y="${H-padB+18}" font-size="11.5" fill="${d.k==='venc'?'#7A3FF2':'var(--ink2)'}" font-weight="${d.k==='venc'?'700':'600'}" text-anchor="middle">${d.l}</text>`;
+    const b=B[d.k], cx=padL+step*i+step/2, bw=Math.min(44,step*0.30), gap=bw*0.62;
+    const draw=(val,dx,fill)=>{ if(val<=0) return ''; const h=Math.max(3,val/max*plotH), x=cx+dx-bw/2, y=H-padB-h;
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="${fill}"><title>${d.l} · ${fill.includes('teal')?'a cobrar':'a pagar'}: ${pesos(val)}</title></rect>`+
+        `<text x="${(x+bw/2).toFixed(1)}" y="${(y-7).toFixed(1)}" font-size="12" font-weight="800" fill="${fill}" text-anchor="middle">${pesosK(val)}</text>`; };
+    bars+=draw(b.cobrar,-gap,'var(--teal)')+draw(b.pagar,gap,'var(--brand)');
+    const nchq=b.nc+b.np;
+    bars+=`<text x="${cx.toFixed(1)}" y="${H-padB+22}" font-size="13" fill="${d.k==='venc'?'#7A3FF2':'var(--ink2)'}" font-weight="${d.k==='venc'?'800':'700'}" text-anchor="middle">${d.l}</text>`;
+    bars+=`<text x="${cx.toFixed(1)}" y="${H-padB+39}" font-size="11" fill="var(--ink3)" text-anchor="middle">${nchq} chq</text>`;
   });
-  const grid=[0,.5,1].map(g=>{ const y=H-padB-g*plotH; return `<line x1="${padL}" x2="${W-padR}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${padL-8}" y="${y+3}" font-size="10" fill="var(--ink3)" text-anchor="end">${pesosK(g*max)}</text>`; }).join('');
+  const grid=[0,.25,.5,.75,1].map(g=>{ const y=H-padB-g*plotH; return `<line x1="${padL}" x2="${W-padR}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--line)" stroke-dasharray="${g===0?'0':'3 4'}"/><text x="${padL-9}" y="${(y+4).toFixed(1)}" font-size="11" fill="var(--ink3)" text-anchor="end">${pesosK(g*max)}</text>`; }).join('');
   return `<svg viewBox="0 0 ${W} ${H}" class="chart" preserveAspectRatio="xMidYMid meet">${grid}${bars}</svg>
     <div class="legend"><span><b style="background:var(--teal)"></b>A cobrar (${pesos(totC)})</span><span><b style="background:var(--brand)"></b>A pagar (${pesos(totP)})</span></div>`;
 }
@@ -1033,20 +1051,71 @@ function viewSemanal(){
 }
 
 /* ── ANÁLISIS ───────────────────────────────────────────────────────────── */
+const MESES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function fmtMes(ym){ const [y,mm]=String(ym).split('-'); return (MESES[+mm-1]||mm)+' '+y; }
+// Proyección de caja: agrupa los cheques abiertos por mes de vencimiento.
+function flujoFondos(abiertos){
+  const m={};
+  abiertos.forEach(c=>{ if(!c.fecha_pago) return; const k=String(c.fecha_pago).slice(0,7); (m[k]||=({cob:0,pag:0}));
+    if(c.tipo==='emitido') m[k].pag+=Number(c.importe)||0; else m[k].cob+=Number(c.importe)||0; });
+  return Object.keys(m).sort().map(k=>({mes:k, cob:m[k].cob, pag:m[k].pag, neto:m[k].cob-m[k].pag}));
+}
+function kpi(lab,val,sub,color){
+  return `<div class="stat"><div class="lab">${lab}</div><div class="val" style="color:${color};font-size:18px">${val}</div><div class="sub">${esc(sub)}</div></div>`;
+}
 function viewAnalisis(){
   const chs = chequesFiltrados();
   const abiertos = chs.filter(esAbierto);
-  const porBanco = agrupar(abiertos, c=>c.banco||'Sin banco');
+  const totalAb = suma(abiertos);
+  const conFecha = abiertos.filter(c=>c.fecha_pago && diasHasta(c.fecha_pago)!=null);
+  const ticket = abiertos.length ? Math.round(totalAb/abiertos.length) : 0;
+  const plazoProm = conFecha.length ? Math.round(conFecha.reduce((s,c)=>s+diasHasta(c.fecha_pago),0)/conFecha.length) : null;
+  const prox = conFecha.slice().sort((a,b)=>diasHasta(a.fecha_pago)-diasHasta(b.fecha_pago))[0];
+
+  const dispo0 = disponibilidadBancaria().disp;
+  let saldo = dispo0;
+  const flujoRows = flujoFondos(abiertos).map(f=>{ saldo += f.neto; return {...f, saldo}; });
+
+  const topPagar  = agrupar(abiertos.filter(c=>c.tipo==='emitido'),  c=>c.contraparte||'Sin nombre').slice(0,8);
+  const topCobrar = agrupar(abiertos.filter(c=>c.tipo==='recibido'), c=>c.contraparte||c.librador||'Sin nombre').slice(0,8);
+  const porBanco  = agrupar(abiertos, c=>c.banco||'Sin banco');
   const porEstado = agrupar(chs, c=>estadoInfo(c.tipo,c.estado).l);
-  const porRazon = agrupar(abiertos, c=>razonNombre(c.razon_social_id));
+  const porRazon  = agrupar(abiertos, c=>razonNombre(c.razon_social_id));
   const echeq = suma(abiertos.filter(c=>c.formato==='echeq')), fisico=suma(abiertos.filter(c=>c.formato!=='echeq'));
+
   return `${filtrosBar()}
+  <div class="grid g4" style="margin-bottom:8px">
+    ${kpi('En cartera (abierto)', pesos(totalAb), nChe(abiertos.length), 'var(--brand)')}
+    ${kpi('Ticket promedio', pesos(ticket), 'por cheque', 'var(--teal)')}
+    ${kpi('Plazo promedio', plazoProm==null?'—':(plazoProm+' días'), 'hasta el vencimiento', 'var(--blue)')}
+    ${kpi('Próximo a vencer', prox?fmtFecha(prox.fecha_pago):'—', prox?(prox.contraparte||prox.librador||'—'):'sin fecha', 'var(--amber)')}
+  </div>
+
+  <div class="section-title">Flujo de fondos proyectado</div>
+  <div class="card">
+    <div class="hint">Parte de tu disponible bancario (<b>${pesos(dispo0)}</b>) y, mes a mes, suma lo que cobrás y resta lo que pagás. El <b>saldo proyectado</b> te avisa si te va a alcanzar la plata.</div>
+    ${flujoRows.length ? `<div class="tblwrap"><table>
+      <thead><tr><th>Mes</th><th class="right">Cobros</th><th class="right">Pagos</th><th class="right">Neto</th><th class="right">Saldo proyectado</th></tr></thead>
+      <tbody>${flujoRows.map(f=>`<tr>
+        <td><b>${fmtMes(f.mes)}</b></td>
+        <td class="right num" style="color:var(--teal)">${f.cob?pesos(f.cob):'—'}</td>
+        <td class="right num" style="color:var(--brand)">${f.pag?pesos(f.pag):'—'}</td>
+        <td class="right num" style="color:${f.neto<0?'var(--red)':'var(--green)'}">${f.neto>=0?'+':'−'}${pesos(Math.abs(f.neto))}</td>
+        <td class="right num" style="font-weight:800;color:${f.saldo<0?'var(--red)':'var(--ink)'}">${pesos(f.saldo)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    ${flujoRows.some(f=>f.saldo<0)?`<div style="margin-top:12px;padding:11px 13px;border-radius:12px;background:#FDECEC;color:var(--red);font-size:13px;font-weight:600">⚠️ En algún mes el saldo proyectado queda en negativo. Revisá los pagos de ese período.</div>`:''}`
+    : `<div class="empty" style="padding:18px">Cargá cheques con fecha de vencimiento para ver la proyección.</div>`}
+  </div>
+
+  <div class="section-title">Detalle</div>
   <div class="grid g2" style="align-items:start">
-    <div class="card"><h2>Por banco</h2><div class="hint">Cheques abiertos</div>${barList(porBanco,'var(--brand)')}</div>
-    <div class="card"><h2>Por estado</h2><div class="hint">Todos los cheques del filtro</div>${barList(porEstado,'var(--blue)')}</div>
+    <div class="card"><h2>Top a pagar (proveedores)</h2><div class="hint">Cheques abiertos, por beneficiario</div>${barList(topPagar,'var(--brand)')}</div>
+    <div class="card"><h2>Top a cobrar (clientes)</h2><div class="hint">Cheques abiertos, por librador</div>${barList(topCobrar,'var(--teal)')}</div>
+    <div class="card"><h2>Por banco</h2><div class="hint">Cheques abiertos</div>${barList(porBanco,'var(--blue)')}</div>
+    <div class="card"><h2>Por estado</h2><div class="hint">Todos los del filtro</div>${barList(porEstado,'var(--purple)')}</div>
     ${state.razones.length>1?`<div class="card"><h2>Por razón social</h2><div class="hint">Cheques abiertos</div>${barList(porRazon,'var(--teal)')}</div>`:''}
-    <div class="card"><h2>Físico vs E-cheq</h2><div class="hint">Monto abierto</div>
-      ${barList([['E-cheq',echeq],['Físico',fisico]].filter(x=>x[1]>0),'var(--purple)')}</div>
+    <div class="card"><h2>Físico vs E-cheq</h2><div class="hint">Monto abierto</div>${barList([['E-cheq',echeq],['Físico',fisico]].filter(x=>x[1]>0),'var(--amber)')}</div>
   </div>`;
 }
 function agrupar(arr,fn){
@@ -1251,7 +1320,7 @@ function renderChequeForm(d, editing){
         <div class="field"><label>Razón social</label><select data-d="razon_social_id">${rzOpts}</select></div>
       </div>
       <div class="frow">
-        <div class="field"><label>Banco</label><input data-d="banco" value="${esc(d.banco)}" placeholder="Ej: Banco Nación" list="bancosList"></div>
+        <div class="field"><label>Banco</label><input data-d="banco" value="${esc(d.banco)}" placeholder="Elegí o escribí el banco" list="bancosList" autocomplete="off"></div>
         <div class="field"><label>N° de cheque</label><input data-d="numero" value="${esc(d.numero)}" placeholder="00000000"></div>
       </div>
       <div class="field"><label>${contrapLbl}</label><input data-d="contraparte" value="${esc(d.contraparte)}" placeholder="Nombre / empresa"></div>
@@ -1278,7 +1347,7 @@ function renderChequeForm(d, editing){
       <button class="btn" data-save-cheque style="flex:1;justify-content:center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 13l4 4L19 7"/></svg>${editing?'Guardar cambios':'Agregar cheque'}</button>`}
     </div>
   </div>
-  <datalist id="bancosList">${[...new Set(state.cheques.map(c=>c.banco).filter(Boolean))].map(b=>`<option value="${esc(b)}">`).join('')}</datalist>`);
+  <datalist id="bancosList">${[...new Set([...state.cheques.map(c=>c.banco).filter(Boolean), ...BANCOS_AR])].map(b=>`<option value="${esc(b)}">`).join('')}</datalist>`);
 }
 
 function modalRazon(id){
@@ -1980,9 +2049,12 @@ function mostrarCartelUpdate(reg){
   bar.addEventListener('click', aplicar);
 }
 if('serviceWorker' in navigator){
+  // ¿La página ya estaba controlada por un SW al cargar? Si NO, es la primera
+  // instalación y no hay que mostrar el cartel de "nueva versión".
+  const yaControlada = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('sw.js').then(reg=>{
-    const vigilar=w=>{ if(!w) return; w.addEventListener('statechange',()=>{ if(w.state==='installed' && navigator.serviceWorker.controller) mostrarCartelUpdate(reg); }); };
-    if(reg.waiting && navigator.serviceWorker.controller) mostrarCartelUpdate(reg);
+    const vigilar=w=>{ if(!w) return; w.addEventListener('statechange',()=>{ if(w.state==='installed' && yaControlada) mostrarCartelUpdate(reg); }); };
+    if(reg.waiting && yaControlada) mostrarCartelUpdate(reg);
     vigilar(reg.installing);
     reg.addEventListener('updatefound',()=>vigilar(reg.installing));
     // Buscar nuevas versiones al abrir, al volver el foco y cada 20 min.

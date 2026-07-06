@@ -4,5 +4,25 @@
   ],
   "crons": [
     { "path": "/api/cheques-cron", "schedule": "0 11 * * *" }
+  ],
+  "headers": [
+    {
+      "source": "/cheques/sw.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/cheques/index.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/cheques/manifest.json",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
+      ]
+    }
   ]
 }

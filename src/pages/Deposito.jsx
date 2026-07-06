@@ -51,7 +51,7 @@ function motivosPorCategoria(categoria) {
   if (categoria === 'REVENTA') return ['Venta', 'Muestra', 'Baja por daño', 'Ajuste de inventario']
   return ['Uso en producción', 'Venta', 'Merma', 'Vencimiento', 'Devolución', 'Ajuste de inventario', 'Baja']
 }
-const MOTIVOS_INGRESO_DEPOSITO = ['Compra a proveedor', 'Sobrante de producción', 'Devolución', 'Ajuste de inventario', 'Transferencia']
+const MOTIVOS_INGRESO_DEPOSITO = ['Compra a proveedor', 'Sobrantes de Producción', 'Devolución', 'Ajuste de inventario', 'Transferencia']
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const SEM = { verde: colors.success, amarillo: colors.warning, rojo: colors.danger, gris: colors.textMuted }
 

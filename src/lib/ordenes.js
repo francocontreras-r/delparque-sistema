@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { normalizarNombre } from './texto'
 
 export const ESTADO_EN_PROCESO = 'en_proceso'
 export const ESTADO_COMPLETADA = 'completada'
@@ -84,19 +85,23 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal, usuarioE
     const kgBaseTeorica = (orden.batches || 0) * litrosBase
     const diferencia = kgProducidoFinal - kgBaseTeorica
 
-    // Descontar de stock_bases (FIFO: más antiguo primero)
-    const { data: baseRows } = await supabase
+    // Descontar de stock_bases con FIFO REAL (partida más antigua primero, y si
+    // no alcanza cascada a la siguiente) y coincidencia de nombre NORMALIZADA
+    // (tolera acentos/mayúsculas/espacios, como el resto del sistema). Antes
+    // matcheaba exacto y sólo una partida → la base podía no descontarse nunca.
+    const { data: todasBases } = await supabase
       .from('stock_bases')
-      .select('id, kg_disponible')
-      .eq('base_nombre', saborData.base_nombre)
+      .select('id, base_nombre, kg_disponible')
       .gt('kg_disponible', 0)
       .order('fecha', { ascending: true })
-      .limit(1)
-
-    if (baseRows && baseRows.length > 0) {
-      const row = baseRows[0]
-      const nuevosKg = Math.max(0, row.kg_disponible - kgBaseTeorica)
-      await supabase.from('stock_bases').update({ kg_disponible: nuevosKg }).eq('id', row.id)
+    const objetivo = normalizarNombre(saborData.base_nombre)
+    const partidas = (todasBases || []).filter(b => normalizarNombre(b.base_nombre) === objetivo)
+    let restante = kgBaseTeorica
+    for (const row of partidas) {
+      if (restante <= 0) break
+      const usar = Math.min(Number(row.kg_disponible) || 0, restante)
+      await supabase.from('stock_bases').update({ kg_disponible: (Number(row.kg_disponible) || 0) - usar }).eq('id', row.id)
+      restante -= usar
     }
 
     if (Math.abs(diferencia) <= 0.5) {

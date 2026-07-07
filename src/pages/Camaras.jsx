@@ -1231,6 +1231,11 @@ export default function Camaras() {
   const [filtroMovMotivo, setFiltroMovMotivo] = useState('')  // '' = todos
   const [rindioEdits, setRindioEdits] = useState({})          // { [movId]: valorEnEdicion }
   const [savingRindio, setSavingRindio] = useState(null)      // id en guardado
+  // Período del PDF de movimientos (semana / mes / personalizado).
+  const [pdfMovModo, setPdfMovModo]   = useState('semana')
+  const [pdfMovDesde, setPdfMovDesde] = useState('')
+  const [pdfMovHasta, setPdfMovHasta] = useState('')
+  const [generandoPDFmov, setGenerandoPDFmov] = useState(false)
 
   const [operarios, setOperarios]           = useState([])
   const [temperaturas, setTemperaturas]     = useState([])
@@ -1451,101 +1456,191 @@ export default function Camaras() {
     ], movimientos)
   }
 
-  function exportarMovimientosPDF() {
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-    const pw = doc.internal.pageSize.getWidth()
-    const ph = doc.internal.pageSize.getHeight()
-    const hoy = new Date().toLocaleString('es-AR')
-    const MOD = 'Cámaras'
-    const TIT = 'Movimientos de Cámara'
-    const periodo = filtroMovFecha ? `Fecha ${filtroMovFecha.split('-').reverse().join('/')}` : 'Todos los registros'
-    const EST = getEstiloInforme()
-    const didDP = () => { dibujarEncabezado(doc, pw, MOD, TIT, hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber) }
+  // Rango del PDF según el período elegido (semana / mes / personalizado).
+  function rangoPDFMov() {
+    const toISO = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const hoyD = new Date()
+    if (pdfMovModo === 'mes') return { desde: toISO(new Date(hoyD.getFullYear(), hoyD.getMonth(), 1)), hasta: toISO(hoyD) }
+    if (pdfMovModo === 'personalizado') return { desde: pdfMovDesde || toISO(hoyD), hasta: pdfMovHasta || toISO(hoyD) }
+    const d = new Date(hoyD); d.setDate(d.getDate() - 6); return { desde: toISO(d), hasta: toISO(hoyD) }
+  }
 
-    const ingresos = movimientos.filter(m => m.tipo === 'ingreso')
-    const egresos  = movimientos.filter(m => m.tipo === 'egreso')
-    const kgIng = ingresos.reduce((a, m) => a + (m.kg || 0), 0)
-    const kgEgr = egresos.reduce((a, m) => a + (m.kg || 0), 0)
+  async function exportarMovimientosPDF() {
+    setGenerandoPDFmov(true)
+    try {
+      const { desde, hasta } = rangoPDFMov()
+      const { data } = await supabase.from('movimientos_camara').select('*')
+        .gte('fecha', desde).lte('fecha', hasta).order('created_at', { ascending: false }).limit(5000)
+      const movs = data || []
 
-    // ── Portada ──
-    dibujarPortada(doc, pw, ph, MOD, TIT, periodo, hoy)
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+      const pw = doc.internal.pageSize.getWidth()
+      const ph = doc.internal.pageSize.getHeight()
+      const hoy = new Date().toLocaleString('es-AR')
+      const MOD = 'Cámaras'
+      const TIT = 'Movimientos de Cámara'
+      const fmtF = s => (s || '').split('-').reverse().join('/')
+      const periodo = `${fmtF(desde)} — ${fmtF(hasta)}`
+      const EST = getEstiloInforme()
+      const didDP = () => { dibujarEncabezado(doc, pw, MOD, TIT, hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber) }
+      const num = n => (Number(n) || 0).toLocaleString('es-AR', { maximumFractionDigits: 1 })
 
-    // ── Pág 2: Resumen ──
-    doc.addPage(); didDP()
-    const cards = [
-      ['Movimientos',   String(movimientos.length),   PDF_NEGRO],
-      ['KG ingresados', `${kgIng.toFixed(1)} kg`,      PDF_SEM_OK],
-      ['KG egresados',  `${kgEgr.toFixed(1)} kg`,      PDF_SEM_NEG],
-      ['Balance',       `${(kgIng - kgEgr).toFixed(1)} kg`, (kgIng - kgEgr) >= 0 ? PDF_SEM_OK : PDF_SEM_NEG],
-    ]
-    const gap = 4, cw = (pw - 28 - gap * 3) / 4, ch = 22, cy = PDF_CONTENT_Y - 2
-    cards.forEach((c, i) => dibujarKpiCard(doc, 14 + i * (cw + gap), cy, cw, ch, c[0], c[1], c[2]))
-    let y = cy + ch + 9
+      const CATS = [
+        { key: 'helado', label: 'Helados', unidad: 'kg', campo: 'kg' },
+        { key: 'impulsivo', label: 'Impulsivos', unidad: 'u', campo: 'baldes' },
+        { key: 'postre', label: 'Postres', unidad: 'u', campo: 'baldes' },
+      ]
+      const catDe = m => (m.tipo_producto || 'helado')
+      const valDe = (m, cat) => Number(m[cat.campo]) || 0
+      const ingresos = movs.filter(m => m.tipo === 'ingreso')
+      const egresos  = movs.filter(m => m.tipo === 'egreso')
+      const kgIng = ingresos.reduce((a, m) => a + (m.kg || 0), 0)
+      const kgEgr = egresos.reduce((a, m) => a + (m.kg || 0), 0)
 
-    // Egresos por destino (motivo)
-    const cats = CAT_EGRESO.map(c => {
-      const ms = egresos.filter(m => categoriaMotivo(m.motivo) === c.key)
-      return { key: c.key, n: ms.length, baldes: ms.reduce((a, m) => a + (m.baldes || 0), 0), kg: ms.reduce((a, m) => a + (m.kg || 0), 0) }
-    }).filter(c => c.n > 0)
-    if (cats.length) {
-      y = dibujarSeccion(doc, pw, 'Egresos por destino', y)
+      // ── Gráficos nativos (limpios, estilo dashboard) ──
+      const leyenda = (x, yy) => {
+        doc.setFillColor(...PDF_SEM_OK); doc.roundedRect(x, yy, 4, 4, 0.6, 0.6, 'F')
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(60, 60, 60); doc.text('Ingresos', x + 6, yy + 3.4)
+        doc.setFillColor(...PDF_SEM_NEG); doc.roundedRect(x + 30, yy, 4, 4, 0.6, 0.6, 'F'); doc.text('Egresos', x + 36, yy + 3.4)
+      }
+      const barrasGrouped = (x, yy, w, rows, fmt) => {
+        const maxV = Math.max(...rows.flatMap(r => [r.ing, r.egr]), 1)
+        const rowH = 11, labelW = 44, barMax = w - labelW - 26
+        rows.forEach((r, i) => {
+          const by = yy + i * rowH
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(35, 35, 35)
+          doc.text(doc.splitTextToSize(String(r.label), labelW - 2)[0], x, by + 4)
+          doc.setFillColor(...PDF_SEM_OK); doc.roundedRect(x + labelW, by, Math.max(0.6, barMax * (r.ing / maxV)), 3.2, 0.6, 0.6, 'F')
+          doc.setFillColor(...PDF_SEM_NEG); doc.roundedRect(x + labelW, by + 4.2, Math.max(0.6, barMax * (r.egr / maxV)), 3.2, 0.6, 0.6, 'F')
+          doc.setFontSize(7); doc.setTextColor(70, 70, 70)
+          if (r.ing > 0) doc.text(`+${fmt(r.ing)}`, x + labelW + barMax * (r.ing / maxV) + 1.5, by + 2.8)
+          if (r.egr > 0) doc.text(`-${fmt(r.egr)}`, x + labelW + barMax * (r.egr / maxV) + 1.5, by + 7)
+        })
+        return yy + rows.length * rowH + 2
+      }
+      const barrasSimple = (x, yy, w, rows, fmt) => {
+        const maxV = Math.max(...rows.map(r => r.value), 1)
+        const rowH = 7.5, labelW = 48, barMax = w - labelW - 26
+        rows.forEach((r, i) => {
+          const by = yy + i * rowH
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(35, 35, 35)
+          doc.text(doc.splitTextToSize(String(r.label), labelW - 2)[0], x, by + 3.4)
+          doc.setFillColor(...(r.color || PDF_SEM_NEG)); doc.roundedRect(x + labelW, by, Math.max(0.6, barMax * (r.value / maxV)), 4.4, 0.7, 0.7, 'F')
+          doc.setFontSize(7.5); doc.setTextColor(70, 70, 70)
+          doc.text(fmt(r.value), x + labelW + barMax * (r.value / maxV) + 2, by + 3.6)
+        })
+        return yy + rows.length * rowH + 2
+      }
+
+      // ── Portada ──
+      dibujarPortada(doc, pw, ph, MOD, TIT, periodo, hoy)
+
+      if (movs.length === 0) {
+        doc.addPage(); didDP()
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(...PDF_NEGRO)
+        doc.text('No hay movimientos de cámara en el período seleccionado.', 14, PDF_CONTENT_Y + 6)
+        doc.save(`movimientos_camara_${desde}_a_${hasta}.pdf`); return
+      }
+
+      // ── Pág 2: Resumen + gráficos ──
+      doc.addPage(); didDP()
+      const cards = [
+        ['Movimientos', String(movs.length), PDF_NEGRO],
+        ['Ingresos', String(ingresos.length), PDF_SEM_OK],
+        ['Egresos', String(egresos.length), PDF_SEM_NEG],
+        ['Balance helado', `${(kgIng - kgEgr).toFixed(1)} kg`, (kgIng - kgEgr) >= 0 ? PDF_SEM_OK : PDF_SEM_NEG],
+      ]
+      const gap = 4, cw = (pw - 28 - gap * 3) / 4, ch = 22, cy = PDF_CONTENT_Y
+      cards.forEach((c, i) => dibujarKpiCard(doc, 14 + i * (cw + gap), cy, cw, ch, c[0], c[1], c[2]))
+      let y = cy + ch + 10
+
+      y = dibujarSeccion(doc, pw, 'Ingresos vs. egresos por categoría', y)
+      leyenda(pw - 88, y - 6)
+      const rowsCat = CATS.map(cat => ({
+        label: cat.label,
+        ing: ingresos.filter(m => catDe(m) === cat.key).length,
+        egr: egresos.filter(m => catDe(m) === cat.key).length,
+      })).filter(r => r.ing + r.egr > 0)
+      if (rowsCat.length) y = barrasGrouped(14, y + 2, pw - 28, rowsCat, v => `${v}`) + 4
+
+      const catsDest = CAT_EGRESO.map(c => ({
+        label: c.key, value: egresos.filter(m => categoriaMotivo(m.motivo) === c.key).length,
+      })).filter(c => c.value > 0).sort((a, b) => b.value - a.value)
+      if (catsDest.length) {
+        if (y > ph - 45) { doc.addPage(); didDP(); y = PDF_CONTENT_Y }
+        y = dibujarSeccion(doc, pw, 'Egresos por destino', y)
+        y = barrasSimple(14, y + 2, pw - 28, catsDest, v => `${v} mov.`) + 4
+      }
+
+      // ── Por categoría: qué entró y qué salió de cada producto ──
+      CATS.forEach(cat => {
+        const msCat = movs.filter(m => catDe(m) === cat.key)
+        if (!msCat.length) return
+        const porProd = {}
+        msCat.forEach(m => {
+          const nom = m.sabor_nombre || m.producto_nombre || '—'
+          if (!porProd[nom]) porProd[nom] = { label: nom, ing: 0, egr: 0 }
+          const v = valDe(m, cat)
+          if (m.tipo === 'ingreso') porProd[nom].ing += v; else porProd[nom].egr += v
+        })
+        const rows = Object.values(porProd).sort((a, b) => (b.ing + b.egr) - (a.ing + a.egr))
+        doc.addPage(); didDP()
+        let yy = dibujarSeccion(doc, pw, `${cat.label} — qué entró y qué salió (${cat.unidad})`, PDF_CONTENT_Y)
+        leyenda(pw - 88, yy - 6)
+        yy = barrasGrouped(14, yy + 2, pw - 28, rows.slice(0, 12), v => num(v)) + 4
+        if (yy > ph - 40) { doc.addPage(); didDP(); yy = PDF_CONTENT_Y }
+        autoTable(doc, {
+          ...EST, startY: yy,
+          head: [['Producto', `Ingresó (${cat.unidad})`, `Egresó (${cat.unidad})`, `Balance (${cat.unidad})`]],
+          body: rows.map(r => [r.label, num(r.ing), num(r.egr), num(r.ing - r.egr)]),
+          foot: [['TOTAL', num(rows.reduce((a, r) => a + r.ing, 0)), num(rows.reduce((a, r) => a + r.egr, 0)), num(rows.reduce((a, r) => a + r.ing - r.egr, 0))]],
+          footStyles: { fillColor: PDF_NEGRO, textColor: [255, 255, 255], fontStyle: 'bold' },
+          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+          didDrawPage: didDP,
+        })
+      })
+
+      // ── Rendimiento de baldes entregados a producción ──
+      const prod = egresos.filter(m => categoriaMotivo(m.motivo) === 'Producción')
+      if (prod.length) {
+        doc.addPage(); didDP()
+        const yy = dibujarSeccion(doc, pw, 'Rendimiento de baldes entregados a producción', PDF_CONTENT_Y)
+        autoTable(doc, {
+          ...EST, startY: yy,
+          head: [['Producto', 'Entregado', 'Elaborado', 'Rindió', 'Rend./balde']],
+          body: prod.map(m => {
+            const rb = (m.rindio != null && (m.baldes || 0) > 0) ? (m.rindio / m.baldes).toFixed(1) : '—'
+            return [m.sabor_nombre || m.producto_nombre || '—', String(m.baldes || 0), productoElaboradoDe(m.motivo) || '—', m.rindio != null ? Number(m.rindio).toFixed(1) : 's/registrar', rb]
+          }),
+          columnStyles: { 1: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' } },
+          didDrawPage: didDP,
+        })
+      }
+
+      // ── Detalle completo ──
+      doc.addPage(); didDP()
+      const yDet = dibujarSeccion(doc, pw, 'Detalle de movimientos', PDF_CONTENT_Y)
       autoTable(doc, {
-        ...EST, startY: y,
-        head: [['Destino', 'Movimientos', 'Cantidad', 'KG']],
-        body: cats.map(c => [c.key, String(c.n), String(c.baldes), c.kg.toFixed(1)]),
-        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+        ...EST, startY: yDet, styles: { ...EST.styles, fontSize: 7 },
+        head: [['Fecha', 'Producto', 'Cat.', 'Tipo', 'KG', 'Cant.', 'Lote', 'Operario', 'Motivo']],
+        body: movs.map(m => [
+          fmtF(m.fecha), m.sabor_nombre || m.producto_nombre || '—',
+          catDe(m) === 'helado' ? 'Helado' : catDe(m) === 'impulsivo' ? 'Impulsivo' : 'Postre',
+          m.tipo === 'ingreso' ? 'Ingreso' : 'Egreso',
+          (m.kg || 0).toFixed(1), String(m.baldes || 0),
+          m.lote || '—', m.operario_nombre || '—', categoriaMotivo(m.motivo),
+        ]),
+        columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' } },
         didDrawPage: didDP,
       })
-      y = doc.lastAutoTable.finalY + 8
+
+      dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, MOD, hoy, ['Responsable Cámaras', 'Supervisor'])
+      doc.save(`movimientos_camara_${desde}_a_${hasta}.pdf`)
+    } catch (err) {
+      mostrarToast(err.message || 'No se pudo generar el PDF', 'error')
+    } finally {
+      setGenerandoPDFmov(false)
     }
-
-    // Rendimiento de baldes entregados a producción
-    const prod = egresos.filter(m => categoriaMotivo(m.motivo) === 'Producción')
-    if (prod.length) {
-      if (y > ph - 50) { doc.addPage(); didDP(); y = PDF_CONTENT_Y }
-      y = dibujarSeccion(doc, pw, 'Rendimiento de baldes entregados a producción', y)
-      autoTable(doc, {
-        ...EST, startY: y,
-        head: [['Producto', 'Entregado', 'Elaborado', 'Rindió', 'Rend./balde']],
-        body: prod.map(m => {
-          const rb = (m.rindio != null && (m.baldes || 0) > 0) ? (m.rindio / m.baldes).toFixed(1) : '—'
-          return [
-            m.sabor_nombre || m.producto_nombre || '—',
-            String(m.baldes || 0),
-            productoElaboradoDe(m.motivo) || '—',
-            m.rindio != null ? Number(m.rindio).toFixed(1) : 's/registrar',
-            rb,
-          ]
-        }),
-        columnStyles: { 1: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' } },
-        didDrawPage: didDP,
-      })
-      y = doc.lastAutoTable.finalY + 8
-    }
-
-    // ── Pág: Detalle completo ──
-    doc.addPage(); didDP()
-    autoTable(doc, {
-      ...EST, startY: PDF_CONTENT_Y,
-      head: [['Hora', 'Producto', 'Tipo', 'KG', 'Cant.', 'Lote', 'Operario', 'Motivo']],
-      body: movimientos.map(m => [
-        m.created_at ? new Date(m.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '—',
-        m.sabor_nombre || m.producto_nombre || '—',
-        m.tipo === 'ingreso' ? 'Ingreso' : 'Egreso',
-        (m.kg || 0).toFixed(1),
-        String(m.baldes || 0),
-        m.lote || '—',
-        m.operario_nombre || '—',
-        categoriaMotivo(m.motivo),
-      ]),
-      columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' } },
-      didDrawPage: didDP,
-    })
-
-    // Firmas al final (sin hoja extra si hay lugar)
-    dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, MOD, hoy, ['Responsable Cámaras', 'Supervisor'])
-
-    doc.save(`movimientos_camara_${filtroMovFecha || new Date().toISOString().split('T')[0]}.pdf`)
   }
 
   function mostrarToast(msg, type = 'ok') {
@@ -2086,23 +2181,44 @@ export default function Camaras() {
               </select>
             </div>
             {isAdmin && (
-            <div className="flex gap-2">
-              <button
-                onClick={exportarMovimientosCSV}
-                disabled={movimientos.length === 0}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-40"
-                style={{ borderColor: colors.border, color: colors.textSecondary, backgroundColor: colors.surface }}
-              >
-                <FileDown size={14} /> Excel
-              </button>
-              <button
-                onClick={exportarMovimientosPDF}
-                disabled={movimientos.length === 0}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-40"
-                style={{ borderColor: colors.border, color: colors.textSecondary, backgroundColor: colors.surface }}
-              >
-                <FileDown size={14} /> PDF
-              </button>
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex gap-2">
+                <button
+                  onClick={exportarMovimientosCSV}
+                  disabled={movimientos.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-40"
+                  style={{ borderColor: colors.border, color: colors.textSecondary, backgroundColor: colors.surface }}
+                >
+                  <FileDown size={14} /> Excel
+                </button>
+                <button
+                  onClick={exportarMovimientosPDF}
+                  disabled={generandoPDFmov}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-40"
+                  style={{ borderColor: colors.brand, color: 'white', backgroundColor: colors.brand }}
+                >
+                  <FileDown size={14} /> {generandoPDFmov ? 'Generando…' : 'PDF'}
+                </button>
+              </div>
+              {/* Período del PDF (el Excel usa el filtro de arriba) */}
+              <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                <span className="text-[11px]" style={{ color: colors.textMuted }}>PDF:</span>
+                {[['semana', 'Semana'], ['mes', 'Mes'], ['personalizado', 'Person.']].map(([k, l]) => (
+                  <button key={k} onClick={() => setPdfMovModo(k)}
+                    className="px-2 py-0.5 rounded-full text-[11px] font-semibold border transition-all"
+                    style={{ backgroundColor: pdfMovModo === k ? colors.brand : 'transparent', borderColor: pdfMovModo === k ? colors.brand : colors.border, color: pdfMovModo === k ? 'white' : colors.textSecondary }}>
+                    {l}
+                  </button>
+                ))}
+                {pdfMovModo === 'personalizado' && (
+                  <>
+                    <input type="date" value={pdfMovDesde} onChange={e => setPdfMovDesde(e.target.value)}
+                      className="rounded border text-[11px] px-1.5 py-0.5 outline-none" style={{ borderColor: colors.border, backgroundColor: colors.surface, color: colors.textPrimary }} />
+                    <input type="date" value={pdfMovHasta} onChange={e => setPdfMovHasta(e.target.value)}
+                      className="rounded border text-[11px] px-1.5 py-0.5 outline-none" style={{ borderColor: colors.border, backgroundColor: colors.surface, color: colors.textPrimary }} />
+                  </>
+                )}
+              </div>
             </div>
             )}
           </div>

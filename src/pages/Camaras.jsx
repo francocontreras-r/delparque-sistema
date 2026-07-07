@@ -1481,7 +1481,6 @@ export default function Camaras() {
       const TIT = 'Movimientos de Cámara'
       const fmtF = s => (s || '').split('-').reverse().join('/')
       const periodo = `${fmtF(desde)} — ${fmtF(hasta)}`
-      const EST = getEstiloInforme()
       const didDP = () => { dibujarEncabezado(doc, pw, MOD, TIT, hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber) }
       const num = n => (Number(n) || 0).toLocaleString('es-AR', { maximumFractionDigits: 1 })
 
@@ -1497,39 +1496,74 @@ export default function Camaras() {
       const kgIng = ingresos.reduce((a, m) => a + (m.kg || 0), 0)
       const kgEgr = egresos.reduce((a, m) => a + (m.kg || 0), 0)
 
-      // ── Gráficos nativos (limpios, estilo dashboard) ──
-      const leyenda = (x, yy) => {
-        doc.setFillColor(...PDF_SEM_OK); doc.roundedRect(x, yy, 4, 4, 0.6, 0.6, 'F')
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(60, 60, 60); doc.text('Ingresos', x + 6, yy + 3.4)
-        doc.setFillColor(...PDF_SEM_NEG); doc.roundedRect(x + 30, yy, 4, 4, 0.6, 0.6, 'F'); doc.text('Egresos', x + 36, yy + 3.4)
+      // ── Sistema de diseño local (limpio, tipo Material) ──────────────────────
+      // Paleta validada: verde "good" #0ca30c e­gresos rojo "critical" #d03b3b
+      // (CVD ΔE 12.4, con posición + signo + leyenda como canales secundarios).
+      const C = {
+        ink: [26, 26, 26], sec: [82, 81, 78], muted: [150, 150, 150],
+        hair: [228, 228, 226], track: [237, 237, 234], tint: [247, 247, 244],
+        ing: [12, 163, 12], egr: [208, 59, 59], brand: [212, 82, 26], blue: [42, 120, 214],
       }
+      const kpiCard = (x, yy, w, h, label, value, accent) => {
+        doc.setFillColor(...C.tint); doc.roundedRect(x, yy, w, h, 2.4, 2.4, 'F')
+        doc.setFillColor(...accent); doc.roundedRect(x + 3.2, yy + 4, 1.5, h - 8, 0.7, 0.7, 'F')
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(6.3); doc.setTextColor(...C.muted)
+        doc.text(String(label).toUpperCase(), x + 6.5, yy + 7.5)
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...C.ink)
+        doc.text(String(value), x + 6.5, yy + 16)
+      }
+      const seccion = (titulo, yy, sub) => {
+        doc.setFillColor(...C.brand); doc.roundedRect(14, yy - 3.2, 2.4, 5, 1, 1, 'F')
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(11.5); doc.setTextColor(...C.ink)
+        doc.text(titulo, 19.5, yy + 1)
+        let ny = yy + 4.5
+        if (sub) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...C.muted); doc.text(sub, 19.5, ny); ny += 3.5 }
+        doc.setDrawColor(...C.hair); doc.setLineWidth(0.2); doc.line(14, ny, pw - 14, ny)
+        return ny + 7
+      }
+      const tabla = (opts) => autoTable(doc, {
+        theme: 'plain',
+        headStyles: { fillColor: [240, 240, 237], textColor: C.ink, fontStyle: 'bold', lineWidth: 0, cellPadding: 2.4, fontSize: 8.5 },
+        bodyStyles: { textColor: [45, 45, 45], lineWidth: 0, cellPadding: 2.2, fontSize: 8 },
+        alternateRowStyles: { fillColor: [250, 250, 248] },
+        footStyles: { fillColor: [244, 244, 241], textColor: C.ink, fontStyle: 'bold', lineWidth: 0, cellPadding: 2.4 },
+        margin: { left: 14, right: 14, top: PDF_CONTENT_Y }, didDrawPage: didDP, ...opts,
+      })
+      const leyenda = (x, yy) => {
+        doc.setFillColor(...C.ing); doc.circle(x + 1.4, yy + 1.6, 1.4, 'F')
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...C.sec); doc.text('Ingresos', x + 5, yy + 2.6)
+        doc.setFillColor(...C.egr); doc.circle(x + 29.4, yy + 1.6, 1.4, 'F'); doc.text('Egresos', x + 33, yy + 2.6)
+      }
+      // Barras con riel de fondo, extremos redondeados y valores en tinta.
       const barrasGrouped = (x, yy, w, rows, fmt) => {
         const maxV = Math.max(...rows.flatMap(r => [r.ing, r.egr]), 1)
-        const rowH = 11, labelW = 44, barMax = w - labelW - 26
+        const rowH = 12.5, labelW = 46, valW = 24, barMax = w - labelW - valW, bh = 3.4, gapB = 1.8
         rows.forEach((r, i) => {
           const by = yy + i * rowH
-          doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(35, 35, 35)
-          doc.text(doc.splitTextToSize(String(r.label), labelW - 2)[0], x, by + 4)
-          doc.setFillColor(...PDF_SEM_OK); doc.roundedRect(x + labelW, by, Math.max(0.6, barMax * (r.ing / maxV)), 3.2, 0.6, 0.6, 'F')
-          doc.setFillColor(...PDF_SEM_NEG); doc.roundedRect(x + labelW, by + 4.2, Math.max(0.6, barMax * (r.egr / maxV)), 3.2, 0.6, 0.6, 'F')
-          doc.setFontSize(7); doc.setTextColor(70, 70, 70)
-          if (r.ing > 0) doc.text(`+${fmt(r.ing)}`, x + labelW + barMax * (r.ing / maxV) + 1.5, by + 2.8)
-          if (r.egr > 0) doc.text(`-${fmt(r.egr)}`, x + labelW + barMax * (r.egr / maxV) + 1.5, by + 7)
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...C.ink)
+          doc.text(doc.splitTextToSize(String(r.label), labelW - 3)[0], x, by + 5)
+          doc.setFillColor(...C.track); doc.roundedRect(x + labelW, by, barMax, bh, bh / 2, bh / 2, 'F'); doc.roundedRect(x + labelW, by + bh + gapB, barMax, bh, bh / 2, bh / 2, 'F')
+          doc.setFillColor(...C.ing); doc.roundedRect(x + labelW, by, Math.max(bh, barMax * (r.ing / maxV)), bh, bh / 2, bh / 2, 'F')
+          doc.setFillColor(...C.egr); doc.roundedRect(x + labelW, by + bh + gapB, Math.max(bh, barMax * (r.egr / maxV)), bh, bh / 2, bh / 2, 'F')
+          doc.setFontSize(8); doc.setTextColor(...C.sec)
+          doc.text(`+${fmt(r.ing)}`, x + w - valW + 2, by + 2.9)
+          doc.text(`−${fmt(r.egr)}`, x + w - valW + 2, by + bh + gapB + 2.9)
         })
-        return yy + rows.length * rowH + 2
+        return yy + rows.length * rowH
       }
       const barrasSimple = (x, yy, w, rows, fmt) => {
         const maxV = Math.max(...rows.map(r => r.value), 1)
-        const rowH = 7.5, labelW = 48, barMax = w - labelW - 26
+        const rowH = 9.5, labelW = 52, valW = 24, barMax = w - labelW - valW, bh = 4.6
         rows.forEach((r, i) => {
           const by = yy + i * rowH
-          doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(35, 35, 35)
-          doc.text(doc.splitTextToSize(String(r.label), labelW - 2)[0], x, by + 3.4)
-          doc.setFillColor(...(r.color || PDF_SEM_NEG)); doc.roundedRect(x + labelW, by, Math.max(0.6, barMax * (r.value / maxV)), 4.4, 0.7, 0.7, 'F')
-          doc.setFontSize(7.5); doc.setTextColor(70, 70, 70)
-          doc.text(fmt(r.value), x + labelW + barMax * (r.value / maxV) + 2, by + 3.6)
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...C.ink)
+          doc.text(doc.splitTextToSize(String(r.label), labelW - 3)[0], x, by + 3.8)
+          doc.setFillColor(...C.track); doc.roundedRect(x + labelW, by, barMax, bh, bh / 2, bh / 2, 'F')
+          doc.setFillColor(...(r.color || C.blue)); doc.roundedRect(x + labelW, by, Math.max(bh, barMax * (r.value / maxV)), bh, bh / 2, bh / 2, 'F')
+          doc.setFontSize(8); doc.setTextColor(...C.sec)
+          doc.text(fmt(r.value), x + w - valW + 2, by + 3.6)
         })
-        return yy + rows.length * rowH + 2
+        return yy + rows.length * rowH
       }
 
       // ── Portada ──
@@ -1545,31 +1579,31 @@ export default function Camaras() {
       // ── Pág 2: Resumen + gráficos ──
       doc.addPage(); didDP()
       const cards = [
-        ['Movimientos', String(movs.length), PDF_NEGRO],
-        ['Ingresos', String(ingresos.length), PDF_SEM_OK],
-        ['Egresos', String(egresos.length), PDF_SEM_NEG],
-        ['Balance helado', `${(kgIng - kgEgr).toFixed(1)} kg`, (kgIng - kgEgr) >= 0 ? PDF_SEM_OK : PDF_SEM_NEG],
+        ['Movimientos', String(movs.length), C.brand],
+        ['Ingresos', String(ingresos.length), C.ing],
+        ['Egresos', String(egresos.length), C.egr],
+        ['Balance helado', `${(kgIng - kgEgr).toFixed(1)} kg`, (kgIng - kgEgr) >= 0 ? C.ing : C.egr],
       ]
-      const gap = 4, cw = (pw - 28 - gap * 3) / 4, ch = 22, cy = PDF_CONTENT_Y
-      cards.forEach((c, i) => dibujarKpiCard(doc, 14 + i * (cw + gap), cy, cw, ch, c[0], c[1], c[2]))
-      let y = cy + ch + 10
+      const gap = 4, cw = (pw - 28 - gap * 3) / 4, ch = 20, cy = PDF_CONTENT_Y
+      cards.forEach((c, i) => kpiCard(14 + i * (cw + gap), cy, cw, ch, c[0], c[1], c[2]))
+      let y = cy + ch + 13
 
-      y = dibujarSeccion(doc, pw, 'Ingresos vs. egresos por categoría', y)
-      leyenda(pw - 88, y - 6)
+      leyenda(pw - 78, y - 2.6)
+      y = seccion('Ingresos vs. egresos por categoría', y, 'Cantidad de movimientos en el período')
       const rowsCat = CATS.map(cat => ({
         label: cat.label,
         ing: ingresos.filter(m => catDe(m) === cat.key).length,
         egr: egresos.filter(m => catDe(m) === cat.key).length,
       })).filter(r => r.ing + r.egr > 0)
-      if (rowsCat.length) y = barrasGrouped(14, y + 2, pw - 28, rowsCat, v => `${v}`) + 4
+      if (rowsCat.length) y = barrasGrouped(14, y, pw - 28, rowsCat, v => `${v}`) + 6
 
       const catsDest = CAT_EGRESO.map(c => ({
         label: c.key, value: egresos.filter(m => categoriaMotivo(m.motivo) === c.key).length,
       })).filter(c => c.value > 0).sort((a, b) => b.value - a.value)
       if (catsDest.length) {
-        if (y > ph - 45) { doc.addPage(); didDP(); y = PDF_CONTENT_Y }
-        y = dibujarSeccion(doc, pw, 'Egresos por destino', y)
-        y = barrasSimple(14, y + 2, pw - 28, catsDest, v => `${v} mov.`) + 4
+        if (y > ph - 50) { doc.addPage(); didDP(); y = PDF_CONTENT_Y }
+        y = seccion('Egresos por destino', y, 'A dónde fue el producto que salió')
+        y = barrasSimple(14, y, pw - 28, catsDest, v => `${v} mov.`) + 4
       }
 
       // ── Por categoría: qué entró y qué salió de cada producto ──
@@ -1585,18 +1619,17 @@ export default function Camaras() {
         })
         const rows = Object.values(porProd).sort((a, b) => (b.ing + b.egr) - (a.ing + a.egr))
         doc.addPage(); didDP()
-        let yy = dibujarSeccion(doc, pw, `${cat.label} — qué entró y qué salió (${cat.unidad})`, PDF_CONTENT_Y)
-        leyenda(pw - 88, yy - 6)
-        yy = barrasGrouped(14, yy + 2, pw - 28, rows.slice(0, 12), v => num(v)) + 4
-        if (yy > ph - 40) { doc.addPage(); didDP(); yy = PDF_CONTENT_Y }
-        autoTable(doc, {
-          ...EST, startY: yy,
+        let yy = PDF_CONTENT_Y
+        leyenda(pw - 78, yy - 2.6)
+        yy = seccion(`${cat.label}`, yy, `Qué entró y qué salió de cada producto · en ${cat.unidad}`)
+        yy = barrasGrouped(14, yy, pw - 28, rows.slice(0, 12), v => num(v)) + 6
+        if (yy > ph - 45) { doc.addPage(); didDP(); yy = PDF_CONTENT_Y }
+        tabla({
+          startY: yy,
           head: [['Producto', `Ingresó (${cat.unidad})`, `Egresó (${cat.unidad})`, `Balance (${cat.unidad})`]],
           body: rows.map(r => [r.label, num(r.ing), num(r.egr), num(r.ing - r.egr)]),
           foot: [['TOTAL', num(rows.reduce((a, r) => a + r.ing, 0)), num(rows.reduce((a, r) => a + r.egr, 0)), num(rows.reduce((a, r) => a + r.ing - r.egr, 0))]],
-          footStyles: { fillColor: PDF_NEGRO, textColor: [255, 255, 255], fontStyle: 'bold' },
           columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
-          didDrawPage: didDP,
         })
       })
 
@@ -1604,24 +1637,23 @@ export default function Camaras() {
       const prod = egresos.filter(m => categoriaMotivo(m.motivo) === 'Producción')
       if (prod.length) {
         doc.addPage(); didDP()
-        const yy = dibujarSeccion(doc, pw, 'Rendimiento de baldes entregados a producción', PDF_CONTENT_Y)
-        autoTable(doc, {
-          ...EST, startY: yy,
+        const yy = seccion('Rendimiento a producción', PDF_CONTENT_Y, 'Baldes entregados y kg elaborados')
+        tabla({
+          startY: yy,
           head: [['Producto', 'Entregado', 'Elaborado', 'Rindió', 'Rend./balde']],
           body: prod.map(m => {
             const rb = (m.rindio != null && (m.baldes || 0) > 0) ? (m.rindio / m.baldes).toFixed(1) : '—'
             return [m.sabor_nombre || m.producto_nombre || '—', String(m.baldes || 0), productoElaboradoDe(m.motivo) || '—', m.rindio != null ? Number(m.rindio).toFixed(1) : 's/registrar', rb]
           }),
           columnStyles: { 1: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' } },
-          didDrawPage: didDP,
         })
       }
 
       // ── Detalle completo ──
       doc.addPage(); didDP()
-      const yDet = dibujarSeccion(doc, pw, 'Detalle de movimientos', PDF_CONTENT_Y)
-      autoTable(doc, {
-        ...EST, startY: yDet, styles: { ...EST.styles, fontSize: 7 },
+      const yDet = seccion('Detalle de movimientos', PDF_CONTENT_Y, `${movs.length} registros en el período`)
+      tabla({
+        startY: yDet, bodyStyles: { textColor: [45, 45, 45], lineWidth: 0, cellPadding: 1.8, fontSize: 7 },
         head: [['Fecha', 'Producto', 'Cat.', 'Tipo', 'KG', 'Cant.', 'Lote', 'Operario', 'Motivo']],
         body: movs.map(m => [
           fmtF(m.fecha), m.sabor_nombre || m.producto_nombre || '—',
@@ -1631,7 +1663,6 @@ export default function Camaras() {
           m.lote || '—', m.operario_nombre || '—', categoriaMotivo(m.motivo),
         ]),
         columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' } },
-        didDrawPage: didDP,
       })
 
       dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, MOD, hoy, ['Responsable Cámaras', 'Supervisor'])

@@ -672,7 +672,13 @@ export default function Informes() {
         autoTable(doc, {
           ...EST, startY: y,
           head: [['OPERARIO', 'KG PRODUCIDOS', 'UNIDADES', 'REGISTROS']],
-          body: actual.porOperario.map(o => [o.nombre, `${fmtNum(o.kgSabores)} kg`, `${fmtNum(o.unidImpulsivos, 0)} u`, String(o.registros)]),
+          // KG = bases + sabores + postres ; UNIDADES = impulsivos + postres.
+          // Antes solo contaba sabores/impulsivos → quien hacía postres salía en 0.
+          body: actual.porOperario.map(o => {
+            const kgTot = (o.kgBases || 0) + (o.kgSabores || 0) + (o.kgPostres || 0)
+            const unidTot = (o.unidImpulsivos || 0) + (o.regPostres || 0)
+            return [o.nombre, `${fmtNum(kgTot)} kg`, `${fmtNum(unidTot, 0)} u`, String(o.registros)]
+          }),
           didDrawPage: didDP,
         })
       }

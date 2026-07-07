@@ -1233,6 +1233,7 @@ export default function Camaras() {
   const [savingRindio, setSavingRindio] = useState(null)      // id en guardado
   // Período del PDF de movimientos (semana / mes / personalizado).
   const [pdfMovModo, setPdfMovModo]   = useState('semana')
+  const [pdfMovDia, setPdfMovDia]     = useState(new Date().toISOString().split('T')[0])
   const [pdfMovDesde, setPdfMovDesde] = useState('')
   const [pdfMovHasta, setPdfMovHasta] = useState('')
   const [generandoPDFmov, setGenerandoPDFmov] = useState(false)
@@ -1460,6 +1461,7 @@ export default function Camaras() {
   function rangoPDFMov() {
     const toISO = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     const hoyD = new Date()
+    if (pdfMovModo === 'dia') { const dd = pdfMovDia || toISO(hoyD); return { desde: dd, hasta: dd } }
     if (pdfMovModo === 'mes') return { desde: toISO(new Date(hoyD.getFullYear(), hoyD.getMonth(), 1)), hasta: toISO(hoyD) }
     if (pdfMovModo === 'personalizado') return { desde: pdfMovDesde || toISO(hoyD), hasta: pdfMovHasta || toISO(hoyD) }
     const d = new Date(hoyD); d.setDate(d.getDate() - 6); return { desde: toISO(d), hasta: toISO(hoyD) }
@@ -1480,7 +1482,7 @@ export default function Camaras() {
       const MOD = 'Cámaras'
       const TIT = 'Movimientos de Cámara'
       const fmtF = s => (s || '').split('-').reverse().join('/')
-      const periodo = `${fmtF(desde)} — ${fmtF(hasta)}`
+      const periodo = desde === hasta ? fmtF(desde) : `${fmtF(desde)} — ${fmtF(hasta)}`
       const didDP = () => { dibujarEncabezado(doc, pw, MOD, TIT, hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber) }
       const num = n => (Number(n) || 0).toLocaleString('es-AR', { maximumFractionDigits: 1 })
 
@@ -1505,12 +1507,13 @@ export default function Camaras() {
         ing: [12, 163, 12], egr: [208, 59, 59], brand: [212, 82, 26], blue: [42, 120, 214],
       }
       const kpiCard = (x, yy, w, h, label, value, accent) => {
-        doc.setFillColor(...C.tint); doc.roundedRect(x, yy, w, h, 2.4, 2.4, 'F')
-        doc.setFillColor(...accent); doc.roundedRect(x + 3.2, yy + 4, 1.5, h - 8, 0.7, 0.7, 'F')
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(6.3); doc.setTextColor(...C.muted)
-        doc.text(String(label).toUpperCase(), x + 6.5, yy + 7.5)
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...C.ink)
-        doc.text(String(value), x + 6.5, yy + 16)
+        doc.setFillColor(...C.tint); doc.roundedRect(x, yy, w, h, 2.6, 2.6, 'F')
+        doc.setFillColor(...accent); doc.roundedRect(x + w / 2 - 5, yy + 3.2, 10, 1.2, 0.6, 0.6, 'F') // acento centrado arriba
+        const cx = x + w / 2
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(6.4); doc.setTextColor(...C.muted)
+        doc.text(String(label).toUpperCase(), cx, yy + 9.5, { align: 'center' })
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(...accent)
+        doc.text(String(value), cx, yy + 18, { align: 'center' })
       }
       const seccion = (titulo, yy, sub) => {
         doc.setFillColor(...C.brand); doc.roundedRect(14, yy - 3.2, 2.4, 5, 1, 1, 'F')
@@ -1523,10 +1526,11 @@ export default function Camaras() {
       }
       const tabla = (opts) => autoTable(doc, {
         theme: 'plain',
-        headStyles: { fillColor: [240, 240, 237], textColor: C.ink, fontStyle: 'bold', lineWidth: 0, cellPadding: 2.4, fontSize: 8.5 },
-        bodyStyles: { textColor: [45, 45, 45], lineWidth: 0, cellPadding: 2.2, fontSize: 8 },
+        styles: { halign: 'center', valign: 'middle' },
+        headStyles: { fillColor: [240, 240, 237], textColor: C.ink, fontStyle: 'bold', lineWidth: 0, cellPadding: 2.4, fontSize: 8.5, halign: 'center' },
+        bodyStyles: { textColor: [45, 45, 45], lineWidth: 0, cellPadding: 2.2, fontSize: 8, halign: 'center' },
         alternateRowStyles: { fillColor: [250, 250, 248] },
-        footStyles: { fillColor: [244, 244, 241], textColor: C.ink, fontStyle: 'bold', lineWidth: 0, cellPadding: 2.4 },
+        footStyles: { fillColor: [244, 244, 241], textColor: C.ink, fontStyle: 'bold', lineWidth: 0, cellPadding: 2.4, halign: 'center' },
         margin: { left: 14, right: 14, top: PDF_CONTENT_Y }, didDrawPage: didDP, ...opts,
       })
       const leyenda = (x, yy) => {
@@ -1629,7 +1633,6 @@ export default function Camaras() {
           head: [['Producto', `Ingresó (${cat.unidad})`, `Egresó (${cat.unidad})`, `Balance (${cat.unidad})`]],
           body: rows.map(r => [r.label, num(r.ing), num(r.egr), num(r.ing - r.egr)]),
           foot: [['TOTAL', num(rows.reduce((a, r) => a + r.ing, 0)), num(rows.reduce((a, r) => a + r.egr, 0)), num(rows.reduce((a, r) => a + r.ing - r.egr, 0))]],
-          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
         })
       })
 
@@ -1645,7 +1648,7 @@ export default function Camaras() {
             const rb = (m.rindio != null && (m.baldes || 0) > 0) ? (m.rindio / m.baldes).toFixed(1) : '—'
             return [m.sabor_nombre || m.producto_nombre || '—', String(m.baldes || 0), productoElaboradoDe(m.motivo) || '—', m.rindio != null ? Number(m.rindio).toFixed(1) : 's/registrar', rb]
           }),
-          columnStyles: { 1: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' } },
+          columnStyles: { 4: { fontStyle: 'bold' } },
         })
       }
 
@@ -1662,7 +1665,6 @@ export default function Camaras() {
           (m.kg || 0).toFixed(1), String(m.baldes || 0),
           m.lote || '—', m.operario_nombre || '—', categoriaMotivo(m.motivo),
         ]),
-        columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' } },
       })
 
       dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, MOD, hoy, ['Responsable Cámaras', 'Supervisor'])
@@ -2234,13 +2236,17 @@ export default function Camaras() {
               {/* Período del PDF (el Excel usa el filtro de arriba) */}
               <div className="flex items-center gap-1.5 flex-wrap justify-end">
                 <span className="text-[11px]" style={{ color: colors.textMuted }}>PDF:</span>
-                {[['semana', 'Semana'], ['mes', 'Mes'], ['personalizado', 'Person.']].map(([k, l]) => (
+                {[['dia', 'Día'], ['semana', 'Semana'], ['mes', 'Mes'], ['personalizado', 'Person.']].map(([k, l]) => (
                   <button key={k} onClick={() => setPdfMovModo(k)}
                     className="px-2 py-0.5 rounded-full text-[11px] font-semibold border transition-all"
                     style={{ backgroundColor: pdfMovModo === k ? colors.brand : 'transparent', borderColor: pdfMovModo === k ? colors.brand : colors.border, color: pdfMovModo === k ? 'white' : colors.textSecondary }}>
                     {l}
                   </button>
                 ))}
+                {pdfMovModo === 'dia' && (
+                  <input type="date" value={pdfMovDia} onChange={e => setPdfMovDia(e.target.value)}
+                    className="rounded border text-[11px] px-1.5 py-0.5 outline-none" style={{ borderColor: colors.border, backgroundColor: colors.surface, color: colors.textPrimary }} />
+                )}
                 {pdfMovModo === 'personalizado' && (
                   <>
                     <input type="date" value={pdfMovDesde} onChange={e => setPdfMovDesde(e.target.value)}

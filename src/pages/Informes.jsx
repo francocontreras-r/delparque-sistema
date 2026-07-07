@@ -162,6 +162,8 @@ export default function Informes() {
   const [tab, setTab]               = useState('Producción')
   const [periodo, setPeriodo]       = useState('semana')
   const [diaSeleccionado, setDiaSeleccionado] = useState(hoyISO)
+  const [desdePers, setDesdePers]   = useState(() => sumarDias(hoyISO(), -6))
+  const [hastaPers, setHastaPers]   = useState(hoyISO)
   const [loading, setLoading]       = useState(true)
   const [exportando, setExportando] = useState(false)
   const chartRefProd = useRef(null)
@@ -191,9 +193,18 @@ export default function Informes() {
         const antHasta = sumarDias(diaValido, -1)
         return { desde: diaValido, hasta: diaValido, antDesde: antHasta, antHasta }
       }
+      if (periodo === 'personalizado') {
+        let d = desdePers && !isNaN(new Date(desdePers).getTime()) ? desdePers : hoyISO()
+        let h = hastaPers && !isNaN(new Date(hastaPers).getTime()) ? hastaPers : d
+        if (new Date(h) < new Date(d)) { const t = d; d = h; h = t } // corrige rango invertido
+        const dur = Math.round((new Date(h) - new Date(d)) / 86400000) + 1
+        const antHasta = sumarDias(d, -1)
+        const antDesde = sumarDias(antHasta, -(dur - 1))
+        return { desde: d, hasta: h, antDesde, antHasta }
+      }
       return calcularRangos(periodo)
     } catch { return calcularRangos('semana') }
-  }, [periodo, diaSeleccionado])
+  }, [periodo, diaSeleccionado, desdePers, hastaPers])
 
   useEffect(() => { cargar() }, [rango]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -549,6 +560,7 @@ export default function Informes() {
   // ── Exportación PDF ───────────────────────────────────────────────────────
   function periodoLabel() {
     if (periodo === 'dia') return `Día ${fmtFecha(diaSeleccionado)}`
+    if (periodo === 'personalizado') return 'Personalizado'
     return PERIODOS.find(p => p.key === periodo)?.label || ''
   }
 
@@ -866,6 +878,15 @@ export default function Informes() {
               {p.label}
             </button>
           ))}
+          <button onClick={() => setPeriodo('personalizado')}
+            className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 border"
+            style={{
+              backgroundColor: periodo === 'personalizado' ? colors.brand : 'transparent',
+              borderColor: periodo === 'personalizado' ? colors.brand : colors.border,
+              color: periodo === 'personalizado' ? 'white' : colors.textSecondary,
+            }}>
+            Personalizado
+          </button>
           {periodo === 'dia' && (
             <input
               type="date"
@@ -874,6 +895,28 @@ export default function Informes() {
               className="rounded-lg border text-xs px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
               style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
             />
+          )}
+          {periodo === 'personalizado' && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs" style={{ color: colors.textMuted }}>Desde</span>
+              <input
+                type="date"
+                value={desdePers}
+                max={hastaPers || undefined}
+                onChange={e => setDesdePers(e.target.value)}
+                className="rounded-lg border text-xs px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+                style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
+              />
+              <span className="text-xs" style={{ color: colors.textMuted }}>Hasta</span>
+              <input
+                type="date"
+                value={hastaPers}
+                min={desdePers || undefined}
+                onChange={e => setHastaPers(e.target.value)}
+                className="rounded-lg border text-xs px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+                style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
+              />
+            </div>
           )}
         </div>
         <p className="text-xs" style={{ color: colors.textMuted }}>

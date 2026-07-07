@@ -310,7 +310,6 @@ export default function Informes() {
 
       filtrada.forEach(r => {
         const tipo = clasificarRegistro(r)
-        console.log('[Informe]', r.producto_nombre, '→', tipo, '| kg:', r.peso_kg, '| cat:', r.categoria, '| tipo_producto:', r.tipo_producto)
         const nombre = r.producto_nombre || 'Sin nombre'
         const op = r.operario_nombre || 'Sin asignar'
 
@@ -339,9 +338,10 @@ export default function Informes() {
           porProducto[nombre].unidades += u
           porOperario[op].unidImpulsivos += u
         } else {
+          // Postres: se venden por PESO (kg), igual que los sabores. Nunca por
+          // unidad. Solo acumulamos kg; `regPostres` cuenta cuántos se registraron.
           kgPostres += r.peso_kg || 0; regPostres++
           porProducto[nombre].kg += r.peso_kg || 0
-          porProducto[nombre].unidades++
           porOperario[op].kgPostres += r.peso_kg || 0; porOperario[op].regPostres++
         }
       })
@@ -349,14 +349,14 @@ export default function Informes() {
       const promedioBases   = regBases > 0 ? kgBases / regBases : 0
       const baldesHelados   = regHelados
       const promedioKgHelados = regHelados > 0 ? kgHelados / regHelados : 0
-      const unidadesPostres = regPostres
+      const promedioKgPostres = regPostres > 0 ? kgPostres / regPostres : 0
 
       return {
         kgBases, regBases, promedioBases,
         kgHelados, regHelados, baldesHelados, promedioKgHelados,
         unidadesImpulsivos,
-        kgPostres, unidadesPostres,
-        unidadesTotal: unidadesImpulsivos + unidadesPostres,
+        kgPostres, regPostres, promedioKgPostres,
+        unidadesTotal: unidadesImpulsivos,
         porProducto: Object.values(porProducto),
         porOperario: Object.values(porOperario).sort((a, b) => b.kgSabores - a.kgSabores),
       }
@@ -382,7 +382,7 @@ export default function Informes() {
       postres: prods
         .filter(p => p.tipo === 'postre')
         .map(p => ({ ...p, promedio: p.registros > 0 ? p.kg / p.registros : 0 }))
-        .sort((a, b) => b.unidades - a.unidades),
+        .sort((a, b) => b.kg - a.kg),
     }
   }, [produccionInforme])
 
@@ -622,8 +622,9 @@ export default function Informes() {
           })
           y += rows.length * 8 + 8
         }
+        // Por peso (kg): bases, helados y postres. Por unidad: solo impulsivos.
         const topProd = [...actual.porProducto].filter(p => p.tipo !== 'base')
-          .map(p => ({ nombre: p.nombre, v: p.tipo === 'helado' ? p.kg : p.unidades, txt: `${fmtNum(p.tipo === 'helado' ? p.kg : p.unidades, p.tipo === 'helado' ? 1 : 0)} ${p.tipo === 'helado' ? 'kg' : 'u'}` }))
+          .map(p => { const peso = p.tipo !== 'impulsivo'; return { nombre: p.nombre, v: peso ? p.kg : p.unidades, txt: `${fmtNum(peso ? p.kg : p.unidades, peso ? 1 : 0)} ${peso ? 'kg' : 'u'}` } })
           .sort((a, b) => b.v - a.v).slice(0, 8)
         barras('Top productos — cantidad producida', topProd, [212, 82, 26])
         const topOps = [...actual.porOperario].map(o => ({ nombre: o.nombre, v: o.kgSabores, txt: `${fmtNum(o.kgSabores, 1)} kg` }))
@@ -638,7 +639,7 @@ export default function Informes() {
           body: [
             ['Total KG (helados)',        `${fmtNum(actual.kgHelados)} kg`,            `${fmtNum(anterior.kgHelados)} kg`,            fmtVar(variacionPct(actual.kgHelados, anterior.kgHelados))],
             ['Unidades (impulsivos)',      `${fmtNum(actual.unidadesImpulsivos, 0)} u`, `${fmtNum(anterior.unidadesImpulsivos, 0)} u`, fmtVar(variacionPct(actual.unidadesImpulsivos, anterior.unidadesImpulsivos))],
-            ['Unidades (postres)',         `${fmtNum(actual.unidadesPostres, 0)} u`,    `${fmtNum(anterior.unidadesPostres, 0)} u`,    fmtVar(variacionPct(actual.unidadesPostres, anterior.unidadesPostres))],
+            ['Total KG (postres)',         `${fmtNum(actual.kgPostres, 1)} kg`,         `${fmtNum(anterior.kgPostres, 1)} kg`,         fmtVar(variacionPct(actual.kgPostres, anterior.kgPostres))],
             ['Operarios activos',          String(actual.porOperario.length),            String(anterior.porOperario.length),            '—'],
           ],
           didDrawPage: didDP,
@@ -647,11 +648,11 @@ export default function Informes() {
 
         y = dibujarSeccion(doc, pw, 'Producción por producto', y)
         const anteriorMapProd = {}
-        anterior.porProducto.forEach(p => { anteriorMapProd[p.nombre] = p.tipo === 'helado' ? p.kg : p.unidades })
+        anterior.porProducto.forEach(p => { anteriorMapProd[p.nombre] = p.tipo !== 'impulsivo' ? p.kg : p.unidades })
         const productosComp = actual.porProducto
           .filter(p => p.tipo !== 'base')
           .map(p => {
-            const va = p.tipo === 'helado' ? p.kg : p.unidades
+            const va = p.tipo !== 'impulsivo' ? p.kg : p.unidades
             const vb = anteriorMapProd[p.nombre] || 0
             return { nombre: p.nombre, tipo: p.tipo, va, vb, var: variacionPct(va, vb) }
           })
@@ -660,8 +661,9 @@ export default function Informes() {
           ...EST, startY: y,
           head: [['PRODUCTO', 'CANTIDAD', 'PERÍODO ANTERIOR', 'VARIACIÓN']],
           body: productosComp.map(p => {
-            const u = p.tipo === 'helado' ? 'kg' : 'u'
-            const dec = p.tipo === 'helado' ? 1 : 0
+            const peso = p.tipo !== 'impulsivo'
+            const u = peso ? 'kg' : 'u'
+            const dec = peso ? 1 : 0
             return [p.nombre, `${fmtNum(p.va, dec)} ${u}`, `${fmtNum(p.vb, dec)} ${u}`, fmtVar(p.var)]
           }),
           didDrawPage: didDP,
@@ -673,11 +675,11 @@ export default function Informes() {
           ...EST, startY: y,
           head: [['OPERARIO', 'KG PRODUCIDOS', 'UNIDADES', 'REGISTROS']],
           // Cada producto en UNA sola columna según cómo se mide:
-          // KG = lo que va por peso (bases + sabores) · UNIDADES = lo que va por
-          // unidad (impulsivos + postres). Sin doble conteo.
+          // KG = lo que va por peso (bases + sabores + postres) · UNIDADES = lo que
+          // va por unidad (solo impulsivos). Sin doble conteo.
           body: actual.porOperario.map(o => {
-            const kgTot = (o.kgBases || 0) + (o.kgSabores || 0)
-            const unidTot = (o.unidImpulsivos || 0) + (o.regPostres || 0)
+            const kgTot = (o.kgBases || 0) + (o.kgSabores || 0) + (o.kgPostres || 0)
+            const unidTot = (o.unidImpulsivos || 0)
             return [o.nombre, `${fmtNum(kgTot)} kg`, `${fmtNum(unidTot, 0)} u`, String(o.registros)]
           }),
           didDrawPage: didDP,
@@ -896,10 +898,10 @@ export default function Informes() {
                 sub={`≈ ${fmtNum(produccionInforme.actual.promedioKgHelados, 2)} kg/reg`} />
               <KpiCard label="Unidades Impulsivos" value={`${fmtNum(produccionInforme.actual.unidadesImpulsivos, 0)} u`} icon={Package} color={colors.warning}
                 sub={<VariacionTag pct={variacionPct(produccionInforme.actual.unidadesImpulsivos, produccionInforme.anterior.unidadesImpulsivos)} />} />
-              <KpiCard label="Unidades Postres" value={`${fmtNum(produccionInforme.actual.unidadesPostres, 0)} u`} icon={Package} color="#a855f7"
-                sub={<VariacionTag pct={variacionPct(produccionInforme.actual.unidadesPostres, produccionInforme.anterior.unidadesPostres)} />} />
               <KpiCard label="KG Postres" value={`${fmtNum(produccionInforme.actual.kgPostres, 1)} kg`} icon={Scale} color="#7c3aed"
                 sub={<VariacionTag pct={variacionPct(produccionInforme.actual.kgPostres, produccionInforme.anterior.kgPostres)} />} />
+              <KpiCard label="Postres registrados" value={`${fmtNum(produccionInforme.actual.regPostres, 0)}`} icon={Package} color="#a855f7"
+                sub={`≈ ${fmtNum(produccionInforme.actual.promedioKgPostres, 2)} kg/reg`} />
             </div>
 
             {produccionesActual.length === 0 ? (
@@ -997,17 +999,17 @@ export default function Informes() {
                   <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
                     <div className="px-4 py-2.5 flex items-center gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
                       <span className="text-xs font-bold uppercase tracking-wide" style={{ color: '#a855f7' }}>🍰 Postres</span>
-                      <span className="text-xs ml-auto" style={{ color: colors.textMuted }}>{fmtNum(produccionInforme.actual.unidadesPostres, 0)} u · {fmtNum(produccionInforme.actual.kgPostres, 1)} kg</span>
+                      <span className="text-xs ml-auto" style={{ color: colors.textMuted }}>{fmtNum(produccionInforme.actual.kgPostres, 1)} kg · {fmtNum(produccionInforme.actual.regPostres, 0)} reg.</span>
                     </div>
                     <Table className="min-w-[560px]">
-                      <Thead><Tr><Th>Producto</Th><Th className="text-right">Unidades</Th><Th className="text-right">KG Total</Th><Th className="text-right">Prom kg/u</Th></Tr></Thead>
+                      <Thead><Tr><Th>Producto</Th><Th className="text-right">KG Total</Th><Th className="text-right">Registros</Th><Th className="text-right">Prom kg/reg</Th></Tr></Thead>
                       <Tbody>
                         {prodTableData.postres.map(p => (
                           <Tr key={p.nombre} style={{ cursor: 'pointer' }}
                             onClick={() => setModalDetalle({ nombre: p.nombre, tipo: 'postre', registros: produccionesActual.filter(r => (r.producto_nombre || '') === p.nombre).sort((a, b) => { const da = new Date(a.created_at || a.fecha || 0); const db = new Date(b.created_at || b.fecha || 0); return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da) }) })}>
                             <Td className="font-medium" style={{ color: '#a855f7' }}>{p.nombre}</Td>
-                            <Td className="text-right font-bold" style={{ color: '#a855f7' }}>{fmtNum(p.unidades, 0)} u</Td>
-                            <Td className="text-right">{fmtNum(p.kg, 1)} kg</Td>
+                            <Td className="text-right font-bold" style={{ color: '#a855f7' }}>{fmtNum(p.kg, 1)} kg</Td>
+                            <Td className="text-right">{fmtNum(p.registros, 0)}</Td>
                             <Td className="text-right text-xs" style={{ color: colors.textMuted }}>{fmtNum(p.promedio, 2)} kg</Td>
                           </Tr>
                         ))}
@@ -1040,10 +1042,10 @@ export default function Informes() {
                               <span style={{ color: colors.textMuted }}> impulsivos</span>
                             </p>
                           )}
-                          {o.regPostres > 0 && (
+                          {o.kgPostres > 0 && (
                             <p className="text-xs" style={{ color: '#a855f7' }}>
-                              <span className="font-semibold">{o.regPostres} u</span>
-                              <span style={{ color: colors.textMuted }}> postres</span>
+                              <span className="font-semibold">{fmtNum(o.kgPostres, 1)} kg</span>
+                              <span style={{ color: colors.textMuted }}> postres · {o.regPostres} reg.</span>
                             </p>
                           )}
                         </div>
@@ -1219,6 +1221,7 @@ export default function Informes() {
         const esHelado    = tipo === 'helado'
         const esImpulsivo = tipo === 'impulsivo'
         const esPostre    = tipo === 'postre'
+        const esPeso      = esHelado || esPostre // helados y postres se miden por kg
 
         const totalKg      = registros.reduce((a, r) => a + (r.peso_kg || 0), 0)
         const totalUnidades = registros.reduce((a, r) => a + (r.peso_kg || 0), 0) // para impulsivos peso_kg = unidades
@@ -1250,12 +1253,11 @@ export default function Informes() {
               ) : (
                 <>
                   <div className="overflow-x-auto">
-                    <table className="w-full" style={{ minWidth: esHelado ? 580 : 480 }}>
+                    <table className="w-full" style={{ minWidth: esPeso ? 580 : 480 }}>
                       <thead>
                         <tr style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
                           {['Fecha/Hora', 'Operario',
-                            esHelado ? 'KG' : 'Unidades',
-                            esPostre ? 'KG' : null,
+                            esPeso ? 'KG' : 'Unidades',
                             'Lote', 'Observaciones',
                           ].filter(Boolean).map(h => (
                             <th key={h} className="py-2.5 px-4 text-left font-semibold uppercase"
@@ -1269,11 +1271,8 @@ export default function Informes() {
                             <td className="py-2.5 px-4 text-xs whitespace-nowrap" style={{ color: colors.textMuted }}>{fmtTS(r)}</td>
                             <td className="py-2.5 px-4 text-sm" style={{ color: colors.textSecondary }}>{r.operario_nombre || '—'}</td>
                             <td className="py-2.5 px-4 text-sm font-semibold text-right" style={{ color: esHelado ? colors.brand : esImpulsivo ? colors.warning : '#a855f7' }}>
-                              {fmtNum(r.peso_kg, esHelado ? 3 : 0)} {esHelado ? 'kg' : 'u'}
+                              {fmtNum(r.peso_kg, esPeso ? 3 : 0)} {esPeso ? 'kg' : 'u'}
                             </td>
-                            {esPostre && (
-                              <td className="py-2.5 px-4 text-sm text-right" style={{ color: colors.textSecondary }}>{fmtNum(r.peso_kg, 1)} kg</td>
-                            )}
                             <td className="py-2.5 px-4 text-xs font-mono" style={{ color: colors.textMuted }}>{r.lote || '—'}</td>
                             <td className="py-2.5 px-4 text-xs max-w-[140px] truncate" style={{ color: colors.textMuted }}>{r.observaciones || '—'}</td>
                           </tr>
@@ -1310,15 +1309,11 @@ export default function Informes() {
                     )}
                     {esPostre && <>
                       <div className="text-center p-2 rounded-lg" style={{ backgroundColor: colors.bg }}>
-                        <p className="text-xs" style={{ color: colors.textMuted }}>Total Unidades</p>
-                        <p className="text-lg font-bold" style={{ color: '#a855f7' }}>{Math.round(totalUnidades)} u</p>
-                      </div>
-                      <div className="text-center p-2 rounded-lg" style={{ backgroundColor: colors.bg }}>
                         <p className="text-xs" style={{ color: colors.textMuted }}>Total KG</p>
                         <p className="text-lg font-bold" style={{ color: '#7c3aed' }}>{fmtNum(totalKg, 2)} kg</p>
                       </div>
                       <div className="text-center p-2 rounded-lg" style={{ backgroundColor: colors.bg }}>
-                        <p className="text-xs" style={{ color: colors.textMuted }}>Prom kg/u</p>
+                        <p className="text-xs" style={{ color: colors.textMuted }}>Prom kg/reg</p>
                         <p className="text-lg font-bold" style={{ color: colors.textSecondary }}>{fmtNum(promedio, 3)}</p>
                       </div>
                     </>}

@@ -33,18 +33,18 @@ const NAV_GRUPOS = [
   {
     grupo: 'ANÁLISIS',
     items: [
-      { to: '/informes',              label: 'Informes',    Icon: FileText,   modulo: 'informes'              },
-      { to: '/rendimiento-operarios', label: 'Rendimiento', Icon: TrendingUp, modulo: 'rendimientoOperarios'  },
-      { to: '/mermas',                label: 'Mermas',      Icon: TrendingDown, modulo: 'mermas'              },
+      { to: '/informes',              label: 'Informes',    Icon: FileText,    modulo: 'informes'              },
+      { to: '/rendimiento-operarios', label: 'Rendimiento', Icon: TrendingUp,  modulo: 'rendimientoOperarios'  },
+      { to: '/mermas',                label: 'Mermas',      Icon: TrendingDown, modulo: 'mermas'                },
+      { to: '/finanzas',              label: 'Finanzas',    Icon: DollarSign,  modulo: 'finanzas'              },
     ],
   },
   {
     grupo: 'CONFIGURACIÓN',
     items: [
-      { to: '/recetas',  label: 'Recetas',  Icon: BookOpen,  modulo: 'recetas'  },
-      { to: '/finanzas', label: 'Finanzas', Icon: DollarSign, modulo: 'finanzas' },
-      { to: '/bitacora', label: 'Bitácora', Icon: History,    modulo: 'bitacora' },
-      { to: '/usuarios', label: 'Usuarios', Icon: Users,     modulo: 'usuarios' },
+      { to: '/recetas',  label: 'Recetas',  Icon: BookOpen, modulo: 'recetas'  },
+      { to: '/bitacora', label: 'Bitácora', Icon: History,  modulo: 'bitacora' },
+      { to: '/usuarios', label: 'Usuarios', Icon: Users,    modulo: 'usuarios' },
     ],
   },
 ]
@@ -347,8 +347,20 @@ export default function Layout() {
   }, [])
 
   const navItems = NAV.filter(n => tienePermiso(n.modulo))
-  const pageTitle = NAV.find(n => n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to))?.label || 'Del Parque'
-  const initial   = user?.email?.charAt(0).toUpperCase() || 'U'
+  // Ubicación actual (grupo + página) para el breadcrumb del header. La barra
+  // superior muestra "dónde estás"; el título grande vive en cada página.
+  const navMatch = (() => {
+    for (const g of NAV_GRUPOS) {
+      for (const it of g.items) {
+        const activo = it.to === '/' ? location.pathname === '/' : location.pathname.startsWith(it.to)
+        if (activo) return { grupo: g.grupo, label: it.label }
+      }
+    }
+    return null
+  })()
+  const grupoActual = navMatch ? navMatch.grupo.charAt(0) + navMatch.grupo.slice(1).toLowerCase() : ''
+  const pageTitle   = navMatch?.label || 'Del Parque'
+  const initial     = user?.email?.charAt(0).toUpperCase() || 'U'
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -387,7 +399,7 @@ export default function Layout() {
           className="flex items-center justify-between px-6 flex-shrink-0"
           style={{ height: 48, backgroundColor: colors.surface, borderBottom: `1px solid ${colors.border}` }}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => setMobileOpen(true)}
               className="md:hidden w-8 h-8 flex items-center justify-center rounded-lg transition-colors hover:bg-[#334155]"
@@ -395,15 +407,20 @@ export default function Layout() {
             >
               <Menu size={18} />
             </button>
-            <h1 className="text-lg font-semibold" style={{ color: colors.textPrimary }}>
-              {pageTitle}
-            </h1>
+            {/* Breadcrumb: ubicación, no un segundo título. El nombre grande de la
+                página lo pone cada página; acá solo damos contexto de dónde estás. */}
+            <nav aria-label="Ubicación" className="flex items-center gap-2 text-sm min-w-0">
+              {grupoActual && (
+                <>
+                  <span className="hidden sm:inline truncate" style={{ color: colors.textMuted }}>{grupoActual}</span>
+                  <span className="hidden sm:inline" style={{ color: colors.border }}>/</span>
+                </>
+              )}
+              <span className="font-semibold truncate" style={{ color: colors.textPrimary }}>{pageTitle}</span>
+            </nav>
           </div>
 
-          <div className="flex items-center gap-4">
-            <span className="hidden sm:block" style={{ fontFamily: 'Georgia, serif', fontSize: '16px', fontWeight: 'bold', color: '#D4521A', letterSpacing: '1px' }}>
-              Del Parque
-            </span>
+          <div className="flex items-center gap-4 flex-shrink-0">
             <Clock />
             <StatusDot />
             <div

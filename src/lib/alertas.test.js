@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { construirAlertas, resumenSeveridad, SEVERIDAD } from './alertas'
 
-// Fecha de hoy fija para los tests de vencimiento/órdenes.
-const hoy = '2026-07-03'
+// clasificarVencimiento compara contra la fecha REAL de hoy, así que los tests
+// de vencimiento deben calcularse relativos a hoy (no a una fecha fija).
+const hoyD = new Date(); hoyD.setHours(0, 0, 0, 0)
+const hoy = hoyD.toISOString().slice(0, 10)
 const enDias = (d) => {
-  const base = new Date('2026-07-03T00:00:00')
+  const base = new Date(hoyD)
   base.setDate(base.getDate() + d)
   return base.toISOString().slice(0, 10)
 }

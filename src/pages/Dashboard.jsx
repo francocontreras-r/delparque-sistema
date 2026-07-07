@@ -14,7 +14,7 @@ import { construirAlertas, resumenSeveridad } from '../lib/alertas'
 import {
   Factory, ClipboardList, Warehouse, Thermometer, Package,
   ArrowUp, ArrowDown, PlayCircle, CheckCircle2, Activity, AlertTriangle,
-  Plus, FileText, TrendingUp, TrendingDown,
+  Plus, FileText, TrendingUp, TrendingDown, ChevronRight,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -89,7 +89,7 @@ function fechaLarga() {
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const { profile, user, tienePermiso } = useUser()
+  const { profile, user, tienePermiso, isAdmin } = useUser()
   const [loading, setLoading] = useState(true)
   const [producciones, setProducciones] = useState([])
   const [ordenesActivas, setOrdenesActivas] = useState([])
@@ -337,12 +337,20 @@ export default function Dashboard() {
               <p className="text-sm font-semibold" style={{ color: colors.success }}>✅ Todo bajo control — nada urgente por resolver.</p>
             </div>
           ) : (
+            <>
+            {!isAdmin && (
+              <p className="px-4 pb-2 text-[11px]" style={{ color: colors.textMuted }}>
+                🔒 Tocá una alerta para ir a resolverla (disponible para administradores).
+              </p>
+            )}
             <div className="px-4 pb-4 space-y-2">
               {centroAlertas.map(a => {
                 const col = SEV_UI[a.severidad]?.color || colors.info
+                // Solo el admin puede ir directo al punto crítico a resolverlo.
+                const irAlProblema = () => { if (isAdmin) navigate(a.to) }
                 return (
-                  <div key={a.id} onClick={() => navigate(a.to)}
-                    className="flex items-center gap-3 p-3 cursor-pointer transition-colors hover:bg-[#334155]/50"
+                  <div key={a.id} onClick={irAlProblema}
+                    className={`flex items-center gap-3 p-3 transition-colors ${isAdmin ? 'cursor-pointer hover:bg-[#334155]/50' : 'cursor-default'}`}
                     style={{ backgroundColor: colors.bg, borderRadius: radius.md, border: `1px solid ${colors.border}`, borderLeft: `3px solid ${col}` }}>
                     <span className="text-lg flex-shrink-0">{a.emoji}</span>
                     <div className="flex-1 min-w-0">
@@ -352,11 +360,15 @@ export default function Dashboard() {
                       </div>
                       <p className="text-xs truncate" style={{ color: colors.textMuted }}>{a.detalle}</p>
                     </div>
-                    <span className="text-lg font-black flex-shrink-0" style={{ color: col }}>{a.count}</span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-lg font-black" style={{ color: col }}>{a.count}</span>
+                      {isAdmin && <ChevronRight size={16} style={{ color: colors.textMuted }} />}
+                    </div>
                   </div>
                 )
               })}
             </div>
+            </>
           )}
         </div>
       )}

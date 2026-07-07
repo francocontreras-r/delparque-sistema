@@ -20,6 +20,7 @@ import { crearCosteador } from '../lib/costeoRecetas'
 import { normalizarNombre } from '../lib/texto'
 import { cargarHistorialCostos } from '../lib/historialCostos'
 import { construirPrecioMapCamara, valorTotalCamara } from '../lib/valorCamara'
+import { useSearchParams } from 'react-router-dom'
 import {
   DollarSign, RefreshCw, Warehouse, Thermometer, Percent,
   TrendingUp, TrendingDown, Clock, FileDown, AlertTriangle,
@@ -122,6 +123,8 @@ function TooltipMargen({ active, payload }) {
 // ── Componente principal ───────────────────────────────────────────────────────
 export default function Finanzas() {
   const [tab, setTab]               = useState('Costos')
+  const [searchParams] = useSearchParams()
+  const [focoBanner, setFocoBanner] = useState(null)
   const [sabores, setSabores]       = useState([])
   const [saborIngredientes, setSaborIngredientes] = useState([])
   const [impulsivos, setImpulsivos] = useState([])
@@ -149,6 +152,13 @@ export default function Finanzas() {
   const [histLoading, setHistLoading] = useState(false)
 
   useEffect(() => { cargar() }, [])
+
+  // Deep-link desde el Centro de control: ir a Márgenes ordenado de peor a mejor.
+  useEffect(() => {
+    const foco = searchParams.get('foco')
+    if (foco === 'perdida') { setTab('Márgenes'); setSortDir('asc'); setFocoBanner('Productos que se venden a pérdida') }
+    else if (foco === 'margen_bajo') { setTab('Márgenes'); setSortDir('asc'); setFocoBanner('Productos con margen bajo') }
+  }, [searchParams])
 
   // Historial de costos: se carga la primera vez que se abre la pestaña.
   useEffect(() => {
@@ -830,6 +840,14 @@ export default function Finanzas() {
   return (
     <div className="space-y-5">
       <Toast toast={toast} />
+
+      {focoBanner && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg text-sm flex-wrap"
+          style={{ backgroundColor: 'rgba(212,82,26,0.10)', border: `1px solid ${colors.brand}` }}>
+          <span style={{ color: colors.textPrimary }}>🎯 Del Centro de control: <b>{focoBanner}</b> — ordenados de peor a mejor margen.</span>
+          <button onClick={() => setFocoBanner(null)} className="text-xs font-semibold px-2 py-1 rounded-md" style={{ color: colors.brand }}>✕</button>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">

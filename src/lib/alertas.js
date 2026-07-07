@@ -40,7 +40,7 @@ export function construirAlertas({
   if (sinStock.length) push({
     id: 'insumo-sin-stock', severidad: 'critico', categoria: 'Depósito', emoji: '🔴',
     titulo: `${plural(sinStock.length, 'insumo sin stock', 'insumos sin stock')}`,
-    detalle: listar(sinStock.map(i => i.nombre)), count: sinStock.length, to: '/deposito',
+    detalle: listar(sinStock.map(i => i.nombre)), count: sinStock.length, to: '/deposito?foco=sin_stock',
     items: sinStock.map(i => i.nombre),
   })
 
@@ -49,7 +49,7 @@ export function construirAlertas({
   if (bajoMin.length) push({
     id: 'insumo-bajo-minimo', severidad: 'alto', categoria: 'Depósito', emoji: '🟡',
     titulo: `${plural(bajoMin.length, 'insumo bajo el mínimo', 'insumos bajo el mínimo')}`,
-    detalle: listar(bajoMin.map(i => i.nombre)), count: bajoMin.length, to: '/deposito',
+    detalle: listar(bajoMin.map(i => i.nombre)), count: bajoMin.length, to: '/deposito?foco=bajo_minimo',
     items: bajoMin.map(i => i.nombre),
   })
 
@@ -58,7 +58,7 @@ export function construirAlertas({
   if (perdida.length) push({
     id: 'margen-negativo', severidad: 'critico', categoria: 'Finanzas', emoji: '📉',
     titulo: `${plural(perdida.length, 'producto se vende a pérdida', 'productos se venden a pérdida')}`,
-    detalle: listar(perdida.map(m => m.nombre)), count: perdida.length, to: '/finanzas',
+    detalle: listar(perdida.map(m => m.nombre)), count: perdida.length, to: '/finanzas?foco=perdida',
     items: perdida.map(m => m.nombre),
   })
 
@@ -71,7 +71,7 @@ export function construirAlertas({
   if (margenBajo.length) push({
     id: 'margen-bajo', severidad: 'medio', categoria: 'Finanzas', emoji: '⚠️',
     titulo: `${plural(margenBajo.length, 'producto con margen bajo', 'productos con margen bajo')} (<${margenMinimo}%)`,
-    detalle: listar(margenBajo.map(m => m.nombre)), count: margenBajo.length, to: '/finanzas',
+    detalle: listar(margenBajo.map(m => m.nombre)), count: margenBajo.length, to: '/finanzas?foco=margen_bajo',
     items: margenBajo.map(m => m.nombre),
   })
 
@@ -81,14 +81,14 @@ export function construirAlertas({
   if (agotadas.length) push({
     id: 'camara-agotada', severidad: 'alto', categoria: 'Cámara', emoji: '🔴',
     titulo: `${plural(agotadas.length, 'sabor agotado en cámara', 'sabores agotados en cámara')}`,
-    detalle: listar(agotadas.map(c => c.nombre)), count: agotadas.length, to: '/camaras',
+    detalle: listar(agotadas.map(c => c.nombre)), count: agotadas.length, to: '/camaras?foco=agotado',
     items: agotadas.map(c => c.nombre),
   })
   const pocas = helados.filter(c => { const b = Number(c.baldes) || 0; return b > 0 && b <= 3 })
   if (pocas.length) push({
     id: 'camara-poco', severidad: 'medio', categoria: 'Cámara', emoji: '🟡',
     titulo: `${plural(pocas.length, 'sabor con poco stock', 'sabores con poco stock')} (≤3 baldes)`,
-    detalle: listar(pocas.map(c => c.nombre)), count: pocas.length, to: '/camaras',
+    detalle: listar(pocas.map(c => c.nombre)), count: pocas.length, to: '/camaras?foco=poco',
     items: pocas.map(c => c.nombre),
   })
 
@@ -99,13 +99,13 @@ export function construirAlertas({
   if (vencidos.length) push({
     id: 'venc-vencido', severidad: 'critico', categoria: 'Depósito', emoji: '🔴',
     titulo: `${plural(vencidos.length, 'lote vencido', 'lotes vencidos')}`,
-    detalle: listar(vencidos.map(v => v.producto_nombre)), count: vencidos.length, to: '/deposito',
+    detalle: listar(vencidos.map(v => v.producto_nombre)), count: vencidos.length, to: '/deposito?foco=vencimientos',
     items: vencidos.map(v => v.producto_nombre),
   })
   if (porVencer.length) push({
     id: 'venc-pronto', severidad: 'alto', categoria: 'Depósito', emoji: '🟠',
     titulo: `${plural(porVencer.length, 'lote por vencer', 'lotes por vencer')}`,
-    detalle: listar(porVencer.map(v => v.producto_nombre)), count: porVencer.length, to: '/deposito',
+    detalle: listar(porVencer.map(v => v.producto_nombre)), count: porVencer.length, to: '/deposito?foco=vencimientos',
     items: porVencer.map(v => v.producto_nombre),
   })
 
@@ -120,7 +120,7 @@ export function construirAlertas({
       titulo: `${plural(sinResolver.length, 'diferencia de conteo sin resolver', 'diferencias de conteo sin resolver')}`,
       detalle: (valorFaltante > 0 ? `Faltante sin explicar $${Math.round(valorFaltante).toLocaleString('es-AR')} · ` : '') +
         listar(sinResolver.map(r => `${r.producto_nombre} (${areaDe(r)})`)),
-      count: sinResolver.length, to: '/deposito', items: sinResolver.map(r => r.producto_nombre),
+      count: sinResolver.length, to: '/deposito?foco=conteo', items: sinResolver.map(r => r.producto_nombre),
     })
   }
 

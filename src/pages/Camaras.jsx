@@ -7,6 +7,7 @@ import { registrarConteoStock, nuevoCiclo, cargarCiclos, cargarConteosCiclo } fr
 import { generarComprobanteConteo } from '../lib/comprobanteConteo'
 import { normalizarNombre } from '../lib/texto'
 import { construirPrecioMapCamara, valorizarItemCamara } from '../lib/valorCamara'
+import { useSearchParams } from 'react-router-dom'
 import { useUser } from '../context/UserContext'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -1215,6 +1216,7 @@ export default function Camaras() {
   const [filtroTipoProducto, setFiltroTipoProducto] = useState('helado')
   const [filtroTipo, setFiltroTipo]     = useState('Todos')
   const [filtroEstado, setFiltroEstado] = useState(null)
+  const [focoBanner, setFocoBanner]     = useState(null)
   const [orden, setOrden]               = useState('az')
   const [vista, setVista]               = useState('grilla')
   const [modalItem, setModalItem]       = useState(null)
@@ -1240,6 +1242,15 @@ export default function Camaras() {
 
   const { isAdmin, user } = useUser()
   const showVal = userRole === 'admin'
+  const [searchParams] = useSearchParams()
+
+  // Deep-link desde el Centro de control: caer con el filtro puesto en el problema.
+  useEffect(() => {
+    const foco = searchParams.get('foco')
+    if (foco === 'agotado') { setFiltroTipoProducto('helado'); setFiltroEstado('agotado'); setFocoBanner('Sabores agotados en cámara') }
+    else if (foco === 'poco') { setFiltroTipoProducto('helado'); setFiltroEstado('poco'); setFocoBanner('Sabores con poco stock (≤3 baldes)') }
+  }, [searchParams])
+
   const [modalAgregar, setModalAgregar] = useState(false)
   const [modalConteo, setModalConteo]   = useState(false)
   const [savingAgregar, setSavingAgregar] = useState(false)
@@ -1965,6 +1976,17 @@ export default function Camaras() {
   return (
     <div className="space-y-5">
       <Toast toast={toast} />
+
+      {focoBanner && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg text-sm flex-wrap"
+          style={{ backgroundColor: 'rgba(212,82,26,0.10)', border: `1px solid ${colors.brand}` }}>
+          <span style={{ color: colors.textPrimary }}>🎯 Del Centro de control: <b>{focoBanner}</b></span>
+          <button onClick={() => { setFocoBanner(null); setFiltroEstado(null) }}
+            className="text-xs font-semibold px-2 py-1 rounded-md" style={{ color: colors.brand }}>
+            ✕ Ver todo
+          </button>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">

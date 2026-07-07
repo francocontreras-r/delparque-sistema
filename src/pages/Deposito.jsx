@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, Fragment } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
 import { deduplicarOperarios } from '../lib/operarios'
@@ -1031,6 +1032,8 @@ export default function Deposito() {
   })
   const [filtroMovHasta, setFiltroMovHasta] = useState(() => new Date().toISOString().split('T')[0])
   const [filtroCategoria, setFiltroCategoria] = useState('TODOS')
+  const [focoStock, setFocoStock]  = useState(null) // deep-link Centro de control: sin_stock | bajo_minimo
+  const [focoBanner, setFocoBanner] = useState(null)
   const [seccionCS, setSeccionCS]           = useState('deposito')
   const [filtroTablaCS, setFiltroTablaCS]   = useState(null) // null | 'critico' | 'atencion' | 'diferencia'
   const [filtroCSCategoria, setFiltroCSCategoria] = useState('TODOS')
@@ -1069,9 +1072,20 @@ export default function Deposito() {
   const [generandoInformeSem, setGenerandoInformeSem] = useState(false)
 
   const { isAdmin, profile, user } = useUser()
+  const [searchParams] = useSearchParams()
   const showVal = isAdmin
 
   useEffect(() => { cargar() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Deep-link desde el Centro de control: caer en la pestaña y el filtro exactos.
+  useEffect(() => {
+    const foco = searchParams.get('foco')
+    if (!foco) return
+    if (foco === 'sin_stock')   { setTab('Stock'); setFocoStock('sin_stock');  setFocoBanner('Insumos sin stock') }
+    else if (foco === 'bajo_minimo') { setTab('Stock'); setFocoStock('bajo_minimo'); setFocoBanner('Insumos bajo el mínimo') }
+    else if (foco === 'vencimientos') { setTab('Stock'); setFiltroVencimiento(true); setFocoBanner('Lotes vencidos o por vencer') }
+    else if (foco === 'conteo') { setTab('Control Semanal'); setFocoBanner('Diferencias de conteo sin resolver') }
+  }, [searchParams])
 
   useEffect(() => {
     if (!loading) cargarMovimientosFiltrados(filtroMovDesde, filtroMovHasta)
@@ -1422,8 +1436,10 @@ export default function Deposito() {
         return venc && esAlertaVencimiento(venc.clasif)
       })
     }
+    if (focoStock === 'sin_stock') result = result.filter(i => (i.stock_actual || 0) <= 0 && (i.stock_minimo || 0) > 0)
+    else if (focoStock === 'bajo_minimo') result = result.filter(i => { const s = i.stock_actual || 0, m = i.stock_minimo || 0; return s > 0 && s < m })
     return result
-  }, [insumos, busqueda, filtroCategoria, filtroVencimiento, vencimientoPorProducto])
+  }, [insumos, busqueda, filtroCategoria, filtroVencimiento, vencimientoPorProducto, focoStock])
 
   const sumatoriaCategoria = useMemo(() => {
     if (filtroCategoria === 'TODOS') return null
@@ -3277,6 +3293,16 @@ export default function Deposito() {
   return (
     <div className="space-y-5">
       <Toast toast={toast} />
+      {focoBanner && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg text-sm flex-wrap"
+          style={{ backgroundColor: 'rgba(212,82,26,0.10)', border: `1px solid ${colors.brand}` }}>
+          <span style={{ color: colors.textPrimary }}>🎯 Del Centro de control: <b>{focoBanner}</b></span>
+          <button onClick={() => { setFocoBanner(null); setFocoStock(null); setFiltroVencimiento(false) }}
+            className="text-xs font-semibold px-2 py-1 rounded-md" style={{ color: colors.brand }}>
+            ✕ Ver todo
+          </button>
+        </div>
+      )}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Depósito</h1>

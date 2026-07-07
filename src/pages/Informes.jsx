@@ -672,10 +672,11 @@ export default function Informes() {
         autoTable(doc, {
           ...EST, startY: y,
           head: [['OPERARIO', 'KG PRODUCIDOS', 'UNIDADES', 'REGISTROS']],
-          // KG = bases + sabores + postres ; UNIDADES = impulsivos + postres.
-          // Antes solo contaba sabores/impulsivos → quien hacía postres salía en 0.
+          // Cada producto en UNA sola columna según cómo se mide:
+          // KG = lo que va por peso (bases + sabores) · UNIDADES = lo que va por
+          // unidad (impulsivos + postres). Sin doble conteo.
           body: actual.porOperario.map(o => {
-            const kgTot = (o.kgBases || 0) + (o.kgSabores || 0) + (o.kgPostres || 0)
+            const kgTot = (o.kgBases || 0) + (o.kgSabores || 0)
             const unidTot = (o.unidImpulsivos || 0) + (o.regPostres || 0)
             return [o.nombre, `${fmtNum(kgTot)} kg`, `${fmtNum(unidTot, 0)} u`, String(o.registros)]
           }),
@@ -1042,7 +1043,6 @@ export default function Informes() {
                           {o.regPostres > 0 && (
                             <p className="text-xs" style={{ color: '#a855f7' }}>
                               <span className="font-semibold">{o.regPostres} u</span>
-                              {o.kgPostres > 0 && <span style={{ color: colors.textMuted }}> · {fmtNum(o.kgPostres, 1)} kg</span>}
                               <span style={{ color: colors.textMuted }}> postres</span>
                             </p>
                           )}

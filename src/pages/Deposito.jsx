@@ -2127,7 +2127,11 @@ export default function Deposito() {
       const ultimoMovFecha = [...movsProducto].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))[0]?.fecha || null
       const diasSinMov = ultimoMovFecha ? Math.floor((hoy - new Date(ultimoMovFecha)) / 86400000) : 999
 
-      const estado = diasStock < 3 ? 'CRÍTICO' : diasStock < 7 ? 'ATENCIÓN' : 'OK'
+      // Estado por STOCK MÍNIMO (dato confiable), no por "días de stock" (que
+      // dependía del consumo registrado y del stock del sistema, a menudo mal).
+      const stockMin = Number(ins.stock_minimo) || 0
+      const estado = (stockSistema <= 0 && stockMin > 0) ? 'CRÍTICO'
+        : (stockMin > 0 && stockSistema < stockMin) ? 'ATENCIÓN' : 'OK'
 
       return {
         ...ins, ingresosKg, egresosKg, balance, stockSistema, stockInicial,
@@ -2720,18 +2724,18 @@ export default function Deposito() {
           r.ingresosKg.toFixed(1), r.egresosKg.toFixed(1), r.stockSistema.toFixed(1),
           r.conteoFisico !== null ? r.conteoFisico.toFixed(1) : '—',
           r.diferencia !== null ? `${r.diferencia > 0 ? '+' : ''}${r.diferencia.toFixed(2)}` : '—',
-          r.diasStock === Infinity ? '♾' : r.diasStock.toFixed(0), r.estado,
+          r.estado,
         ]),
         ['TOTAL', '',
           controlSemanal.reduce((a, r) => a + r.ingresosKg, 0).toFixed(1),
           controlSemanal.reduce((a, r) => a + r.egresosKg, 0).toFixed(1),
           controlSemanal.reduce((a, r) => a + r.stockSistema, 0).toFixed(1),
-          '', '', '', ''],
+          '', '', ''],
       ]
       autoTable(doc, {
         ...EST, styles: { ...EST.styles, fontSize: 7 },
         startY: PDF_CONTENT_Y,
-        head: [['PRODUCTO', 'ST.INICIAL', 'INGRESOS', 'EGRESOS', 'ST.SISTEMA', 'C.FÍSICO', 'DIF.', 'DÍAS', 'ESTADO']],
+        head: [['PRODUCTO', 'ST.INICIAL', 'INGRESOS', 'EGRESOS', 'ST.SISTEMA', 'C.FÍSICO', 'DIF.', 'ESTADO']],
         body: bodyTabla,
         didParseCell(data) {
           if (data.section !== 'body') return
@@ -4316,14 +4320,13 @@ export default function Deposito() {
                         <Thead>
                           <Tr>
                             <Th>PRODUCTO</Th><Th>ST. SISTEMA</Th><Th>INGRESOS</Th><Th>EGRESOS</Th>
-                            <Th>CONTEO FÍSICO</Th><Th>DIFERENCIA</Th><Th>DÍAS DE STOCK</Th><Th>ESTADO</Th>
+                            <Th>CONTEO FÍSICO</Th><Th>DIFERENCIA</Th><Th>ESTADO</Th>
                           </Tr>
                         </Thead>
                         <Tbody>
                           {controlSemanalFiltrado.map(r => {
                             const rowBg = r.estado === 'CRÍTICO' ? 'rgba(239,68,68,0.08)' : r.estado === 'ATENCIÓN' ? 'rgba(245,158,11,0.08)' : 'transparent'
                             const diffBig = r.conteoFisico !== null && r.pctDiferencia > 3
-                            const diasColor = r.diasStock < 3 ? colors.danger : r.diasStock < 7 ? colors.warning : r.diasStock === Infinity ? colors.textMuted : colors.success
                             return (
                               <Tr key={r.id} style={{ backgroundColor: rowBg }}>
                                 <Td>
@@ -4344,9 +4347,6 @@ export default function Deposito() {
                                 <Td className="text-right font-semibold"
                                   style={{ color: diffBig ? colors.danger : r.diferencia !== null ? colors.textSecondary : colors.textMuted }}>
                                   {r.diferencia !== null ? `${r.diferencia > 0 ? '+' : ''}${r.diferencia.toFixed(2)} ${r.unidad}${diffBig ? ` (${r.pctDiferencia.toFixed(1)}%)` : ''}` : '—'}
-                                </Td>
-                                <Td className="text-right font-bold" style={{ color: diasColor }}>
-                                  {r.diasStock === Infinity ? '♾' : `${r.diasStock.toFixed(0)} días`}
                                 </Td>
                                 <Td>
                                   <Badge variant={r.estado === 'CRÍTICO' ? 'danger' : r.estado === 'ATENCIÓN' ? 'warning' : 'success'}>

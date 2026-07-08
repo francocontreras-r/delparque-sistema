@@ -81,6 +81,7 @@ function guardarPreCargaLS(lista) {
 export default function Produccion() {
   const { user, isAdmin } = useUser()
   const [operarios, setOperarios]     = useState([])
+  const [ordenesAbiertas, setOrdenesAbiertas] = useState([]) // para mostrar el vínculo con la orden
   const [productos, setProductos]     = useState([])
   const [registros, setRegistros]     = useState([])
   const [saboresCamara, setSaboresCamara] = useState([])
@@ -169,6 +170,33 @@ export default function Produccion() {
     if (opsDedup.length > 0) setOperarioSel(String(opsDedup[0].id))
     setManualLote(lote)
     setLoading(false)
+    cargarOrdenesAbiertas()
+  }
+
+  // Órdenes de helado a las que se puede asociar una carga: en proceso, o
+  // completadas "pendientes de kg", dentro de una ventana reciente.
+  async function cargarOrdenesAbiertas() {
+    const ventana = new Date(); ventana.setDate(ventana.getDate() - 4)
+    const { data } = await supabase.from('ordenes_produccion')
+      .select('id,numero,sabor_nombre,producto_nombre,estado,kg_objetivo,kg_producido,fecha_produccion')
+      .in('estado', [ESTADO_EN_PROCESO, ESTADO_COMPLETADA])
+      .eq('tipo_producto', 'helado')
+      .gt('kg_objetivo', 0)
+      .gte('fecha_produccion', ventana.toISOString().split('T')[0])
+      .order('fecha_produccion', { ascending: false })
+    setOrdenesAbiertas(data || [])
+  }
+
+  // Devuelve la orden que matchea un ítem de pre-carga (por nombre normalizado),
+  // con la misma prioridad que usa la asociación real al confirmar.
+  function ordenDe(item) {
+    if (unidadDe(item) === 'u') return null // impulsivos/postres no van por orden de kg
+    const objetivo = normalizarNombre(item.producto_nombre || '')
+    if (!objetivo) return null
+    const matches = ordenesAbiertas.filter(o => normalizarNombre(o.sabor_nombre || o.producto_nombre || '') === objetivo)
+    return matches.find(o => o.estado === ESTADO_EN_PROCESO)
+      || matches.find(o => o.estado === ESTADO_COMPLETADA && !(Number(o.kg_producido) > 0))
+      || matches[0] || null
   }
 
   function agregarAPreCarga(item) {
@@ -512,6 +540,7 @@ export default function Produccion() {
     const { data: regs } = await supabase.from('producciones').select('*').eq('fecha', fechaHoy)
       .order('created_at', { ascending: false }).limit(50)
     setRegistros(regs || [])
+    cargarOrdenesAbiertas() // los estados de las órdenes cambiaron
     setConfirmando(false)
 
     // Toast detallado
@@ -895,7 +924,26 @@ export default function Produccion() {
                 <Tr key={item._id}>
                   <Td className="font-bold whitespace-nowrap" style={{ color: colors.brand }}>{item.lote}</Td>
                   <Td className="whitespace-nowrap">{item.operario_nombre}</Td>
-                  <Td className="font-medium">{item.producto_nombre}</Td>
+                  <Td className="font-medium">
+                    <div>{item.producto_nombre}</div>
+                    {unidadDe(item) !== 'u' && (() => {
+                      const ord = ordenDe(item)
+                      const pendiente = ord && ord.estado === ESTADO_COMPLETADA && !(Number(ord.kg_producido) > 0)
+                      return ord ? (
+                        <span className="inline-flex items-center gap-1 mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                          style={{ backgroundColor: 'rgba(255,71,19,0.12)', color: '#ff7a48' }}
+                          title={`Se asociará a la orden #${ord.numero}`}>
+                          🔗 Orden #{ord.numero}{pendiente ? ' · pendiente de kg' : ''}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center mt-1 text-[11px] px-2 py-0.5 rounded-full"
+                          style={{ backgroundColor: colors.bg, color: colors.textMuted, border: `1px solid ${colors.border}` }}
+                          title="No hay una orden de este sabor abierta o pendiente">
+                          Sin orden asociada
+                        </span>
+                      )
+                    })()}
+                  </Td>
                   <Td className="text-right whitespace-nowrap">{displayCantidad}</Td>
                   <Td>
                     <input

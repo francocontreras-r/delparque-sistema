@@ -28,6 +28,7 @@ export const colors = {
   info:         tokens.colors.info,
   infoBg:       tokens.colors.infoBg,
   infoBorder:   tokens.colors.infoBorder,
+  comp:         tokens.colors.comp,
 }
 
 export const radius = {

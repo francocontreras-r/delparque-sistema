@@ -49,7 +49,7 @@ const TIPO_PRECIOS = {
   Especial:       { costo_kg: 2000, precio_kg: 4500 },
 }
 
-const textareaClass = 'w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] placeholder:text-[#64748B] bg-[#0F172A] outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]'
+const textareaClass = 'w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] placeholder:text-[#64748B] bg-[#0F172A] outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]'
 
 function pctColor(pct) {
   if (pct < 3)  return colors.success
@@ -104,7 +104,7 @@ function EsperadaInput({ value, onCommit }) {
         onChange={e => setVal(e.target.value)}
         onBlur={() => onCommit(val)}
         placeholder="5"
-        className="w-20 rounded-md border border-[#334155] bg-[#0F172A] text-[#F1F5F9] text-sm px-2 py-1.5 outline-none transition-colors focus:border-[#D4521A]" />
+        className="w-20 rounded-md border border-[#334155] bg-[#0F172A] text-[#F1F5F9] text-sm px-2 py-1.5 outline-none transition-colors focus:border-[#FF4713]" />
       <span className="text-xs" style={{ color: colors.textMuted }}>%</span>
     </div>
   )

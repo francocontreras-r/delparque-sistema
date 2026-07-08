@@ -33,7 +33,7 @@ const TIPO_BADGE = {
   Lisa:           { bg: 'rgba(96,165,250,0.12)',  color: '#60A5FA' },
   'Con Agregado': { bg: 'rgba(139,92,246,0.12)',  color: '#A78BFA' },
   Agua:           { bg: 'rgba(34,211,238,0.12)',  color: '#22D3EE' },
-  Especial:       { bg: 'rgba(212,82,26,0.12)',   color: '#D4521A' },
+  Especial:       { bg: 'rgba(255,71,19,0.12)',   color: '#FF4713' },
   Impulsivo:      { bg: 'rgba(245,158,11,0.12)',  color: '#F59E0B' },
   Postre:         { bg: 'rgba(250,204,21,0.12)',  color: '#EAB308' },
 }
@@ -65,7 +65,7 @@ function productoElaboradoDe(m) {
 // Config visual de cada categoría de egreso para los chips/resumen
 const CAT_EGRESO = [
   { key: 'Venta',         emoji: '🛒', color: '#22C55E' },
-  { key: 'Producción',    emoji: '🏭', color: '#D4521A' },
+  { key: 'Producción',    emoji: '🏭', color: '#FF4713' },
   { key: 'Baja',          emoji: '🗑️', color: '#EF4444' },
   { key: 'Merma',         emoji: '⚠️', color: '#f59e0b' },
   { key: 'Transferencia', emoji: '🔁', color: '#3b82f6' },
@@ -152,7 +152,7 @@ function TarjetaSabor({ item, onClick, showVal, onDelete }) {
           : <p className="text-xs mb-2" style={{ color: colors.textMuted }}>baldes · {Number(item.kg).toFixed(1)} kg</p>}
       {item.lote && (
         <span className="inline-block text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded mb-1.5"
-          style={{ backgroundColor: 'rgba(212,82,26,0.15)', color: colors.brand, border: '1px solid rgba(212,82,26,0.3)' }}>
+          style={{ backgroundColor: 'rgba(255,71,19,0.15)', color: colors.brand, border: '1px solid rgba(255,71,19,0.3)' }}>
           {item.lote}
         </span>
       )}
@@ -212,7 +212,7 @@ function FilaLista({ item, onClick, showVal, esImpGrupo, esPostGrupo, onDelete }
             <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>{item.nombre}</span>
             {item.lote && (
               <span className="inline-block text-[10px] font-mono font-semibold px-1 py-px rounded ml-1.5"
-                style={{ backgroundColor: 'rgba(212,82,26,0.15)', color: colors.brand, border: '1px solid rgba(212,82,26,0.3)' }}>
+                style={{ backgroundColor: 'rgba(255,71,19,0.15)', color: colors.brand, border: '1px solid rgba(255,71,19,0.3)' }}>
                 {item.lote}
               </span>
             )}
@@ -445,7 +445,7 @@ function ModalMovimiento({ item, onClose, onApply, operariosDisponibles = [], st
         </Select>
 
         {tipoMov === 'ingreso' && motivo === 'Producción' && (
-          <div className="p-3 rounded-lg" style={{ backgroundColor: 'rgba(212,82,26,0.06)', border: '1px solid rgba(212,82,26,0.2)' }}>
+          <div className="p-3 rounded-lg" style={{ backgroundColor: 'rgba(255,71,19,0.06)', border: '1px solid rgba(255,71,19,0.2)' }}>
             <Select label="Operario que elaboró *" value={operarioElabora} onChange={ev => setOperarioElabora(ev.target.value)} disabled={saving}>
               <option value="">— Seleccionar —</option>
               {operariosDisponibles.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
@@ -462,7 +462,7 @@ function ModalMovimiento({ item, onClose, onApply, operariosDisponibles = [], st
         )}
 
         {tipoMov === 'egreso' && motivo === 'Producción' && (
-          <div className="space-y-2 p-3 rounded-lg" style={{ backgroundColor: 'rgba(212,82,26,0.06)', border: '1px solid rgba(212,82,26,0.2)' }}>
+          <div className="space-y-2 p-3 rounded-lg" style={{ backgroundColor: 'rgba(255,71,19,0.06)', border: '1px solid rgba(255,71,19,0.2)' }}>
             <Select label="Producto elaborado *" value={productoElaborado} onChange={ev => setProductoElaborado(ev.target.value)} disabled={saving}>
               <option value="">— Seleccionar —</option>
               {stockImpPost.map(s => <option key={s.id} value={s.nombre}>{s.nombre}</option>)}
@@ -732,11 +732,11 @@ function generarInforme(stock, showVal) {
       <div style="font-size:12px;color:#64748b">Hora de emisión: ${hora}</div>
     </div>
   </div>
-  <div style="height:3px;background:linear-gradient(to right,#D4521A,#F97316);margin-bottom:24px;border-radius:2px"></div>
+  <div style="height:3px;background:linear-gradient(to right,#FF4713,#F97316);margin-bottom:24px;border-radius:2px"></div>
 
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
     ${kpiCard(totalBaldесHelado, 'Total Baldes', '#3b82f6')}
-    ${kpiCard(totalKgHelado.toFixed(1) + ' kg', 'Total KG', '#D4521A')}
+    ${kpiCard(totalKgHelado.toFixed(1) + ' kg', 'Total KG', '#FF4713')}
     ${kpiCard(conStockHelado, 'Con Stock', '#16a34a')}
     ${kpiCard(agotadosHelado, 'Agotados', '#dc2626')}
   </div>
@@ -822,15 +822,15 @@ function generarStockActual(stock) {
       <div style="font-size:12px;color:#64748b">Hora de emisión: ${hora}</div>
     </div>
   </div>
-  <div style="height:3px;background:linear-gradient(to right,#D4521A,#F97316);margin-bottom:24px;border-radius:2px"></div>
+  <div style="height:3px;background:linear-gradient(to right,#FF4713,#F97316);margin-bottom:24px;border-radius:2px"></div>
 
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px">
     <div style="border:1px solid #e2e8f0;border-top:3px solid #3b82f6;border-radius:6px;padding:14px;text-align:center">
       <div style="font-size:28px;font-weight:800;color:#3b82f6">${totalBaldes}</div>
       <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#64748b;margin-top:2px">Total Baldes</div>
     </div>
-    <div style="border:1px solid #e2e8f0;border-top:3px solid #D4521A;border-radius:6px;padding:14px;text-align:center">
-      <div style="font-size:28px;font-weight:800;color:#D4521A">${totalKg.toFixed(1)}</div>
+    <div style="border:1px solid #e2e8f0;border-top:3px solid #FF4713;border-radius:6px;padding:14px;text-align:center">
+      <div style="font-size:28px;font-weight:800;color:#FF4713">${totalKg.toFixed(1)}</div>
       <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#64748b;margin-top:2px">Total KG</div>
     </div>
     <div style="border:1px solid #e2e8f0;border-top:3px solid #16a34a;border-radius:6px;padding:14px;text-align:center">
@@ -952,7 +952,7 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
             <div>
               <p className="text-xs mb-0.5" style={{ color: colors.textMuted }}>Lote</p>
               <span className="inline-block text-xs font-mono font-semibold px-2 py-0.5 rounded"
-                style={{ backgroundColor: 'rgba(212,82,26,0.15)', color: colors.brand, border: '1px solid rgba(212,82,26,0.3)' }}>
+                style={{ backgroundColor: 'rgba(255,71,19,0.15)', color: colors.brand, border: '1px solid rgba(255,71,19,0.3)' }}>
                 {item.lote}
               </span>
             </div>
@@ -992,7 +992,7 @@ function ModalDetalleProducto({ item, onClose, onMovimiento }) {
                     <tr key={l.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
                       <td className="py-2 px-3">
                         <span className="text-xs font-mono font-semibold px-1.5 py-0.5 rounded"
-                          style={{ backgroundColor: 'rgba(212,82,26,0.15)', color: colors.brand, border: '1px solid rgba(212,82,26,0.3)' }}>
+                          style={{ backgroundColor: 'rgba(255,71,19,0.15)', color: colors.brand, border: '1px solid rgba(255,71,19,0.3)' }}>
                           {l.lote || '—'}
                         </span>
                       </td>
@@ -1504,7 +1504,7 @@ export default function Camaras() {
       const C = {
         ink: [26, 26, 26], sec: [82, 81, 78], muted: [150, 150, 150],
         hair: [228, 228, 226], track: [237, 237, 234], tint: [247, 247, 244],
-        ing: [12, 163, 12], egr: [208, 59, 59], brand: [212, 82, 26], blue: [42, 120, 214],
+        ing: [12, 163, 12], egr: [208, 59, 59], brand: [255, 71, 19], blue: [42, 120, 214],
       }
       const kpiCard = (x, yy, w, h, label, value, accent) => {
         doc.setFillColor(...C.tint); doc.roundedRect(x, yy, w, h, 2.6, 2.6, 'F')
@@ -1795,7 +1795,7 @@ export default function Camaras() {
         ]
       }),
       styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [212, 82, 26], textColor: 255 },
+      headStyles: { fillColor: [255, 71, 19], textColor: 255 },
       columnStyles: { 7: { cellWidth: 22 } },
       didParseCell(data) {
         if (data.section !== 'body' || data.column.index !== 4) return
@@ -2005,7 +2005,7 @@ export default function Camaras() {
     // Barra nativa: venta potencial por línea (prolija, no capturada de pantalla)
     y = dibujarSeccion(doc, pw, 'Venta potencial por línea', y)
     const lineas = [
-      { label: 'Helados',    v: vH, c: [212, 82, 26] },
+      { label: 'Helados',    v: vH, c: [255, 71, 19] },
       { label: 'Impulsivos', v: vI, c: [245, 158, 11] },
       { label: 'Postres',    v: vP, c: [234, 179, 21] },
     ]
@@ -2107,7 +2107,7 @@ export default function Camaras() {
 
       {focoBanner && (
         <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg text-sm flex-wrap"
-          style={{ backgroundColor: 'rgba(212,82,26,0.10)', border: `1px solid ${colors.brand}` }}>
+          style={{ backgroundColor: 'rgba(255,71,19,0.10)', border: `1px solid ${colors.brand}` }}>
           <span style={{ color: colors.textPrimary }}>🎯 Del Centro de control: <b>{focoBanner}</b></span>
           <button onClick={() => { setFocoBanner(null); setFiltroEstado(null) }}
             className="text-xs font-semibold px-2 py-1 rounded-md" style={{ color: colors.brand }}>
@@ -2561,7 +2561,7 @@ export default function Camaras() {
                   <select
                     value={tempForm.camara}
                     onChange={e => setTempForm(f => ({ ...f, camara: e.target.value }))}
-                    className="w-full rounded-lg border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+                    className="w-full rounded-lg border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]"
                     style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
                   >
                     {CAMARAS_NOMBRES.map(c => <option key={c}>{c}</option>)}
@@ -2573,7 +2573,7 @@ export default function Camaras() {
                     type="number" step="0.1" placeholder="ej: -18.5"
                     value={tempForm.grados}
                     onChange={e => setTempForm(f => ({ ...f, grados: e.target.value }))}
-                    className="w-full rounded-lg border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+                    className="w-full rounded-lg border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]"
                     style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
                   />
                   {tempForm.grados !== '' && !isNaN(parseFloat(tempForm.grados)) && (() => {
@@ -2590,7 +2590,7 @@ export default function Camaras() {
                   <select
                     value={tempForm.responsable}
                     onChange={e => setTempForm(f => ({ ...f, responsable: e.target.value }))}
-                    className="w-full rounded-lg border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+                    className="w-full rounded-lg border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]"
                     style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
                   >
                     <option value="">— Seleccionar —</option>
@@ -2603,7 +2603,7 @@ export default function Camaras() {
                     type="text" placeholder="Opcional"
                     value={tempForm.observaciones}
                     onChange={e => setTempForm(f => ({ ...f, observaciones: e.target.value }))}
-                    className="w-full rounded-lg border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+                    className="w-full rounded-lg border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]"
                     style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
                   />
                 </div>
@@ -2795,7 +2795,7 @@ export default function Camaras() {
               <XAxis dataKey="tipo" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 11 }} />
               <YAxis stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
               <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9' }} formatter={v => [`${v} baldes`, 'Stock']} />
-              <Bar dataKey="baldes" fill="#D4521A" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="baldes" fill="#FF4713" radius={[4, 4, 0, 0]} />
             </BarChart>
           </div>
           <div ref={chartRefImpuls} style={{ position: 'fixed', left: '-9999px', top: 0, width: '760px', height: '260px', background: '#1e293b', padding: '16px 20px', zIndex: -1, borderRadius: '8px' }}>

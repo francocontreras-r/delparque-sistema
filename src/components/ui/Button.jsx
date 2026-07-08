@@ -1,7 +1,7 @@
 import Spinner from './Spinner'
 
 const VARIANTS = {
-  primary:   'bg-[#D4521A] hover:bg-[#b84415] text-white border border-transparent',
+  primary:   'bg-[#FF4713] hover:bg-[#E23C0F] text-white border border-transparent',
   secondary: 'bg-[#1E293B] hover:bg-[#334155] text-[#F1F5F9] border border-[#334155] hover:border-[#475569]',
   danger:    'bg-[#EF4444] hover:bg-[#dc2626] text-white border border-transparent',
   success:   'bg-[#22C55E] hover:bg-[#16a34a] text-white border border-transparent',

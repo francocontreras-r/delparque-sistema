@@ -26,7 +26,7 @@ function PageSpinner() {
       height: '100%', minHeight: 200,
     }}>
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
-        className="animate-spin" style={{ color: '#D4521A' }}>
+        className="animate-spin" style={{ color: '#FF4713' }}>
         <circle className="opacity-25" cx="12" cy="12" r="10"
           stroke="currentColor" strokeWidth="4" />
         <path className="opacity-75" fill="currentColor"
@@ -45,7 +45,7 @@ function AppLoading() {
       backgroundColor: '#0F172A',
     }}>
       <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
-        className="animate-spin" style={{ color: '#D4521A' }}>
+        className="animate-spin" style={{ color: '#FF4713' }}>
         <circle className="opacity-25" cx="12" cy="12" r="10"
           stroke="currentColor" strokeWidth="4" />
         <path className="opacity-75" fill="currentColor"

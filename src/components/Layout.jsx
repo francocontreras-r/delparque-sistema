@@ -123,7 +123,7 @@ function SidebarContent({ onClose, user, profile, rol, onLogout, navItems, depos
   const initial  = (profile?.nombre || user?.email || 'U').charAt(0).toUpperCase()
   const username = profile?.nombre || user?.email?.split('@')[0] || 'Usuario'
   const rolLabel = rol === 'admin' ? 'ADMIN' : rol === 'supervisor' ? 'SUPERVISOR' : 'OPERARIO'
-  const rolColor = rol === 'admin' ? '#D4521A' : rol === 'supervisor' ? '#3b82f6' : '#64748b'
+  const rolColor = rol === 'admin' ? '#FF4713' : rol === 'supervisor' ? '#3b82f6' : '#64748b'
 
   // Filtrar grupos a solo los items con permiso
   const gruposFiltrados = NAV_GRUPOS.map(g => ({
@@ -135,12 +135,13 @@ function SidebarContent({ onClose, user, profile, rol, onLogout, navItems, depos
     <div className="flex flex-col h-full" style={{ backgroundColor: colors.sidebar }}>
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 flex-shrink-0"
-        style={{ borderBottom: `2px solid #D4521A` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        style={{ borderBottom: `2px solid #FF4713` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '11px' }}>
           <img src={LOGO_ISOTIPO} style={{ height: '34px', width: '34px', objectFit: 'contain' }} alt="Del Parque" />
-          <div>
-            <div style={{ color: '#D4521A', fontFamily: 'Georgia, serif', fontSize: '15px', fontWeight: 'bold', lineHeight: 1.2 }}>Del Parque</div>
-            <div style={{ color: '#64748b', fontSize: '10px', letterSpacing: '0.5px' }}>Sistema de Producción</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {/* Logotipo real de marca (fuente Reklame), no un serif genérico */}
+            <img src="/logo-wordmark-white-hd.png" alt="Del Parque" style={{ height: '17px', objectFit: 'contain', display: 'block' }} />
+            <div style={{ color: colors.textMuted, fontSize: '9px', letterSpacing: '0.7px', textTransform: 'uppercase' }}>Sistema de Producción</div>
           </div>
         </div>
         {onClose && (
@@ -436,7 +437,7 @@ export default function Layout() {
         <main className="flex-1 overflow-y-auto p-6">
           <Suspense fallback={
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 240 }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" className="animate-spin" style={{ color: '#D4521A' }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" className="animate-spin" style={{ color: '#FF4713' }}>
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>

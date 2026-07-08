@@ -34,7 +34,7 @@ export default function Login() {
           width: '460px',
           height: '460px',
           borderRadius: '9999px',
-          background: 'radial-gradient(circle, rgba(212,82,26,0.20) 0%, rgba(212,82,26,0) 70%)',
+          background: 'radial-gradient(circle, rgba(255,71,19,0.20) 0%, rgba(255,71,19,0) 70%)',
           filter: 'blur(8px)',
         }}
       />
@@ -51,7 +51,7 @@ export default function Login() {
                 width: '320px',
                 height: '200px',
                 borderRadius: '9999px',
-                background: 'radial-gradient(ellipse, rgba(212,82,26,0.22) 0%, rgba(212,82,26,0) 70%)',
+                background: 'radial-gradient(ellipse, rgba(255,71,19,0.22) 0%, rgba(255,71,19,0) 70%)',
                 left: '50%',
                 top: '50%',
                 transform: 'translate(-50%, -50%)',
@@ -83,7 +83,7 @@ export default function Login() {
           }}
         >
           {/* Orange top accent bar */}
-          <div style={{ height: 3, background: 'linear-gradient(90deg, #D4521A, #F2772E)' }} />
+          <div style={{ height: 3, background: 'linear-gradient(90deg, #FF4713, #F2772E)' }} />
 
           <div className="px-7 pt-7 pb-8">
             <h1 className="text-base font-semibold mb-1" style={{ color: '#F1F5F9' }}>
@@ -109,9 +109,9 @@ export default function Login() {
                     backgroundColor: '#0B1120',
                     border: '1px solid #233047',
                     color: '#F1F5F9',
-                    '--tw-ring-color': 'rgba(212,82,26,0.25)',
+                    '--tw-ring-color': 'rgba(255,71,19,0.25)',
                   }}
-                  onFocus={e => { e.target.style.borderColor = '#D4521A' }}
+                  onFocus={e => { e.target.style.borderColor = '#FF4713' }}
                   onBlur={e => { e.target.style.borderColor = '#233047' }}
                 />
               </div>
@@ -131,9 +131,9 @@ export default function Login() {
                     backgroundColor: '#0B1120',
                     border: '1px solid #233047',
                     color: '#F1F5F9',
-                    '--tw-ring-color': 'rgba(212,82,26,0.25)',
+                    '--tw-ring-color': 'rgba(255,71,19,0.25)',
                   }}
-                  onFocus={e => { e.target.style.borderColor = '#D4521A' }}
+                  onFocus={e => { e.target.style.borderColor = '#FF4713' }}
                   onBlur={e => { e.target.style.borderColor = '#233047' }}
                 />
               </div>
@@ -156,9 +156,9 @@ export default function Login() {
                 disabled={loading}
                 className="w-full font-semibold rounded-lg py-2.5 text-sm transition-all duration-150 active:scale-[0.98] disabled:opacity-60"
                 style={{
-                  background: 'linear-gradient(90deg, #D4521A, #E2632A)',
+                  background: 'linear-gradient(90deg, #FF4713, #E2632A)',
                   color: '#ffffff',
-                  boxShadow: '0 6px 18px rgba(212,82,26,0.30)',
+                  boxShadow: '0 6px 18px rgba(255,71,19,0.30)',
                 }}
                 onMouseEnter={e => { if (!loading) e.currentTarget.style.filter = 'brightness(1.07)' }}
                 onMouseLeave={e => { e.currentTarget.style.filter = 'none' }}

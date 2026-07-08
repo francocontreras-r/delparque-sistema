@@ -1,10 +1,10 @@
 export const tokens = {
   colors: {
-    brand: '#D4521A',
-    brandDark: '#b84415',
-    brandLight: '#2a1208',
-    sidebar: '#0A1628',
-    sidebarActive: '#D4521A',
+    brand: '#FF4713',       // Pantone 172 C — color principal de marca
+    brandDark: '#E23C0F',
+    brandLight: '#2a1008',
+    sidebar: '#0B1220',     // oscuro del MISMO tono que el fondo (antes marino #0A1628)
+    sidebarActive: '#FF4713',
     sidebarHover: '#1E293B',
     bg: '#0F172A',
     surface: '#1E293B',
@@ -25,6 +25,16 @@ export const tokens = {
     info: '#60A5FA',
     infoBg: 'rgba(96,165,250,0.12)',
     infoBorder: 'rgba(96,165,250,0.25)',
+    // Paleta complementaria del manual de marca. Permitida en publicaciones/
+    // categorías, NO en el isologo. Usada para distinguir tipos de producto.
+    comp: {
+      teal:     '#025157',
+      cyan:     '#00A5B5',
+      amber:    '#FFB71B',
+      orange:   '#D64123',
+      red:      '#E1251B',
+      burgundy: '#96262C',
+    },
   },
   shadow: {
     sm: '0 1px 3px rgba(0,0,0,0.35)',

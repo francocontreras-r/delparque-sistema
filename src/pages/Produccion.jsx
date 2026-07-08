@@ -50,8 +50,8 @@ const PRODUCTOS_SEED = [
   { codigo: 116, nombre: 'TORTA HELADA KG',  categoria: 'IMPULSIVO' },
 ]
 
-const textareaClass = 'w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] placeholder:text-[#64748B] bg-[#0F172A] outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]'
-const obsInputClass  = 'w-full min-w-[160px] rounded-md border border-[#334155] text-xs text-[#F1F5F9] placeholder:text-[#64748B] bg-[#0F172A] outline-none transition-colors duration-150 px-2 py-1.5 focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]'
+const textareaClass = 'w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] placeholder:text-[#64748B] bg-[#0F172A] outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]'
+const obsInputClass  = 'w-full min-w-[160px] rounded-md border border-[#334155] text-xs text-[#F1F5F9] placeholder:text-[#64748B] bg-[#0F172A] outline-none transition-colors duration-150 px-2 py-1.5 focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]'
 
 function fmtNum(n) {
   return Number((n || 0).toFixed(2)).toString()

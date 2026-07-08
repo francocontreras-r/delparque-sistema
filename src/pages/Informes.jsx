@@ -638,7 +638,7 @@ export default function Informes() {
         const topProd = [...actual.porProducto].filter(p => p.tipo !== 'base')
           .map(p => { const peso = p.tipo !== 'impulsivo'; return { nombre: p.nombre, v: peso ? p.kg : p.unidades, txt: `${fmtNum(peso ? p.kg : p.unidades, peso ? 1 : 0)} ${peso ? 'kg' : 'u'}` } })
           .sort((a, b) => b.v - a.v).slice(0, 8)
-        barras('Top productos — cantidad producida', topProd, [212, 82, 26])
+        barras('Top productos — cantidad producida', topProd, [255, 71, 19])
         const topOps = [...actual.porOperario].map(o => ({ nombre: o.nombre, v: o.kgSabores, txt: `${fmtNum(o.kgSabores, 1)} kg` }))
           .sort((a, b) => b.v - a.v).slice(0, 8)
         barras('Producción por operario — kg', topOps, [59, 130, 246])
@@ -892,7 +892,7 @@ export default function Informes() {
               type="date"
               value={diaSeleccionado}
               onChange={e => setDiaSeleccionado(e.target.value)}
-              className="rounded-lg border text-xs px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+              className="rounded-lg border text-xs px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]"
               style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
             />
           )}
@@ -904,7 +904,7 @@ export default function Informes() {
                 value={desdePers}
                 max={hastaPers || undefined}
                 onChange={e => setDesdePers(e.target.value)}
-                className="rounded-lg border text-xs px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+                className="rounded-lg border text-xs px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]"
                 style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
               />
               <span className="text-xs" style={{ color: colors.textMuted }}>Hasta</span>
@@ -913,7 +913,7 @@ export default function Informes() {
                 value={hastaPers}
                 min={desdePers || undefined}
                 onChange={e => setHastaPers(e.target.value)}
-                className="rounded-lg border text-xs px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+                className="rounded-lg border text-xs px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]"
                 style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bg }}
               />
             </div>
@@ -1375,7 +1375,7 @@ export default function Informes() {
           <XAxis dataKey="nombre" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} interval={0} angle={-25} textAnchor="end" height={70} />
           <YAxis stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
           <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9' }} formatter={v => [`${v} kg`, 'Producción']} />
-          <Bar dataKey="kg" fill="#D4521A" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="kg" fill="#FF4713" radius={[4, 4, 0, 0]} />
         </BarChart>
       </div>
       <div ref={chartRefOp} style={{ position: 'fixed', left: '-9999px', top: 0, width: '760px', height: '260px', background: '#1e293b', padding: '16px 20px', zIndex: -1, borderRadius: '8px' }}>

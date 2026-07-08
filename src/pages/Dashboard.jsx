@@ -26,7 +26,7 @@ const TIPO_BADGE = {
   Lisa:           { bg: 'rgba(96,165,250,0.12)',  color: '#60A5FA' },
   'Con Agregado': { bg: 'rgba(167,139,250,0.12)', color: '#A78BFA' },
   Agua:           { bg: 'rgba(34,211,238,0.12)',  color: '#22D3EE' },
-  Especial:       { bg: 'rgba(212,82,26,0.12)',   color: '#D4521A' },
+  Especial:       { bg: 'rgba(255,71,19,0.12)',   color: '#FF4713' },
 }
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 const SEV_UI = {
@@ -79,7 +79,7 @@ function saludo() {
 function turnoActual() {
   const h = new Date().getHours()
   if (h >= 6  && h < 14) return { label: 'Turno Mañana',  color: '#f59e0b', emoji: '🌅' }
-  if (h >= 14 && h < 22) return { label: 'Turno Tarde',   color: '#D4521A', emoji: '🌇' }
+  if (h >= 14 && h < 22) return { label: 'Turno Tarde',   color: '#FF4713', emoji: '🌇' }
   return                         { label: 'Turno Noche',   color: '#6366f1', emoji: '🌙' }
 }
 function fechaLarga() {

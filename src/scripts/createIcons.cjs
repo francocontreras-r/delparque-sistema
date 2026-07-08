@@ -94,7 +94,7 @@ function createIcon(size, bgR, bgG, bgB) {
 const publicDir = path.join(__dirname, '..', '..', 'public')
 
 for (const size of [192, 512]) {
-  const buf = createIcon(size, 0xD4, 0x52, 0x1A)   // #D4521A naranja del parque
+  const buf = createIcon(size, 0xD4, 0x52, 0x1A)   // #FF4713 naranja del parque
   const out = path.join(publicDir, `icon-${size}.png`)
   fs.writeFileSync(out, buf)
   console.log(`✓ public/icon-${size}.png  (${buf.length} bytes)`)

@@ -4,8 +4,8 @@
   --bg-primary:   #0F172A;
   --bg-secondary: #1E293B;
   --bg-tertiary:  #334155;
-  --accent:       #D4521A;
-  --accent-dark:  #b84415;
+  --accent:       #FF4713;
+  --accent-dark:  #E23C0F;
   --text-primary:   #F1F5F9;
   --text-secondary: #94A3B8;
   --text-muted:     #64748B;
@@ -30,7 +30,7 @@ body {
 }
 
 ::selection {
-  background-color: rgba(212, 82, 26, 0.35);
+  background-color: rgba(255, 71, 19, 0.35);
   color: #F1F5F9;
 }
 

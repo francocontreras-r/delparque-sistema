@@ -56,7 +56,7 @@ const MOTIVOS_INGRESO_DEPOSITO = ['Compra a proveedor', 'Sobrantes de Producció
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const SEM = { verde: colors.success, amarillo: colors.warning, rojo: colors.danger, gris: colors.textMuted }
 
-const textareaClass = 'w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] placeholder:text-[#64748B] bg-[#0F172A] outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]'
+const textareaClass = 'w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] placeholder:text-[#64748B] bg-[#0F172A] outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]'
 
 function semaforo(actual, minimo, maximo) {
   const a = Number(actual) || 0
@@ -333,7 +333,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
           <p className="text-sm font-semibold" style={{ color: colors.textSecondary }}>
             Revisá el resumen antes de confirmar:
           </p>
-          <div className="rounded-xl p-4 space-y-2.5" style={{ backgroundColor: 'rgba(212,82,26,0.1)', border: `1px solid ${colors.brand}40` }}>
+          <div className="rounded-xl p-4 space-y-2.5" style={{ backgroundColor: 'rgba(255,71,19,0.1)', border: `1px solid ${colors.brand}40` }}>
             <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>
               {esIngreso ? '↑ Ingreso:' : '↓ Egreso:'} {form.cantidad} {form.presentacion.toLowerCase()}{parseFloat(form.cantidad) !== 1 ? 's' : ''} de <b>{form.producto_nombre}</b>
               {form.marca ? ` (${form.marca})` : ''}
@@ -641,7 +641,7 @@ function ModalEditarInsumo({ insumo, onClose, onSubmit, saving, isAdmin, categor
         )}
 
         <button onClick={() => onSubmit(form)} disabled={saving}
-          style={{ padding: '10px', background: '#D4521A', color: 'white', border: 'none',
+          style={{ padding: '10px', background: '#FF4713', color: 'white', border: 'none',
                    borderRadius: '6px', cursor: 'pointer', fontWeight: '600', marginTop: '8px' }}>
           {saving ? 'Guardando...' : 'Guardar cambios'}
         </button>
@@ -695,7 +695,7 @@ function ModalConteo({ tipo, items, onClose, onSubmit, saving }) {
             <input
               type="number" step="0.01" value={valores[it.nombre]}
               onChange={e => upd(it.nombre, e.target.value)}
-              className="w-24 rounded-lg border border-[#334155] text-sm text-[#F1F5F9] bg-[#0F172A] text-right px-2 py-1.5 outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+              className="w-24 rounded-lg border border-[#334155] text-sm text-[#F1F5F9] bg-[#0F172A] text-right px-2 py-1.5 outline-none focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]"
             />
           </div>
         ))}
@@ -795,8 +795,8 @@ function ModalEvolucionCS({ insumo, movimientos: allMovs, onClose }) {
               <ReferenceLine y={stockMin} stroke="#ef4444" strokeDasharray="5 5"
                 label={{ value: `Mín ${stockMin} ${unidad}`, position: 'insideTopRight', fill: '#ef4444', fontSize: 10 }} />
             )}
-            <Line type="monotone" dataKey="consumo" stroke="#D4521A" strokeWidth={2.5} name="Consumo semanal"
-              dot={{ r: 4, fill: '#D4521A' }} activeDot={{ r: 6 }} />
+            <Line type="monotone" dataKey="consumo" stroke="#FF4713" strokeWidth={2.5} name="Consumo semanal"
+              dot={{ r: 4, fill: '#FF4713' }} activeDot={{ r: 6 }} />
             <Line type="monotone" dataKey="ingreso" stroke="#3B82F6" strokeWidth={2} name="Ingresos"
               dot={{ r: 4, fill: '#3B82F6' }} strokeDasharray={tendenciaBajista ? undefined : undefined} activeDot={{ r: 6 }} />
           </LineChart>
@@ -890,7 +890,7 @@ function ModalNuevoInsumo({ onClose, onSubmit, saving, categorias = TODAS_LAS_CA
         <div>
           <label className="block text-sm font-medium text-[#94A3B8] mb-1.5">Categoría</label>
           <select value={form.categoria} onChange={e => upd('categoria', e.target.value)}
-            className="w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] bg-[#0F172A] outline-none px-3 py-2 focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]">
+            className="w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] bg-[#0F172A] outline-none px-3 py-2 focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]">
             {categorias.map(c => <option key={c}>{c}</option>)}
           </select>
         </div>
@@ -2285,7 +2285,7 @@ export default function Deposito() {
       const doc = new jsPDF({ unit: 'mm', format: 'a4' })
       const W = doc.internal.pageSize.getWidth()
       const H = doc.internal.pageSize.getHeight()
-      const N  = [212, 82, 26]   // naranja
+      const N  = [255, 71, 19]   // naranja
       const OS = [15, 23, 42]    // oscuro bg
       const ME = [30, 41, 59]    // medio bg
       const TX = [241, 245, 249] // texto claro
@@ -3299,7 +3299,7 @@ export default function Deposito() {
       <Toast toast={toast} />
       {focoBanner && (
         <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg text-sm flex-wrap"
-          style={{ backgroundColor: 'rgba(212,82,26,0.10)', border: `1px solid ${colors.brand}` }}>
+          style={{ backgroundColor: 'rgba(255,71,19,0.10)', border: `1px solid ${colors.brand}` }}>
           <span style={{ color: colors.textPrimary }}>🎯 Del Centro de control: <b>{focoBanner}</b></span>
           <button onClick={() => { setFocoBanner(null); setFocoStock(null); setFiltroVencimiento(false) }}
             className="text-xs font-semibold px-2 py-1 rounded-md" style={{ color: colors.brand }}>
@@ -3393,11 +3393,11 @@ export default function Deposito() {
                 <div className="flex items-center gap-2 ml-auto flex-wrap">
                   <span className="text-xs" style={{ color: colors.textMuted }}>Desde</span>
                   <input type="date" value={filtroMovDesde} onChange={e => setFiltroMovDesde(e.target.value)}
-                    className="text-xs rounded-lg border px-2 py-1.5 outline-none focus:ring-2 focus:ring-[#D4521A]/30"
+                    className="text-xs rounded-lg border px-2 py-1.5 outline-none focus:ring-2 focus:ring-[#FF4713]/30"
                     style={{ borderColor: colors.border }} />
                   <span className="text-xs" style={{ color: colors.textMuted }}>Hasta</span>
                   <input type="date" value={filtroMovHasta} onChange={e => setFiltroMovHasta(e.target.value)}
-                    className="text-xs rounded-lg border px-2 py-1.5 outline-none focus:ring-2 focus:ring-[#D4521A]/30"
+                    className="text-xs rounded-lg border px-2 py-1.5 outline-none focus:ring-2 focus:ring-[#FF4713]/30"
                     style={{ borderColor: colors.border }} />
                 </div>
               </div>
@@ -4197,7 +4197,7 @@ export default function Deposito() {
                                     value={f.stockFisico}
                                     onChange={e => setConteoFilasDepo(prev => prev.map((r, i) => i === idx ? { ...r, stockFisico: e.target.value } : r))}
                                     placeholder={oculto ? '—' : f.stockSistema.toFixed(2)}
-                                    className="w-24 text-right rounded-md border px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-[#D4521A]/25 focus:border-[#D4521A]"
+                                    className="w-24 text-right rounded-md border px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]"
                                     style={{ borderColor: colors.border, backgroundColor: colors.bg, color: colors.textPrimary }}
                                   />
                                 )}
@@ -4755,7 +4755,7 @@ export default function Deposito() {
               <XAxis type="number" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
               <YAxis type="category" dataKey="nombre" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} width={110} />
               <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9' }} />
-              <Bar dataKey="diff" fill="#D4521A" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="diff" fill="#FF4713" radius={[0, 4, 4, 0]} />
             </BarChart>
           </div>
         )

@@ -24,15 +24,15 @@ export default function LogoDelParque({ size = 32 }) {
       <circle cx="23" cy="11.5" r="1.8" fill="#111827" />
       <circle cx="22.4" cy="11" r="0.7" fill="white" />
       {/* Beak */}
-      <polygon points="17.5,15.5 20,18.5 22.5,15.5" fill="#D4521A" />
+      <polygon points="17.5,15.5 20,18.5 22.5,15.5" fill="#FF4713" />
       {/* Left wing */}
       <ellipse cx="8.5" cy="29" rx="4" ry="8.5" fill="#111827" transform="rotate(-12 8.5 29)" />
       {/* Right wing */}
       <ellipse cx="31.5" cy="29" rx="4" ry="8.5" fill="#111827" transform="rotate(12 31.5 29)" />
       {/* Left foot */}
-      <ellipse cx="15" cy="45" rx="4.5" ry="2" fill="#D4521A" />
+      <ellipse cx="15" cy="45" rx="4.5" ry="2" fill="#FF4713" />
       {/* Right foot */}
-      <ellipse cx="25" cy="45" rx="4.5" ry="2" fill="#D4521A" />
+      <ellipse cx="25" cy="45" rx="4.5" ry="2" fill="#FF4713" />
     </svg>
   )
 }

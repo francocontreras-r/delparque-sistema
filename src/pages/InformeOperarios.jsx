@@ -860,7 +860,7 @@ export default function InformeOperarios() {
           <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9' }} />
           <Legend wrapperStyle={{ color: '#94a3b8', fontSize: 11 }} />
           <Bar dataKey="objetivo" fill="#334155" radius={[3, 3, 0, 0]} />
-          <Bar dataKey="producido" fill="#D4521A" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="producido" fill="#FF4713" radius={[3, 3, 0, 0]} />
         </BarChart>
       </div>
     </div>

@@ -55,7 +55,7 @@ const tierEmoji = { Lisa: '🔵', 'Con Agregado': '🟣', Agua: '🩵', Especial
 
 const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 
-const numInputClass = 'w-24 text-right rounded-md border border-[#d1d5db] text-sm px-2 py-1 outline-none focus:ring-2 focus:ring-[#D4521A]/30 focus:border-[#D4521A]'
+const numInputClass = 'w-24 text-right rounded-md border border-[#d1d5db] text-sm px-2 py-1 outline-none focus:ring-2 focus:ring-[#FF4713]/30 focus:border-[#FF4713]'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function pesos(n) { return Math.round(n || 0).toLocaleString('es-AR') }
@@ -843,7 +843,7 @@ export default function Finanzas() {
 
       {focoBanner && (
         <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg text-sm flex-wrap"
-          style={{ backgroundColor: 'rgba(212,82,26,0.10)', border: `1px solid ${colors.brand}` }}>
+          style={{ backgroundColor: 'rgba(255,71,19,0.10)', border: `1px solid ${colors.brand}` }}>
           <span style={{ color: colors.textPrimary }}>🎯 Del Centro de control: <b>{focoBanner}</b> — ordenados de peor a mejor margen.</span>
           <button onClick={() => setFocoBanner(null)} className="text-xs font-semibold px-2 py-1 rounded-md" style={{ color: colors.brand }}>✕</button>
         </div>

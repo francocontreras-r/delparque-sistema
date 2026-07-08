@@ -548,12 +548,13 @@ export default function Informes() {
   }, [productosFinancieros])
 
   const costoProduccionPeriodo = useMemo(() => {
-    // Helado: kg producidos × costo/kg. Impulsivo/postre: unidades × costo/unidad (stored).
+    // Helado y POSTRE: kg producidos × costo/kg (los postres se costean por peso;
+    // las unidades son solo control de stock). Impulsivo: unidades × costo/unidad.
     const impCostoUnit = {}; impulsivos.forEach(i => { impCostoUnit[normalizarNombre(i.nombre)] = Number(i.costo_total) || 0 })
     return produccionesActual.reduce((acc, r) => {
       const tipo = clasificarRegistro(r)
       const nombre = r.producto_nombre || ''
-      if (tipo !== 'helado') return acc + unidadesDe(r) * (impCostoUnit[normalizarNombre(nombre)] || 0)
+      if (tipo === 'impulsivo') return acc + unidadesDe(r) * (impCostoUnit[normalizarNombre(nombre)] || 0)
       return acc + (r.peso_kg || 0) * costoUnitario.costoUnitDe(nombre)
     }, 0)
   }, [produccionesActual, impulsivos, costoUnitario, clasificarRegistro])

@@ -3,7 +3,7 @@
 // Antes cada módulo lo calculaba distinto (la pantalla Cámara y Finanzas no
 // coincidían). Acá vive la única lógica: costo/precio por producto desde las
 // tablas de Finanzas (costo_final; respaldo costo_total/rinde), y valuación del
-// stock (helado por kg; impulsivo/postre por unidad), agrupando por nombre.
+// stock (helado y postre por kg; impulsivo por unidad), agrupando por nombre.
 // Cámara y Finanzas importan esto → siempre dan el mismo número.
 // ════════════════════════════════════════════════════════════════════════════
 import { normalizarNombre as norm } from './texto'
@@ -18,8 +18,8 @@ export const TIPO_PRECIOS_CAMARA = {
   Especial:       { costo_kg: 2000, precio_kg: 4500 },
 }
 
-// Mapa nombre→{costo, precio} por unidad de venta, desde las tablas de Finanzas.
-// Sabor: $/kg (costo_final o costo_total/rinde). Impulsivo/postre: $/unidad.
+// Mapa nombre→{costo, precio} desde las tablas de Finanzas.
+// Sabor y postre: $/kg (costo_final o costo_total/rinde). Impulsivo: $/unidad.
 export function construirPrecioMapCamara({ sabores = [], impulsivos = [], saborIngredientes = [] } = {}) {
   const extraKg = {}
   saborIngredientes.forEach(i => { if ((i.unidad || '').toLowerCase() === 'kg') extraKg[i.sabor_id] = (extraKg[i.sabor_id] || 0) + (Number(i.cantidad) || 0) })
@@ -35,10 +35,12 @@ export function construirPrecioMapCamara({ sabores = [], impulsivos = [], saborI
   return map
 }
 
-// Valoriza UN item de stock_camaras. Helado → kg; impulsivo/postre → unidades.
+// Valoriza UN item de stock_camaras. Se valoriza por PESO (kg): helados Y postres
+// (los postres se costean/venden por kg; las unidades son solo control de stock).
+// Solo los IMPULSIVOS se valorizan por unidad.
 export function valorizarItemCamara(item, precioMap = {}) {
   const m = precioMap[norm(item.nombre || '')] || {}
-  const esUnid = item.tipo_producto === 'impulsivo' || item.tipo_producto === 'postre'
+  const esUnid = item.tipo_producto === 'impulsivo'
   const costoUnit  = m.costo  || TIPO_PRECIOS_CAMARA[item.tipo]?.costo_kg  || 0
   const precioUnit = m.precio || TIPO_PRECIOS_CAMARA[item.tipo]?.precio_kg || 0
   const qty = esUnid ? (Number(item.baldes) || 0) : (Number(item.kg) || 0)

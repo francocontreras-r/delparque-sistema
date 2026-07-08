@@ -27,9 +27,15 @@ describe('valorizarItemCamara', () => {
     expect(v.valorCosto).toBe(45000) // 50 × 900
     expect(v.valorVenta).toBe(125000)
   })
-  it('impulsivo/postre se valoriza por unidad (baldes)', () => {
+  it('impulsivo se valoriza por unidad (baldes)', () => {
     const v = valorizarItemCamara({ nombre: 'CUBANITO', tipo_producto: 'impulsivo', kg: 0, baldes: 10 }, map)
     expect(v.valorCosto).toBe(3000) // 10 × 300
+  })
+  it('postre se valoriza por KG (unidades solo control de stock)', () => {
+    const mapP = { 'mini barra': { costo: 1500, precio: 4000 } }
+    const v = valorizarItemCamara({ nombre: 'MINI BARRA', tipo_producto: 'postre', kg: 8, baldes: 20 }, mapP)
+    expect(v.valorCosto).toBe(12000) // 8 kg × 1500 (NO 20 unidades)
+    expect(v.valorVenta).toBe(32000)
   })
   it('cae al fallback por tipo si el producto no está en Finanzas', () => {
     const v = valorizarItemCamara({ nombre: 'DESCONOCIDO', tipo_producto: 'helado', tipo: 'Lisa', kg: 10 }, {})

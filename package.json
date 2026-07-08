@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/raleway": "^5.2.8",
     "@supabase/supabase-js": "^2.108.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",

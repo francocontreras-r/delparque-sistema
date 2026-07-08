@@ -109,6 +109,25 @@ export default function InformeOperarios() {
         kgRealPorOp[N] = (kgRealPorOp[N] || 0) + (Number(p.peso_kg) || 0)
       })
 
+      // Reparto del OBJETIVO por operario: proporcional a lo que cargó cada uno en
+      // cada orden. Así el % de cumplimiento también se reparte por persona (no se
+      // le imputa la orden entera a una sola). Cada uno rinde contra SU parte.
+      const objAtribPorOp = {}   // kg de objetivo atribuibles a cada operario
+      const contribCountPorOp = {} // en cuántas órdenes participó (para ponderar)
+      ordenes.filter(o => !esUnidad(o) && o.estado === 'completada' && Number(o.kg_objetivo) > 0).forEach(o => {
+        const objN = normalizarNombre(o.sabor_nombre)
+        const recs = (prodData || []).filter(p => p.fecha === o.fecha_produccion && normalizarNombre(p.producto_nombre || '') === objN)
+        const totalCargado = recs.reduce((a, p) => a + (Number(p.peso_kg) || 0), 0)
+        if (totalCargado <= 0) return
+        const objetivo = Number(o.kg_objetivo) || 0
+        const porOp = {}
+        recs.forEach(p => { const N = (p.operario_nombre || '').toUpperCase(); if (N) porOp[N] = (porOp[N] || 0) + (Number(p.peso_kg) || 0) })
+        Object.entries(porOp).forEach(([N, kg]) => {
+          objAtribPorOp[N] = (objAtribPorOp[N] || 0) + (kg / totalCargado) * objetivo
+          contribCountPorOp[N] = (contribCountPorOp[N] || 0) + 1
+        })
+      })
+
       // Actividad operativa por operario (cámara, depósito, mermas).
       const actividadDe = nombre => {
         const N = (nombre || '').toUpperCase()
@@ -129,8 +148,14 @@ export default function InformeOperarios() {
         const conProd = heladoCompl.filter(o => Number(o.kg_objetivo) > 0 && Number(o.kg_producido) > 0)
         const sinRegistroKg = heladoCompl.filter(o => Number(o.kg_objetivo) > 0 && !(Number(o.kg_producido) > 0)).length
 
-        const pctHeladoProd = conProd.length > 0
-          ? Math.round(conProd.reduce((a, o) => a + Math.min((Number(o.kg_producido) / Number(o.kg_objetivo)) * 100, 120), 0) / conProd.length)
+        // Cumplimiento de helado POR OPERARIO: sus kg reales cargados vs SU parte
+        // del objetivo (repartida proporcionalmente). Cuenta a cualquiera que haya
+        // cargado, aunque la orden figure a nombre de otro.
+        const kgRealOp   = kgRealPorOp[op.nombre] || 0
+        const objAtribOp = objAtribPorOp[op.nombre] || 0
+        const contribOrdenes = contribCountPorOp[op.nombre] || 0
+        const pctHeladoProd = objAtribOp > 0
+          ? Math.round(Math.min((kgRealOp / objAtribOp) * 100, 120))
           : null
 
         // ── Postres / impulsivos (unidades) — circuito propio ────────────────
@@ -152,7 +177,7 @@ export default function InformeOperarios() {
 
         // ── Cumplimiento de producción combinado (helado kg + postres lotes) ─
         const prodParts = []
-        if (pctHeladoProd !== null) prodParts.push({ v: pctHeladoProd, w: conProd.length })
+        if (pctHeladoProd !== null) prodParts.push({ v: pctHeladoProd, w: contribOrdenes || 1 })
         if (pctPostreCompl !== null) prodParts.push({ v: pctPostreCompl, w: unidadAsignadas })
         const pesoTot = prodParts.reduce((a, p) => a + p.w, 0)
         const pctProduccion = pesoTot > 0 ? Math.round(prodParts.reduce((a, p) => a + p.v * p.w, 0) / pesoTot) : null
@@ -196,7 +221,8 @@ export default function InformeOperarios() {
           actividad: actividadDe(op.nombre),
           // KG reales que produjo esta persona (de sus cargas), no la orden entera.
           totalKgProducido: Math.round((kgRealPorOp[op.nombre] || 0) * 10) / 10,
-          totalKgObjetivo:  conProd.reduce((a, o) => a + (Number(o.kg_objetivo)  || 0), 0),
+          // Objetivo atribuible a esta persona (su parte proporcional del objetivo).
+          totalKgObjetivo:  Math.round(objAtribOp * 10) / 10,
         }
       }).sort((a, b) => (b.rendimiento ?? -1) - (a.rendimiento ?? -1))
 

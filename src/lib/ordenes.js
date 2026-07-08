@@ -72,18 +72,25 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal, usuarioE
     }
   }
 
-  // Buscar si es un sabor con base asociada
-  const { data: saborData } = await supabase
+  // Buscar si es un sabor con base asociada. Match NORMALIZADO (acentos/mayús/
+  // espacios) en vez de ilike: antes un acento distinto perdía la base → no se
+  // descontaba stock_bases ni se registraba la merma base→sabor.
+  const { data: saboresAll } = await supabase
     .from('sabores')
-    .select('base_nombre, litros_base')
-    .ilike('nombre', saborNombre)
-    .maybeSingle()
+    .select('nombre, base_nombre, litros_base')
+  const objSabor = normalizarNombre(saborNombre)
+  const saborData = (saboresAll || []).find(s => normalizarNombre(s.nombre) === objSabor) || null
 
   if (saborData?.base_nombre) {
     // ── FLUJO SABOR CON BASE ─────────────────────────────────────────────────
     const litrosBase = saborData.litros_base || 120
+    // Solo la base se descuenta de stock_bases (los agregados salen del depósito).
     const kgBaseTeorica = (orden.batches || 0) * litrosBase
-    const diferencia = kgProducidoFinal - kgBaseTeorica
+    // Pero la MERMA se mide contra el objetivo REAL de la orden (base + agregados).
+    // Antes se comparaba contra la base sola → los sabores con agregados siempre
+    // daban "sobrante" y NUNCA registraban merma.
+    const kgTeoricoMerma = kgObjetivo > 0 ? kgObjetivo : kgBaseTeorica
+    const diferencia = kgProducidoFinal - kgTeoricoMerma
 
     // Descontar de stock_bases con FIFO REAL (partida más antigua primero, y si
     // no alcanza cascada a la siguiente) y coincidencia de nombre NORMALIZADA
@@ -111,12 +118,12 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal, usuarioE
     if (diferencia > 0.5) {
       return {
         error: null,
-        toastMsg: `✅ Producción: ${kgProducidoFinal.toFixed(1)} kg — Sobrante: ${diferencia.toFixed(2)} kg vs base teórica`,
+        toastMsg: `✅ Producción: ${kgProducidoFinal.toFixed(1)} kg — Sobrante: ${diferencia.toFixed(2)} kg vs objetivo`,
         toastType: 'ok',
       }
     }
 
-    // Merma base→sabor
+    // Merma base→sabor (medida contra el objetivo real de la orden)
     const absDif = Math.abs(diferencia)
     const { error } = await supabase.from('mermas').insert({
       fecha,
@@ -125,12 +132,12 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal, usuarioE
       // La merma es del LOTE, no de una persona (una orden puede haberla hecho
       // más de un operario). El rendimiento por operario se mide aparte.
       operario_nombre: null,
-      kg_teoricos: kgBaseTeorica,
+      kg_teoricos: kgTeoricoMerma,
       kg_reales: kgProducidoFinal,
       diferencia: absDif,
-      porcentaje: (absDif / kgBaseTeorica) * 100,
+      porcentaje: (absDif / kgTeoricoMerma) * 100,
       causa: 'Merma de elaboración base→sabor',
-      observaciones: `Base: ${saborData.base_nombre}. Teórico: ${kgBaseTeorica.toFixed(1)} kg. Real: ${kgProducidoFinal.toFixed(1)} kg.`,
+      observaciones: `Base: ${saborData.base_nombre}. Objetivo: ${kgTeoricoMerma.toFixed(1)} kg. Real: ${kgProducidoFinal.toFixed(1)} kg.`,
       usuario_email: usuarioEmail,
     })
     if (error) return { error }
@@ -139,7 +146,7 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal, usuarioE
     }
     return {
       error: null,
-      toastMsg: `⚠️ Merma registrada: ${absDif.toFixed(2)} kg (${((absDif / kgBaseTeorica) * 100).toFixed(1)}%)`,
+      toastMsg: `⚠️ Merma registrada: ${absDif.toFixed(2)} kg (${((absDif / kgTeoricoMerma) * 100).toFixed(1)}%)`,
       toastType: 'warn',
     }
   }
@@ -265,6 +272,8 @@ export async function finalizarOrdenManual(orden, fechaFinParam = null) {
     }
   }
 
-  const { error: mermaError, toastMsg, toastType } = await registrarMermaAutomatica(orden, kgProducido)
-  return { pct, mermaError, toastMsg, toastType }
+  // La merma NO se calcula al completar: se genera cuando se CARGA la producción
+  // (aplicarProduccionAOrden), que es el momento en que se conocen los kg reales
+  // y quién los produjo. Al completar solo se cierra la orden.
+  return { pct, mermaError: null, toastMsg: '✅ Orden completada', toastType: 'ok' }
 }

@@ -5,6 +5,7 @@ import autoTable from 'jspdf-autotable'
 import html2canvas from 'html2canvas'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { colors } from '../styles/design-system'
+import { PageHeader } from '../components/PageHeader'
 import Spinner from '../components/ui/Spinner'
 import KpiCard from '../components/ui/KpiCard'
 import Button from '../components/ui/Button'
@@ -455,20 +456,16 @@ export default function InformeOperarios() {
     <div className="space-y-5" style={{ color: colors.textPrimary }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary, margin: 0 }}>Rendimiento Operativo</h1>
-          <p className="text-sm mt-0.5" style={{ color: colors.textMuted, margin: '2px 0 0' }}>Cumplimiento de producción · Del Parque</p>
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {PERIODOS.map(([k, l]) => (
-            <button key={k} onClick={() => setPeriodo(k)}
-              style={{ padding: '6px 14px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '13px', background: periodo === k ? ACCENT : '#1e293b', color: periodo === k ? 'white' : '#94a3b8' }}>
-              {l}
-            </button>
-          ))}
-        </div>
-      </div>
+      <PageHeader
+        title="Rendimiento Operativo"
+        subtitle="Cumplimiento de producción · Del Parque"
+        actions={PERIODOS.map(([k, l]) => (
+          <button key={k} onClick={() => setPeriodo(k)}
+            style={{ padding: '6px 14px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '13px', background: periodo === k ? ACCENT : '#1e293b', color: periodo === k ? 'white' : '#94a3b8' }}>
+            {l}
+          </button>
+        ))}
+      />
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '4px', borderBottom: `1px solid ${colors.border}` }}>

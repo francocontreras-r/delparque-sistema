@@ -15,6 +15,7 @@ import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
 import Modal from '../components/ui/Modal'
 import Button from '../components/ui/Button'
+import { PageHeader } from '../components/PageHeader'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
@@ -1265,12 +1266,10 @@ export default function Ordenes() {
   return (
     <div className="space-y-5">
       <Toast toast={toast} />
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Órdenes</h1>
-          <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Órdenes de producción · {LITROS_BATCH} L/batch</p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title="Órdenes"
+        subtitle={`Órdenes de producción · ${LITROS_BATCH} L/batch`}
+        actions={<>
           {isAdmin && (
             <Button variant="secondary" onClick={abrirProyeccion}>
               <BarChart2 size={15} /> ¿Qué puedo producir?
@@ -1282,8 +1281,8 @@ export default function Ordenes() {
           <Button variant="primary" onClick={() => setModal(true)}>
             <Plus size={15} /> Nueva orden
           </Button>
-        </div>
-      </div>
+        </>}
+      />
 
       {reconcOpen && <ReconciliacionBases onClose={() => setReconcOpen(false)} />}
 

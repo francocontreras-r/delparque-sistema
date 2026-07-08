@@ -23,6 +23,7 @@ import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
 import Modal from '../components/ui/Modal'
 import Button from '../components/ui/Button'
+import { PageHeader } from '../components/PageHeader'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
@@ -3307,12 +3308,10 @@ export default function Deposito() {
           </button>
         </div>
       )}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Depósito</h1>
-          <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Control de materia prima</p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title="Depósito"
+        subtitle="Control de materia prima"
+        actions={<>
           {tab === 'Movimientos' && (
             <>
               <Button variant="success" onClick={() => setModal('ingreso')}>
@@ -3338,8 +3337,8 @@ export default function Deposito() {
               </Button>
             </>
           )}
-        </div>
-      </div>
+        </>}
+      />
 
       <div className="flex gap-1.5 flex-wrap">
         {TABS.map(t => (

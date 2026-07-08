@@ -7,6 +7,7 @@ import Input from '../components/ui/Input'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
 import Button from '../components/ui/Button'
+import { PageHeader } from '../components/PageHeader'
 import Toast from '../components/ui/Toast'
 import { colors, radius, shadow } from '../styles/design-system'
 import { BookOpen, Search, Edit2, RefreshCw, X, AlertTriangle, ChevronDown, ChevronUp, FileDown, Plus } from 'lucide-react'
@@ -871,12 +872,10 @@ export default function Recetas() {
     <div className="space-y-5">
       <Toast toast={toast} />
 
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Recetas</h1>
-          <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Catálogo de fórmulas Del Parque</p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
+      <PageHeader
+        title="Recetas"
+        subtitle="Catálogo de fórmulas Del Parque"
+        actions={<>
           {isAdmin && (
             <>
               <Button variant="primary" onClick={() => setNuevaReceta({ tipo: tab, nombre: '', litros: '120' })}>
@@ -890,8 +889,8 @@ export default function Recetas() {
           <Button variant="secondary" onClick={recalcularCostos} loading={recalculando} disabled={recalculando}>
             <RefreshCw size={14} /> Recalcular costos
           </Button>
-        </div>
-      </div>
+        </>}
+      />
 
       {/* Tabs */}
       <div className="flex gap-1.5 flex-wrap">

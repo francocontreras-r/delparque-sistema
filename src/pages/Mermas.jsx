@@ -18,6 +18,7 @@ import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
 import Modal from '../components/ui/Modal'
 import Button from '../components/ui/Button'
+import { PageHeader } from '../components/PageHeader'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
@@ -528,12 +529,10 @@ export default function Mermas() {
   return (
     <div className="space-y-5">
       <Toast toast={toast} />
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Mermas</h1>
-          <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Tolerancia: &lt;3% verde · 3-8% amarillo · &gt;8% rojo</p>
-        </div>
-        <div className="flex gap-2">
+      <PageHeader
+        title="Mermas"
+        subtitle="Tolerancia: <3% verde · 3-8% amarillo · >8% rojo"
+        actions={<>
           <Button variant="secondary" onClick={() => exportarCSV('mermas', [
             { header: 'Fecha', get: m => m.fecha || '' },
             { header: 'Orden', get: m => ordenNumero(m) },
@@ -555,8 +554,8 @@ export default function Mermas() {
           <Button variant="primary" onClick={() => setModal(true)}>
             <Plus size={15} /> Registrar
           </Button>
-        </div>
-      </div>
+        </>}
+      />
 
       <div className={`grid grid-cols-2 sm:grid-cols-3 ${isAdmin ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3`}>
         <KpiCard label="KG perdidos" value={loading ? '—' : totalDif.toFixed(1)} color={totalDif > 0 ? colors.danger : undefined} icon={TrendingDown} />

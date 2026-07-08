@@ -1,17 +1,19 @@
+import { colors } from '../styles/design-system'
+
+// Encabezado único de página: título + subtítulo + acciones. Fuente de verdad
+// para que todas las pantallas tengan el mismo tamaño, color y espaciado.
 export function PageHeader({ title, subtitle, actions }) {
   return (
-    <div style={{
-      display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-      marginBottom: '24px', paddingBottom: '16px', borderBottom: '1px solid #334155',
-    }}>
-      <div>
-        <h1 style={{ fontSize: '22px', fontWeight: '800', color: '#f1f5f9', margin: 0 }}>{title}</h1>
+    <div className="flex items-start justify-between flex-wrap gap-3 mb-6 pb-4"
+      style={{ borderBottom: `1px solid ${colors.border}` }}>
+      <div className="min-w-0">
+        <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary, margin: 0 }}>{title}</h1>
         {subtitle && (
-          <p style={{ color: '#64748b', fontSize: '13px', marginTop: '4px', marginBottom: 0 }}>{subtitle}</p>
+          <p className="text-sm" style={{ color: colors.textMuted, margin: '4px 0 0' }}>{subtitle}</p>
         )}
       </div>
       {actions && (
-        <div style={{ display: 'flex', gap: '8px', flexShrink: 0, marginLeft: '16px' }}>{actions}</div>
+        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">{actions}</div>
       )}
     </div>
   )

@@ -16,6 +16,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 const logoUrl = '/logo-horizontal-black-v2.png'
 import { dibujarPortada, dibujarEncabezado, dibujarPie, dibujarKpi, dibujarKpiCard, dibujarSeccion, dibujarFirmas, getEstiloInforme, PDF_CONTENT_Y, PDF_NEGRO, PDF_SEM_NEG, PDF_SEM_OK, LOGO_PDF } from '../lib/pdfEstilos'
 import { colors, shadow, radius } from '../styles/design-system'
+import { PageHeader } from '../components/PageHeader'
 import KpiCard from '../components/ui/KpiCard'
 import Toast from '../components/ui/Toast'
 import Badge from '../components/ui/Badge'
@@ -2117,12 +2118,10 @@ export default function Camaras() {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Cámaras</h2>
-          <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Stock de producto elaborado · tiempo real</p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title="Cámaras"
+        subtitle="Stock de producto elaborado · tiempo real"
+        actions={<>
           {isAdmin && (
             <Button variant="secondary" onClick={imprimir} disabled={loading || !!errorCarga}>
               <Printer size={15} /> Imprimir
@@ -2160,8 +2159,8 @@ export default function Camaras() {
               </button>
             ))}
           </div>
-        </div>
-      </div>
+        </>}
+      />
 
       {/* Tabs */}
       <div className="flex gap-1.5">

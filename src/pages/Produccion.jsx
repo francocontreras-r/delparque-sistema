@@ -7,6 +7,7 @@ import KpiCard from '../components/ui/KpiCard'
 import EmptyState from '../components/ui/EmptyState'
 import Modal from '../components/ui/Modal'
 import Button from '../components/ui/Button'
+import { PageHeader } from '../components/PageHeader'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
@@ -682,17 +683,15 @@ export default function Produccion() {
   return (
     <div className="space-y-5">
       <Toast toast={toast} />
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Producción</h1>
-          <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Escaneo EAN-13 y carga manual · Lote {lote}</p>
-        </div>
-        {isAdmin && (
+      <PageHeader
+        title="Producción"
+        subtitle={`Escaneo EAN-13 y carga manual · Lote ${lote}`}
+        actions={isAdmin && (
           <Button variant="secondary" onClick={abrirInforme}>
             <FileText size={15} /> Ver informe del día
           </Button>
         )}
-      </div>
+      />
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <KpiCard label="KG Helados" value={loading ? '—' : kpiKgHelados.toFixed(2)} icon={Scale} color={colors.brand} />

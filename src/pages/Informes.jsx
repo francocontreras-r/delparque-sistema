@@ -9,6 +9,7 @@ import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
 import Button from '../components/ui/Button'
+import { PageHeader } from '../components/PageHeader'
 import Modal from '../components/ui/Modal'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
@@ -841,15 +842,15 @@ export default function Informes() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Informes</h1>
-          <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Informe ejecutivo para dirección</p>
-        </div>
-        <Button variant="primary" onClick={exportarPDF} loading={exportando} disabled={loading}>
-          <FileDown size={15} /> Exportar PDF
-        </Button>
-      </div>
+      <PageHeader
+        title="Informes"
+        subtitle="Informe ejecutivo para dirección"
+        actions={
+          <Button variant="primary" onClick={exportarPDF} loading={exportando} disabled={loading}>
+            <FileDown size={15} /> Exportar PDF
+          </Button>
+        }
+      />
 
       <div className="flex gap-1.5 flex-wrap">
         {TABS.map(t => (

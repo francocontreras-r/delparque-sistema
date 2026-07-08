@@ -4,6 +4,7 @@ import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
 import Button from '../components/ui/Button'
+import { PageHeader } from '../components/PageHeader'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
@@ -90,22 +91,22 @@ export default function Bitacora() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Bitácora</h1>
-          <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Trazabilidad: quién hizo qué y cuándo, en todos los módulos</p>
-        </div>
-        <Button variant="secondary" disabled={filtrados.length === 0}
-          onClick={() => exportarCSV('bitacora', [
-            { header: 'Fecha y hora', get: e => fmtFechaHora(e.ts) },
-            { header: 'Módulo', get: e => e.modulo },
-            { header: 'Acción', get: e => e.accion },
-            { header: 'Detalle', get: e => e.detalle },
-            { header: 'Usuario', get: e => e.usuario },
-          ], filtrados)}>
-          <FileDown size={15} /> Excel
-        </Button>
-      </div>
+      <PageHeader
+        title="Bitácora"
+        subtitle="Trazabilidad: quién hizo qué y cuándo, en todos los módulos"
+        actions={
+          <Button variant="secondary" disabled={filtrados.length === 0}
+            onClick={() => exportarCSV('bitacora', [
+              { header: 'Fecha y hora', get: e => fmtFechaHora(e.ts) },
+              { header: 'Módulo', get: e => e.modulo },
+              { header: 'Acción', get: e => e.accion },
+              { header: 'Detalle', get: e => e.detalle },
+              { header: 'Usuario', get: e => e.usuario },
+            ], filtrados)}>
+            <FileDown size={15} /> Excel
+          </Button>
+        }
+      />
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {MODULOS.filter(m => m !== 'Todos').map(m => (

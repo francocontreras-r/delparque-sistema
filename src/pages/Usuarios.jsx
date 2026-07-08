@@ -6,6 +6,7 @@ import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
 import Modal from '../components/ui/Modal'
 import Button from '../components/ui/Button'
+import { PageHeader } from '../components/PageHeader'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
@@ -159,15 +160,15 @@ export default function Usuarios() {
   return (
     <div className="space-y-5">
       <Toast toast={toast} />
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Usuarios</h1>
-          <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Gestión de cuentas y permisos</p>
-        </div>
-        <Button variant="primary" onClick={() => setModalNuevo(true)}>
-          <Plus size={15} /> Nuevo usuario
-        </Button>
-      </div>
+      <PageHeader
+        title="Usuarios"
+        subtitle="Gestión de cuentas y permisos"
+        actions={
+          <Button variant="primary" onClick={() => setModalNuevo(true)}>
+            <Plus size={15} /> Nuevo usuario
+          </Button>
+        }
+      />
 
       {loading ? (
         <div className="flex justify-center py-14"><Spinner size={28} /></div>

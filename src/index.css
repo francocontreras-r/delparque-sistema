@@ -19,6 +19,9 @@
 
 html {
   background-color: var(--bg-primary);
+  /* Tipografía base un poco más grande (16px → 17px). Al usar rem en toda la
+     app, el texto y los espaciados escalan parejos y proporcionales. */
+  font-size: 106.25%;
 }
 
 body {

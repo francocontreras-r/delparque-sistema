@@ -12,6 +12,7 @@ import Toast from '../components/ui/Toast'
 import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
 import Button from '../components/ui/Button'
+import { PageHeader } from '../components/PageHeader'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
 import { colors, radius, shadow } from '../styles/design-system'
@@ -850,12 +851,10 @@ export default function Finanzas() {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>Finanzas</h1>
-          <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>Costos, márgenes y resumen financiero</p>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
+      <PageHeader
+        title="Finanzas"
+        subtitle="Costos, márgenes y resumen financiero"
+        actions={<>
           {lastUpdated && (
             <span className="text-xs flex items-center gap-1.5" style={{ color: colors.textMuted }}>
               <Clock size={12} />
@@ -889,8 +888,8 @@ export default function Finanzas() {
               </Button>
             </>
           )}
-        </div>
-      </div>
+        </>}
+      />
 
       {/* Tabs */}
       <div className="flex gap-1.5 flex-wrap">

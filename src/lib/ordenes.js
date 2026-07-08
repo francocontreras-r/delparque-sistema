@@ -122,7 +122,9 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal, usuarioE
       fecha,
       orden_id: orden.id || null,
       sabor_nombre: saborNombre,
-      operario_nombre: orden.operario_nombre || null,
+      // La merma es del LOTE, no de una persona (una orden puede haberla hecho
+      // más de un operario). El rendimiento por operario se mide aparte.
+      operario_nombre: null,
       kg_teoricos: kgBaseTeorica,
       kg_reales: kgProducidoFinal,
       diferencia: absDif,
@@ -159,7 +161,7 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal, usuarioE
     fecha,
     orden_id: orden.id || null,
     sabor_nombre: saborNombre,
-    operario_nombre: orden.operario_nombre || null,
+    operario_nombre: null, // merma del lote, no de una persona
     kg_teoricos: kgObjetivo,
     kg_reales: kgProducidoFinal,
     diferencia: -merma,
@@ -179,7 +181,8 @@ export async function aplicarProduccionAOrden(orden, kgIncremento, usuarioEmail 
   const kgObjetivo = orden.kg_objetivo || 0
   const kgProducido = (orden.kg_producido || 0) + kgIncremento
   const pct = pctCompletitud(kgProducido, kgObjetivo)
-  const nuevoEstado = pct >= 95 ? ESTADO_COMPLETADA : orden.estado
+  const yaCompletada = orden.estado === ESTADO_COMPLETADA
+  const nuevoEstado = yaCompletada ? ESTADO_COMPLETADA : (pct >= 95 ? ESTADO_COMPLETADA : orden.estado)
 
   const update = {
     kg_producido: kgProducido,
@@ -187,13 +190,20 @@ export async function aplicarProduccionAOrden(orden, kgIncremento, usuarioEmail 
     estado: nuevoEstado,
   }
 
-  const seFinaliza = nuevoEstado === ESTADO_COMPLETADA && orden.estado !== ESTADO_COMPLETADA
-  if (seFinaliza) {
-    const fechaFin = new Date().toISOString()
-    const horasReales = calcularHorasReales(orden.fecha_inicio, fechaFin)
+  // Conciliar = calcular tiempo/rendimiento y registrar merma. Pasa cuando la
+  // orden finaliza ahora, O cuando ya estaba completada "pendiente de kg" y
+  // recién le entran los kg reales por la carga de producción.
+  const finalizaAhora = nuevoEstado === ESTADO_COMPLETADA && !yaCompletada
+  const reconciliaPendiente = yaCompletada && !(Number(orden.kg_producido) > 0)
+  const conciliar = finalizaAhora || reconciliaPendiente
+  if (conciliar) {
+    const fechaFin = orden.fecha_fin || new Date().toISOString()
+    const horasReales = Number(orden.horas_reales) > 0
+      ? Number(orden.horas_reales)
+      : calcularHorasReales(orden.fecha_inicio, fechaFin)
     const eficienciaKg = calcularEficienciaKg(kgProducido, kgObjetivo)
     const eficienciaTiempo = calcularEficienciaTiempo(orden.horas_estimadas, horasReales)
-    update.fecha_fin = fechaFin
+    if (!orden.fecha_fin) update.fecha_fin = fechaFin
     update.horas_reales = horasReales
     update.eficiencia_kg = eficienciaKg
     update.eficiencia_tiempo = eficienciaTiempo
@@ -204,7 +214,7 @@ export async function aplicarProduccionAOrden(orden, kgIncremento, usuarioEmail 
   if (error) return { error }
 
   let mermaError = null, toastMsg = null, toastType = 'ok'
-  if (seFinaliza) {
+  if (conciliar) {
     const resultado = await registrarMermaAutomatica(orden, kgProducido, usuarioEmail)
     mermaError = resultado.error
     toastMsg = resultado.toastMsg || null
@@ -223,21 +233,37 @@ export async function finalizarOrdenManual(orden, fechaFinParam = null) {
     porcentaje_completitud: pct,
   }
 
+  // ¿Es un producto por peso que todavía no tiene kg cargados? Entonces la orden
+  // se completa pero queda PENDIENTE DE KG: no se calcula rendimiento ni merma
+  // (no inventamos números). Se concilia después, cuando se carga la producción.
+  const pendienteKg = kgObjetivo > 0 && kgProducido <= 0
+
   const seFinaliza = orden.estado !== ESTADO_COMPLETADA
   if (seFinaliza) {
     const fechaFin = fechaFinParam || new Date().toISOString()
     const horasReales = calcularHorasReales(orden.fecha_inicio, fechaFin)
-    const eficienciaKg = calcularEficienciaKg(kgProducido, kgObjetivo)
-    const eficienciaTiempo = calcularEficienciaTiempo(orden.horas_estimadas, horasReales)
     update.fecha_fin = fechaFin
     update.horas_reales = horasReales
-    update.eficiencia_kg = eficienciaKg
-    update.eficiencia_tiempo = eficienciaTiempo
-    update.rendimiento_final = calcularRendimientoFinal(eficienciaKg, eficienciaTiempo)
+    // Solo calculamos eficiencia/rendimiento si YA hay kg reales.
+    if (!pendienteKg) {
+      const eficienciaKg = calcularEficienciaKg(kgProducido, kgObjetivo)
+      const eficienciaTiempo = calcularEficienciaTiempo(orden.horas_estimadas, horasReales)
+      update.eficiencia_kg = eficienciaKg
+      update.eficiencia_tiempo = eficienciaTiempo
+      update.rendimiento_final = calcularRendimientoFinal(eficienciaKg, eficienciaTiempo)
+    }
   }
 
   const { error } = await supabase.from('ordenes_produccion').update(update).eq('id', orden.id)
   if (error) return { error }
+
+  if (pendienteKg) {
+    return {
+      pct, mermaError: null, pendienteKg: true,
+      toastMsg: '✅ Orden completada — ⏳ Pendiente de cargar los kg producidos',
+      toastType: 'warn',
+    }
+  }
 
   const { error: mermaError, toastMsg, toastType } = await registrarMermaAutomatica(orden, kgProducido)
   return { pct, mermaError, toastMsg, toastType }

@@ -11,7 +11,8 @@ import { PageHeader } from '../components/PageHeader'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
-import { aplicarProduccionAOrden, ESTADO_EN_PROCESO } from '../lib/ordenes'
+import { aplicarProduccionAOrden, ESTADO_EN_PROCESO, ESTADO_COMPLETADA } from '../lib/ordenes'
+import { normalizarNombre } from '../lib/texto'
 import { useUser } from '../context/UserContext'
 import { colors, radius, shadow } from '../styles/design-system'
 import { Package, Users, Scale, Hash, ScanLine, PenLine, FileText, Printer, X, Plus, ClipboardCheck, Settings } from 'lucide-react'
@@ -477,24 +478,32 @@ export default function Produccion() {
       }
     }
 
-    // 4. Vincular con órdenes en curso
+    // 4. Vincular con la orden de producción de ese sabor
+    // La carga es la que dispara el cálculo. Engancha órdenes EN PROCESO y también
+    // COMPLETADAS "pendientes de kg" (las que se cerraron sin cargar la producción),
+    // dentro de una ventana reciente. Match por nombre NORMALIZADO (acentos/mayús.).
+    const ventana = new Date(); ventana.setDate(ventana.getDate() - 4)
+    const fechaVentana = ventana.toISOString().split('T')[0]
     const mensajesOrdenes = []
     const mermaErrores = []
     for (const { nombre, kg } of Object.values(sumasPorProducto)) {
-      const { data: ords } = await supabase.from('ordenes_produccion')
+      const { data: cands } = await supabase.from('ordenes_produccion')
         .select('*')
-        .eq('estado', ESTADO_EN_PROCESO)
-        .eq('fecha_produccion', fechaHoy)
+        .in('estado', [ESTADO_EN_PROCESO, ESTADO_COMPLETADA])
         .eq('tipo_producto', 'helado')
         .gt('kg_objetivo', 0)
-        .ilike('sabor_nombre', nombre)
-        .order('id', { ascending: true })
-        .limit(1)
-      const orden = ords?.[0]
+        .gte('fecha_produccion', fechaVentana)
+        .order('fecha_produccion', { ascending: false })
+      const objetivo = normalizarNombre(nombre)
+      const matches = (cands || []).filter(o => normalizarNombre(o.sabor_nombre || o.producto_nombre || '') === objetivo)
+      // Prioridad: en proceso → completada sin kg (pendiente) → la más reciente.
+      const orden = matches.find(o => o.estado === ESTADO_EN_PROCESO)
+        || matches.find(o => o.estado === ESTADO_COMPLETADA && !(Number(o.kg_producido) > 0))
+        || matches[0]
       if (!orden) continue
       const resultado = await aplicarProduccionAOrden(orden, kg, user?.email || null)
       if (resultado.error) continue
-      mensajesOrdenes.push(`Orden ${orden.numero} actualizada: ${resultado.pct.toFixed(1)}% completada`)
+      mensajesOrdenes.push(`Orden ${orden.numero}: ${resultado.pct.toFixed(0)}% (${kg.toFixed(1)} kg cargados)`)
       if (resultado.mermaError) mermaErrores.push(`Orden ${orden.numero}: ${resultado.mermaError.message}`)
     }
 

@@ -227,6 +227,7 @@ export default function Ordenes() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [ordenes, setOrdenes]         = useState([])
+  const [producciones, setProducciones] = useState([]) // para el desglose "Hecho por"
   const [saboresCamara, setSaboresCamara] = useState([])
   const [sabores, setSabores]         = useState([])
   const [impulsivos, setImpulsivos]   = useState([])
@@ -337,8 +338,15 @@ export default function Ordenes() {
       supabase.from('stock_bases').select('*').gt('kg_disponible', 0).order('fecha', { ascending: false }),
       supabase.from('impulsivo_ingredientes').select('*'),
     ])
+    // Producciones recientes (para mostrar quién produjo cada orden). Ventana amplia.
+    const ventanaProd = new Date(); ventanaProd.setDate(ventanaProd.getDate() - 90)
+    const { data: prods } = await supabase.from('producciones')
+      .select('producto_nombre,peso_kg,operario_nombre,fecha,origen')
+      .gte('fecha', ventanaProd.toISOString().split('T')[0])
+      .limit(3000)
     const operariosDedup = deduplicarOperarios(ops)
     setOrdenes(ord || [])
+    setProducciones(prods || [])
     setSaboresCamara(sab || [])
     setImpulsivos(imp || [])
     setOperarios(operariosDedup)
@@ -946,6 +954,23 @@ export default function Ordenes() {
     setFiltroEstado('Todos')
   }
 
+  // Desglose "Hecho por": suma los kg reales cargados en Producción por cada
+  // operario para el sabor/fecha de la orden. Una orden puede haberla hecho
+  // más de una persona; cada uno queda con SUS kg (para el rendimiento).
+  function hechoPorDe(item) {
+    if (!item || item.tipo_producto !== 'helado') return []
+    const objetivo = normalizarNombre(item.sabor_nombre || item.producto_nombre || '')
+    const fecha = item.fecha_produccion
+    const porOp = {}
+    producciones.forEach(p => {
+      if (fecha && p.fecha !== fecha) return
+      if (normalizarNombre(p.producto_nombre || '') !== objetivo) return
+      const op = p.operario_nombre || 'Sin asignar'
+      porOp[op] = (porOp[op] || 0) + (Number(p.peso_kg) || 0)
+    })
+    return Object.entries(porOp).map(([nombre, kg]) => ({ nombre, kg })).sort((a, b) => b.kg - a.kg)
+  }
+
   const kpiPendientes  = ordenes.filter(o => o.estado === 'pendiente').length
   const kpiEnProceso   = ordenes.filter(o => o.estado === 'en_proceso').length
   const kpiCompletadas = ordenes.filter(o => o.estado === 'completada').length
@@ -1419,6 +1444,9 @@ export default function Ordenes() {
                   const completada95 = tieneObjetivo && pct >= 95
                   const clickable = tieneObjetivo && item.estado === ESTADO_EN_PROCESO
                   const materiasPrimas = materiasPrimasDe(item)
+                  // Completada por peso pero sin kg cargados → pendiente de conciliar.
+                  const pendienteKg = tieneObjetivo && item.estado === ESTADO_COMPLETADA && !((item.kg_producido || 0) > 0)
+                  const hechoPor = item.estado === ESTADO_COMPLETADA && (item.kg_producido || 0) > 0 ? hechoPorDe(item) : []
                   return (
                     <div key={item.id} className="p-3"
                       style={{ backgroundColor: colors.bg, borderRadius: radius.md, borderLeft: `4px solid ${e.color}` }}>
@@ -1430,7 +1458,8 @@ export default function Ordenes() {
                             <p className="font-semibold text-sm" style={{ color: colors.textPrimary }}>{item.sabor_nombre}</p>
                             <Badge variant="neutral">{item.tipo_producto === 'impulsivo' ? 'Impulsivo/Postre' : 'Helado'}</Badge>
                             <Badge variant={e.variant}>{e.label}</Badge>
-                            {completada95 && <Badge variant="success">✅ COMPLETADA</Badge>}
+                            {completada95 && !pendienteKg && <Badge variant="success">✅ COMPLETADA</Badge>}
+                            {pendienteKg && <Badge variant="warning">⏳ Pendiente de kg</Badge>}
                           </div>
                           {item.base_nombre && (
                             <p className="text-xs mt-0.5 font-medium" style={{ color: colors.info }}>
@@ -1469,6 +1498,24 @@ export default function Ordenes() {
                             }} />
                           </div>
                         </div>
+                      )}
+                      {hechoPor.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-[11px] uppercase tracking-wide font-semibold mb-1" style={{ color: colors.textMuted }}>Hecho por</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {hechoPor.map(h => (
+                              <span key={h.nombre} className="text-xs px-2 py-0.5 rounded-full"
+                                style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.textSecondary }}>
+                                {h.nombre} · <strong style={{ color: colors.textPrimary }}>{fmtNum(h.kg)} kg</strong>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {pendienteKg && (
+                        <p className="text-xs mt-2" style={{ color: colors.warning }}>
+                          ⏳ Completada sin cargar los kg. Cuando el operario cargue la producción se calculan merma y rendimiento.
+                        </p>
                       )}
                       {(item.fecha_inicio || item.fecha_fin) && (
                         <div className="mt-2 space-y-0.5">

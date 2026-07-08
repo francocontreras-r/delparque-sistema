@@ -5,6 +5,7 @@ import autoTable from 'jspdf-autotable'
 import html2canvas from 'html2canvas'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { colors } from '../styles/design-system'
+import { normalizarNombre } from '../lib/texto'
 import { PageHeader } from '../components/PageHeader'
 import Spinner from '../components/ui/Spinner'
 import KpiCard from '../components/ui/KpiCard'
@@ -72,6 +73,7 @@ export default function InformeOperarios() {
       const [
         { data: ops, error: e1 }, { data: ords, error: e2 },
         { data: etps }, { data: camMovs }, { data: depMovs }, { data: mermasData },
+        { data: prodData },
       ] = await Promise.all([
         supabase.from('operarios').select('id,nombre').eq('activo', true).order('nombre'),
         supabase.from('ordenes_produccion').select('*').gte('created_at', desde.toISOString()).order('created_at', { ascending: false }),
@@ -80,6 +82,9 @@ export default function InformeOperarios() {
         supabase.from('movimientos_camara').select('operario_nombre,tipo,created_at').gte('created_at', desde.toISOString()),
         supabase.from('movimientos_deposito').select('operario_recibe,tipo,fecha').gte('fecha', desdeStr),
         supabase.from('mermas').select('operario_nombre,diferencia,fecha').gte('fecha', desdeStr),
+        // Cargas reales de producción: acá está QUIÉN produjo cada kg (una orden
+        // puede haberla hecho más de un operario). Es la base del rendimiento.
+        supabase.from('producciones').select('producto_nombre,peso_kg,operario_nombre,fecha').gte('fecha', desdeStr),
       ])
       if (e1) throw e1
       if (e2) throw e2
@@ -91,6 +96,18 @@ export default function InformeOperarios() {
         sabor_nombre: (o.sabor_nombre || o.producto_nombre || '').toUpperCase(),
       }))
       const etapas = (etps || []).map(e => ({ ...e, operario_nombre: (e.operario_nombre || '').toUpperCase() }))
+
+      // KG REALES producidos por cada operario (de las cargas de producción).
+      // Solo helados: filtramos por los nombres de sabor que aparecen en órdenes
+      // de helado. Así, si Juan y Pedro comparten una orden, cada uno suma SUS kg.
+      const nombresHelado = new Set(ordenes.filter(o => !esUnidad(o)).map(o => normalizarNombre(o.sabor_nombre)))
+      const kgRealPorOp = {}
+      ;(prodData || []).forEach(p => {
+        if (!nombresHelado.has(normalizarNombre(p.producto_nombre || ''))) return
+        const N = (p.operario_nombre || '').toUpperCase()
+        if (!N) return
+        kgRealPorOp[N] = (kgRealPorOp[N] || 0) + (Number(p.peso_kg) || 0)
+      })
 
       // Actividad operativa por operario (cámara, depósito, mermas).
       const actividadDe = nombre => {
@@ -177,7 +194,8 @@ export default function InformeOperarios() {
           stdMin, realMin,
           ultimas10, tendencia, tendDir,
           actividad: actividadDe(op.nombre),
-          totalKgProducido: heladoCompl.reduce((a, o) => a + (Number(o.kg_producido) || 0), 0),
+          // KG reales que produjo esta persona (de sus cargas), no la orden entera.
+          totalKgProducido: Math.round((kgRealPorOp[op.nombre] || 0) * 10) / 10,
           totalKgObjetivo:  conProd.reduce((a, o) => a + (Number(o.kg_objetivo)  || 0), 0),
         }
       }).sort((a, b) => (b.rendimiento ?? -1) - (a.rendimiento ?? -1))

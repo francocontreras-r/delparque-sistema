@@ -244,13 +244,13 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
 
   const marcasSugeridas = useMemo(() => {
     if (!form.producto_nombre.trim()) return []
-    const norm = form.producto_nombre.trim().toLowerCase()
+    const norm = normalizarNombre(form.producto_nombre)
     const set = new Set()
     ;(movimientos || []).forEach(m => {
-      if ((m.producto_nombre || '').trim().toLowerCase() === norm && m.marca) set.add(m.marca)
+      if (normalizarNombre(m.producto_nombre || '') === norm && m.marca) set.add(m.marca)
     })
-    const q = form.marca.trim().toLowerCase()
-    return Array.from(set).filter(b => !q || b.toLowerCase().includes(q)).slice(0, 5)
+    const q = normalizarNombre(form.marca)
+    return Array.from(set).filter(b => !q || normalizarNombre(b).includes(q)).slice(0, 5)
   }, [form.producto_nombre, form.marca, movimientos])
 
   // Predicción de productos: filtra los insumos ya cargados por lo que se va
@@ -748,8 +748,8 @@ function ModalMovsDetalle({ tipo, producto, movs, onClose }) {
 
 function ModalEvolucionCS({ insumo, movimientos: allMovs, onClose }) {
   const data = useMemo(() => {
-    const nombre = (insumo.nombre || '').trim().toLowerCase()
-    const movsProducto = allMovs.filter(m => (m.producto_nombre || '').trim().toLowerCase() === nombre)
+    const nombre = normalizarNombre(insumo.nombre || '')
+    const movsProducto = allMovs.filter(m => normalizarNombre(m.producto_nombre || '') === nombre)
     const hoy = new Date()
     return Array.from({ length: 8 }, (_, i) => {
       const fin = new Date(hoy)
@@ -1162,7 +1162,7 @@ export default function Deposito() {
   const vencimientoPorProducto = useMemo(() => {
     const map = {}
     vencimientosIngresos.forEach(m => {
-      const key = (m.producto_nombre || '').trim().toLowerCase()
+      const key = normalizarNombre(m.producto_nombre || '')
       if (!map[key] || m.created_at > map[key].created_at) map[key] = m
     })
     const result = {}
@@ -1433,7 +1433,7 @@ export default function Deposito() {
     }
     if (filtroVencimiento) {
       result = result.filter(i => {
-        const venc = vencimientoPorProducto[(i.nombre || '').trim().toLowerCase()]
+        const venc = vencimientoPorProducto[normalizarNombre(i.nombre || '')]
         return venc && esAlertaVencimiento(venc.clasif)
       })
     }
@@ -1471,7 +1471,7 @@ export default function Deposito() {
   const ultimosConteos = useMemo(() => {
     const m = {}
     conteos.forEach(c => {
-      const key = `${c.tipo}::${(c.producto_nombre || '').trim().toLowerCase()}`
+      const key = `${c.tipo}::${normalizarNombre(c.producto_nombre || '')}`
       if (!m[key]) m[key] = c
     })
     return m
@@ -2099,9 +2099,9 @@ export default function Deposito() {
     const hace28Str = hace28.toISOString().split('T')[0]
 
     return insumos.map(ins => {
-      const nombre = (ins.nombre || '').trim().toLowerCase()
+      const nombre = normalizarNombre(ins.nombre || '')
       const movsProducto = movimientos.filter(m =>
-        (m.producto_nombre || '').trim().toLowerCase() === nombre
+        normalizarNombre(m.producto_nombre || '') === nombre
       )
       const movsPeriodo = movsProducto.filter(m =>
         m.fecha >= rangoCS.desde && m.fecha <= rangoCS.hasta
@@ -2201,7 +2201,7 @@ export default function Deposito() {
     })
     const byNombre = {}
     filtrados.forEach(m => {
-      const nom = (m.sabor_nombre || m.producto_nombre || '').trim().toLowerCase()
+      const nom = normalizarNombre(m.sabor_nombre || m.producto_nombre || '')
       if (!nom) return
       if (!byNombre[nom]) byNombre[nom] = { ingresosKg: 0, egresosKg: 0, ingresosU: 0, egresosU: 0 }
       if (m.tipo === 'ingreso') {
@@ -2906,8 +2906,8 @@ export default function Deposito() {
 
     // Costo por producto para valorizar el egreso en $
     const costo = {}
-    insumos.forEach(i => { costo[(i.nombre || '').trim().toLowerCase()] = i.costo_unitario || 0 })
-    const valorDe = e => (Number(e.cantidad) || 0) * (costo[(e.producto_nombre || '').trim().toLowerCase()] || 0)
+    insumos.forEach(i => { costo[normalizarNombre(i.nombre || '')] = i.costo_unitario || 0 })
+    const valorDe = e => (Number(e.cantidad) || 0) * (costo[normalizarNombre(e.producto_nombre || '')] || 0)
 
     autoTable(doc, {
       ...EST, styles: { ...EST.styles, fontSize: 7 },
@@ -3507,7 +3507,7 @@ export default function Deposito() {
               {/* KPI vencimientos */}
               {(() => {
                 const cnt = insumos.filter(i => {
-                  const v = vencimientoPorProducto[(i.nombre || '').trim().toLowerCase()]
+                  const v = vencimientoPorProducto[normalizarNombre(i.nombre || '')]
                   return v && esAlertaVencimiento(v.clasif)
                 }).length
                 return cnt > 0 ? (
@@ -3562,7 +3562,7 @@ export default function Deposito() {
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{ins.nombre}</p>
                               {(() => {
-                                const v = vencimientoPorProducto[(ins.nombre || '').trim().toLowerCase()]
+                                const v = vencimientoPorProducto[normalizarNombre(ins.nombre || '')]
                                 if (!v || !esAlertaVencimiento(v.clasif)) return null
                                 return (
                                   <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0"

@@ -274,12 +274,13 @@ export default function Informes() {
   // Clasificación robusta: helado | impulsivo | postre
   // Busca por nombre en sabores, impulsivos y stock_camaras (tipo_producto).
   const clasificarRegistro = useMemo(() => {
-    const saboresSet = new Set(sabores.map(s => (s.nombre || '').trim().toLowerCase()))
-    const impulsivosSet = new Set(impulsivos.map(i => (i.nombre || '').trim().toLowerCase()))
+    const saboresSet = new Set(sabores.map(s => normalizarNombre(s.nombre)))
+    const impulsivosSet = new Set(impulsivos.map(i => normalizarNombre(i.nombre)))
     const camMap = {}
-    stockCamaras.forEach(c => { camMap[(c.nombre || '').trim().toLowerCase()] = c.tipo_producto })
+    stockCamaras.forEach(c => { camMap[normalizarNombre(c.nombre)] = c.tipo_producto })
     return (r) => {
-      const nombre = (r.producto_nombre || '').trim().toLowerCase()
+      const nombre = (r.producto_nombre || '').trim().toLowerCase() // para heurísticas de texto
+      const nombreN = normalizarNombre(r.producto_nombre || '')      // para matchear tablas
       const cat = (r.categoria || categoriaPorCodigo[r.producto_codigo] || '').toLowerCase()
 
       // 1. Campo tipo_producto explícito (movimientos_camara normalizados)
@@ -289,7 +290,7 @@ export default function Informes() {
 
       // 2. Bases primero
       if (cat === 'base' || cat.includes('base') || nombre.startsWith('base ') || nombre === 'base') return 'base'
-      const tipoCam = camMap[nombre]
+      const tipoCam = camMap[nombreN]
       if (tipoCam === 'base') return 'base'
 
       // 3. Categoria explícita del registro
@@ -298,8 +299,8 @@ export default function Informes() {
       if (cat === 'postre'    || cat.includes('postre'))   return 'postre'
 
       // 4. Búsqueda por nombre en tablas de referencia
-      if (saboresSet.has(nombre))    return 'helado'
-      if (impulsivosSet.has(nombre)) return 'impulsivo'
+      if (saboresSet.has(nombreN))    return 'helado'
+      if (impulsivosSet.has(nombreN)) return 'impulsivo'
 
       // 5. tipo_producto en stock_camaras
       if (tipoCam === 'impulsivo') return 'impulsivo'
@@ -411,13 +412,13 @@ export default function Informes() {
     const m = {}
     stockCamaras.forEach(s => {
       const costo = s.costo_kg ?? TIPO_PRECIOS[s.tipo]?.costo_kg ?? 0
-      m[(s.nombre || '').trim().toLowerCase()] = costo
+      m[normalizarNombre(s.nombre)] = costo
     })
     return m
   }, [stockCamaras])
 
   function costoMerma(m) {
-    const costoKg = costoKgPorProducto[(m.sabor_nombre || '').trim().toLowerCase()] || 0
+    const costoKg = costoKgPorProducto[normalizarNombre(m.sabor_nombre || '')] || 0
     return (m.diferencia || 0) * costoKg
   }
 

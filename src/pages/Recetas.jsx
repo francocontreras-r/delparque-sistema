@@ -122,7 +122,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
 
   const insumoPorNombre = useMemo(() => {
     const m = {}
-    insumos.forEach(i => { m[(i.nombre || '').trim().toLowerCase()] = i })
+    insumos.forEach(i => { m[normalizarNombre(i.nombre || '')] = i })
     return m
   }, [insumos])
 
@@ -135,19 +135,19 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
   // Fuentes para agregar ingredientes: insumos del depósito + bases + sabores
   // (bases se miden en L, sabores en kg). Al vincular con depósito solo insumos.
   const fuentes = useMemo(() => {
-    const self = (receta.nombre || '').trim().toLowerCase()
+    const self = normalizarNombre(receta.nombre || '')
     const ins = insumos.map(i => ({ id: i.id, nombre: i.nombre, unidad: i.unidad || 'kg', clase: 'insumo' }))
     const bas = bases.map(b => ({ id: null, nombre: b.nombre, unidad: 'L', clase: 'base' }))
     const sab = sabores.map(s => ({ id: null, nombre: s.nombre, unidad: 'kg', clase: 'sabor' }))
-    return [...ins, ...bas, ...sab].filter(x => (x.nombre || '').trim().toLowerCase() !== self)
+    return [...ins, ...bas, ...sab].filter(x => normalizarNombre(x.nombre || '') !== self)
   }, [insumos, bases, sabores, receta.nombre])
 
   const sugerencias = useMemo(() => {
     if (!busq.trim()) return []
-    const q = busq.trim().toLowerCase()
+    const q = normalizarNombre(busq)
     // Al vincular un ingrediente con el depósito, solo mostramos insumos reales.
     const fuente = vinculandoKey != null ? fuentes.filter(x => x.clase === 'insumo') : fuentes
-    return fuente.filter(x => (x.nombre || '').toLowerCase().includes(q)).slice(0, 10)
+    return fuente.filter(x => normalizarNombre(x.nombre).includes(q)).slice(0, 10)
   }, [busq, fuentes, vinculandoKey])
 
   const ingsConCosto = useMemo(() =>
@@ -155,7 +155,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
       const tIng = costeador ? costeador.tipoDe(i.nombre) : tipoIngrediente(i.nombre, intermedios)
       // Prioridad: vínculo por ID; si no hay, cae al nombre (compatibilidad)
       const porId = i.insumo_id != null ? insumoPorId[i.insumo_id] : null
-      const ins = porId || insumoPorNombre[(i.nombre || '').trim().toLowerCase()]
+      const ins = porId || insumoPorNombre[normalizarNombre(i.nombre || '')]
       // Costo: si es un insumo vinculado, sale de ESE insumo del depósito (aunque
       // el nombre no matchee el costeador). Intermedios y no vinculados: rollup por nombre.
       const cu = (tIng === 'insumo' && ins) ? (Number(ins.costo_unitario) || 0)
@@ -311,7 +311,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
                     ) : (
                       <>
                         {ing.vinculado
-                          ? <span className="flex items-center gap-1" style={{ color: ing.tienePreco ? colors.success : colors.warning }}>🔗 {ing.tienePreco ? 'Vinculado' : 'Vinculado (sin costo)'}{ing.insumoVinc && ing.insumoVinc.trim().toLowerCase() !== (ing.nombre || '').trim().toLowerCase() ? ` a "${ing.insumoVinc}"` : ''}</span>
+                          ? <span className="flex items-center gap-1" style={{ color: ing.tienePreco ? colors.success : colors.warning }}>🔗 {ing.tienePreco ? 'Vinculado' : 'Vinculado (sin costo)'}{ing.insumoVinc && normalizarNombre(ing.insumoVinc) !== normalizarNombre(ing.nombre || '') ? ` a "${ing.insumoVinc}"` : ''}</span>
                           : <button type="button"
                               onMouseDown={() => { setVinculandoKey(ing._key); setBusq(''); setShowAC(true) }}
                               className="flex items-center gap-1 underline" style={{ color: colors.warning }}>
@@ -492,7 +492,7 @@ export default function Recetas() {
 
   const insumoPorNombre = useMemo(() => {
     const m = {}
-    insumos.forEach(i => { m[(i.nombre || '').trim().toLowerCase()] = i })
+    insumos.forEach(i => { m[normalizarNombre(i.nombre || '')] = i })
     return m
   }, [insumos])
 
@@ -541,11 +541,11 @@ export default function Recetas() {
 
     // Mapa de ingredientes de postres desde lib/postres.js (fallback / semilla)
     const postresLibMap = {}
-    POSTRES.forEach(p => { postresLibMap[(p.nombre || '').trim().toLowerCase()] = p.ingredientes || [] })
+    POSTRES.forEach(p => { postresLibMap[normalizarNombre(p.nombre || '')] = p.ingredientes || [] })
     // Recetas de postres viven en la tabla `impulsivos` (igual que producción).
-    const impPorNombre = {}; impulsivos.forEach(im => { impPorNombre[(im.nombre || '').trim().toLowerCase()] = im })
+    const impPorNombre = {}; impulsivos.forEach(im => { impPorNombre[normalizarNombre(im.nombre || '')] = im })
     // Nombres que son postres (para no mostrarlos en la pestaña Impulsivos).
-    const postreNombres = new Set(postres.map(p => (p.nombre || '').trim().toLowerCase()))
+    const postreNombres = new Set(postres.map(p => normalizarNombre(p.nombre || '')))
 
     return {
       Bases: bases.map(b => {
@@ -582,7 +582,7 @@ export default function Recetas() {
           updatedAt: s.updated_at,
         }
       }),
-      Impulsivos: impulsivos.filter(i => !postreNombres.has((i.nombre || '').trim().toLowerCase())).map(i => {
+      Impulsivos: impulsivos.filter(i => !postreNombres.has(normalizarNombre(i.nombre || ''))).map(i => {
         const ings = enrichIngs(impIngsPor[i.id] || [])
         const subtotalMP = ings.reduce((a, i2) => a + i2.costoTotal, 0)
         const info = costoUnitario.infoDe(i.nombre)
@@ -598,7 +598,7 @@ export default function Recetas() {
         }
       }),
       Postres: postres.map(p => {
-        const key = (p.nombre || '').trim().toLowerCase()
+        const key = normalizarNombre(p.nombre || '')
         const imp = impPorNombre[key]
         const dbIngs = imp ? (impIngsPor[imp.id] || []) : []
         // Prioriza la receta editada en DB; si no hay, usa el catálogo como base.
@@ -804,7 +804,7 @@ export default function Recetas() {
         if (error) { showToast(error.message, 'error'); return }
         setImpulsivos(prev => [...prev, nuevo])
         // Sembrar con la receta del catálogo (lib/postres.js) para no arrancar vacío.
-        const cat = POSTRES.find(pp => (pp.nombre || '').trim().toLowerCase() === (receta.nombre || '').trim().toLowerCase())
+        const cat = POSTRES.find(pp => normalizarNombre(pp.nombre || '') === normalizarNombre(receta.nombre || ''))
         let rawIngs = []
         if (cat?.ingredientes?.length) {
           const filas = cat.ingredientes.map(i => ({ impulsivo_id: nuevo.id, insumo_nombre: i.nombre, cantidad: i.cantidad, unidad: i.unidad }))

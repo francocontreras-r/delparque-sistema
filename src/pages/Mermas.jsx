@@ -18,6 +18,7 @@ import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
 import Modal from '../components/ui/Modal'
 import Button from '../components/ui/Button'
+import { normalizarNombre } from '../lib/texto'
 import { PageHeader } from '../components/PageHeader'
 import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
@@ -279,7 +280,7 @@ export default function Mermas() {
     const m = {}
     sabores.forEach(s => {
       const costo = s.costo_kg ?? TIPO_PRECIOS[s.tipo]?.costo_kg ?? 0
-      m[(s.nombre || '').trim().toLowerCase()] = costo
+      m[normalizarNombre(s.nombre || '')] = costo
     })
     return m
   }, [sabores])
@@ -287,19 +288,19 @@ export default function Mermas() {
   // Costo por UNIDAD de impulsivos y postres (para costear sus mermas en unidades)
   const costoUnidadPorNombre = useMemo(() => {
     const m = {}
-    impulsivos.forEach(i => { m[(i.nombre || '').trim().toLowerCase()] = i.costo_total || 0 })
-    POSTRES.forEach(p => { m[(p.nombre || '').trim().toLowerCase()] = p.costo_total || 0 })
+    impulsivos.forEach(i => { m[normalizarNombre(i.nombre || '')] = i.costo_total || 0 })
+    POSTRES.forEach(p => { m[normalizarNombre(p.nombre || '')] = p.costo_total || 0 })
     return m
   }, [impulsivos])
 
   function costoMerma(m) {
     // Impulsivos/postres: la merma viene en unidades → costo unitario × unidades
     if (m.unidades != null && m.unidades > 0) {
-      const cu = costoUnidadPorNombre[(m.sabor_nombre || '').trim().toLowerCase()] || 0
+      const cu = costoUnidadPorNombre[normalizarNombre(m.sabor_nombre || '')] || 0
       return m.unidades * cu
     }
     // Resto (helados/sabores): costo por kg
-    const costoKg = costoKgPorSabor[(m.sabor_nombre || '').trim().toLowerCase()] || 0
+    const costoKg = costoKgPorSabor[normalizarNombre(m.sabor_nombre || '')] || 0
     return (m.diferencia || 0) * costoKg
   }
 
@@ -307,14 +308,14 @@ export default function Mermas() {
     const m = {}
     sabores.forEach(s => {
       if (s.merma_esperada != null && s.merma_esperada !== '') {
-        m[(s.nombre || '').trim().toLowerCase()] = Number(s.merma_esperada)
+        m[normalizarNombre(s.nombre || '')] = Number(s.merma_esperada)
       }
     })
     return m
   }, [sabores])
 
   const porSabor    = useMemo(() => agrupar(r => r.sabor_nombre).map(f => ({
-    ...f, esperada: esperadaPorSabor[(f.nombre || '').trim().toLowerCase()] ?? null,
+    ...f, esperada: esperadaPorSabor[normalizarNombre(f.nombre || '')] ?? null,
   })), [mermas, esperadaPorSabor])
   const porOperario = useMemo(() => agrupar(r => r.operario_nombre), [mermas])
   const porCausa    = useMemo(() => {

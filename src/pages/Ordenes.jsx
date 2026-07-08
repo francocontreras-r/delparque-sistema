@@ -104,8 +104,8 @@ function TiempoTranscurrido({ fechaInicio }) {
 
 // Busca la receta de un sabor o, si no existe, de una base, por nombre.
 function resolverRecetaCtx(nombre, ctx) {
-  const n = (nombre || '').trim().toLowerCase()
-  const sabor = ctx.sabores.find(s => (s.nombre || '').trim().toLowerCase() === n)
+  const n = normalizarNombre(nombre) // match tolerante a acentos/mayúsculas/espacios
+  const sabor = ctx.sabores.find(s => normalizarNombre(s.nombre) === n)
   if (sabor) {
     return {
       tipo: 'sabor',
@@ -114,7 +114,7 @@ function resolverRecetaCtx(nombre, ctx) {
       ingredientes: ctx.saborIngredientes.filter(i => i.sabor_id === sabor.id),
     }
   }
-  const base = ctx.bases.find(b => (b.nombre || '').trim().toLowerCase() === n)
+  const base = ctx.bases.find(b => normalizarNombre(b.nombre) === n)
   if (base) {
     return {
       tipo: 'base',
@@ -542,7 +542,7 @@ export default function Ordenes() {
       const receta = resolverReceta(l.producto_nombre)
       if (!receta) return
       receta.ingredientes.forEach(ing => {
-        const key = (ing.insumo_nombre || '').trim().toLowerCase()
+        const key = normalizarNombre(ing.insumo_nombre)
         if (!key) return
         if (!map[key]) map[key] = { nombre: ing.insumo_nombre, cantidad: 0, unidad: ing.unidad }
         map[key].cantidad += (ing.cantidad || 0) * l.cantidad

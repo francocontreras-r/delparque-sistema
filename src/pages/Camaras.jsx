@@ -72,7 +72,6 @@ const CAT_EGRESO = [
   { key: 'Transferencia', emoji: '🔁', color: '#3b82f6' },
   { key: 'Ajuste',        emoji: '⚙️', color: '#94a3b8' },
 ]
-const ROLES = ['operario', 'admin']
 const CAMARAS_NOMBRES = ['Cámara 1', 'Cámara 2', 'Cámara 3', 'Antecámara', 'Túnel de frío']
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1222,7 +1221,6 @@ export default function Camaras() {
   const [vista, setVista]               = useState('grilla')
   const [modalItem, setModalItem]       = useState(null)
   const [modalDetalle, setModalDetalle] = useState(null)
-  const [userRole, setUserRole]         = useState('operario')
 
   const [tabCamara, setTabCamara]       = useState('stock')
   const [movimientos, setMovimientos]   = useState([])
@@ -1248,7 +1246,8 @@ export default function Camaras() {
   const [tempForm, setTempForm]             = useState({ camara: 'Cámara 1', grados: '', responsable: '', observaciones: '' })
 
   const { isAdmin, user } = useUser()
-  const showVal = userRole === 'admin'
+  // Los valores $ (costo/venta) solo los ve un admin REAL — no un toggle de UI.
+  const showVal = isAdmin
   const [searchParams] = useSearchParams()
 
   // Deep-link desde el Centro de control: caer con el filtro puesto en el problema.
@@ -2147,18 +2146,6 @@ export default function Camaras() {
               <Plus size={14} /> Agregar producto
             </Button>
           )}
-          <div className="flex items-center rounded-lg overflow-hidden" style={{ border: `1px dashed ${colors.border}` }} title="Vista dev">
-            {ROLES.map(r => (
-              <button key={r} onClick={() => setUserRole(r)}
-                className="px-3 py-1.5 text-xs font-medium transition capitalize"
-                style={{
-                  backgroundColor: userRole === r ? colors.brand : 'transparent',
-                  color: userRole === r ? 'white' : colors.textMuted,
-                }}>
-                {r}
-              </button>
-            ))}
-          </div>
         </>}
       />
 

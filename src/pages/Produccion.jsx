@@ -607,7 +607,7 @@ export default function Produccion() {
   // Mapa nombre→tipo_producto desde stock_camaras (para lookup rápido)
   const tipoPorNombre = useMemo(() => {
     const m = {}
-    saboresCamara.forEach(s => { m[(s.nombre || '').trim().toLowerCase()] = s.tipo_producto || 'helado' })
+    saboresCamara.forEach(s => { m[normalizarNombre(s.nombre || '')] = s.tipo_producto || 'helado' })
     return m
   }, [saboresCamara])
 
@@ -619,7 +619,7 @@ export default function Produccion() {
       return item?.tipo_producto || 'helado'
     }
     // para impulsivos: buscar por nombre en stock_camaras
-    const nombre = (impulsivosList.find(i => String(i.id) === manualId)?.nombre || '').toLowerCase()
+    const nombre = normalizarNombre(impulsivosList.find(i => String(i.id) === manualId)?.nombre || '')
     return tipoPorNombre[nombre] || 'impulsivo'
   }, [manualProducto, manualTipo, manualId, saboresCamara, impulsivosList, tipoPorNombre])
 

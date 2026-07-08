@@ -784,9 +784,12 @@ export default function Recetas() {
 
   async function abrirEditor(receta) {
     if (tab === 'Postres') {
-      // Postres viven en stock_camaras pero sus recetas están en tabla impulsivos
-      const { data: impMatch } = await supabase
-        .from('impulsivos').select('*').ilike('nombre', receta.nombre).maybeSingle()
+      // Postres viven en stock_camaras pero sus recetas están en tabla impulsivos.
+      // Match por nombre NORMALIZADO (ilike perdía acentos → creaba un impulsivo
+      // duplicado en el else en vez de encontrar el existente).
+      const { data: impAll } = await supabase.from('impulsivos').select('*')
+      const objImp = normalizarNombre(receta.nombre)
+      const impMatch = (impAll || []).find(i => normalizarNombre(i.nombre) === objImp) || null
       if (impMatch) {
         const rawIngs = impIngs.filter(i => i.impulsivo_id === impMatch.id)
         setEditando({ receta: { ...impMatch, nombre: (receta.nombre || '').toUpperCase() }, tipo: 'Postres', rawIngs })
@@ -823,21 +826,39 @@ export default function Recetas() {
     if (!renombrando) return
     const { receta, tipo } = renombrando
     const nombreAntiguo = receta.nombre
+    const objetivo = normalizarNombre(nombreAntiguo)
     setSavingRename(true)
+
+    // Actualiza una tabla por lotes de ids (evita URLs demasiado largas en .in()).
+    const actualizarPorIds = async (tabla, campo, ids, valor) => {
+      for (let i = 0; i < ids.length; i += 200) {
+        await supabase.from(tabla).update({ [campo]: valor }).in('id', ids.slice(i, i + 200))
+      }
+    }
+
     if (tipo === 'Postres') {
-      // Postres live in stock_camaras
+      // Postres viven en stock_camaras
       const { error } = await supabase.from('stock_camaras').update({ nombre: nuevoNombre.toUpperCase() }).eq('id', receta.id)
       if (error) { setSavingRename(false); showToast(error.message, 'error'); return }
     } else {
       const tablaP = tipo === 'Bases' ? 'bases' : tipo === 'Sabores' ? 'sabores' : 'impulsivos'
       const { error } = await supabase.from(tablaP).update({ nombre: nuevoNombre }).eq('id', receta.id)
       if (error) { setSavingRename(false); showToast(error.message, 'error'); return }
-      await supabase.from('stock_camaras').update({ nombre: nuevoNombre.toUpperCase() }).ilike('nombre', nombreAntiguo)
+      // Propagar a stock_camaras por NOMBRE NORMALIZADO (ilike no tolera acentos
+      // → dejaba filas con el nombre viejo). Traemos ids y actualizamos por id.
+      const { data: camRows } = await supabase.from('stock_camaras').select('id,nombre')
+      const camIds = (camRows || []).filter(r => normalizarNombre(r.nombre) === objetivo).map(r => r.id)
+      await actualizarPorIds('stock_camaras', 'nombre', camIds, nuevoNombre.toUpperCase())
     }
-    await supabase.from('producciones').update({ producto_nombre: nuevoNombre.toUpperCase() }).ilike('producto_nombre', nombreAntiguo)
+
+    // Propagar a producciones (histórico) por nombre normalizado, acotado.
+    const { data: prodRows } = await supabase.from('producciones').select('id,producto_nombre').limit(5000)
+    const prodIds = (prodRows || []).filter(r => normalizarNombre(r.producto_nombre) === objetivo).map(r => r.id)
+    await actualizarPorIds('producciones', 'producto_nombre', prodIds, nuevoNombre.toUpperCase())
+
     setSavingRename(false)
     setRenombrando(null)
-    showToast('Nombre actualizado en recetas y cámaras')
+    showToast('Nombre actualizado en recetas, cámaras y producción')
     cargar()
   }
 

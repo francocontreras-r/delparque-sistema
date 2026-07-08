@@ -198,13 +198,11 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
     const tablaP   = tipo === 'Bases' ? 'bases'             : tipo === 'Sabores' ? 'sabores'             : 'impulsivos'
     const fk       = tipo === 'Bases' ? 'base_id'           : tipo === 'Sabores' ? 'sabor_id'            : 'impulsivo_id'
 
-    console.log('Guardando ingredientes:', ingsConCosto)
     setSaving(true)
 
     // 1. DELETE eliminados
     for (const id of deletedIds) {
-      const { data, error } = await supabase.from(tablaIng).delete().eq('id', id).select()
-      console.log(`Resultado DELETE id=${id}:`, data, error)
+      const { error } = await supabase.from(tablaIng).delete().eq('id', id).select()
       if (error) {
         setSaving(false)
         showToast(`Error al eliminar ingrediente: ${error.message}`, 'error')
@@ -214,11 +212,10 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
 
     // 2. UPDATE modificados (tienen _id)
     for (const ing of ingsConCosto.filter(i => i._id)) {
-      const { data, error } = await supabase.from(tablaIng)
+      const { error } = await supabase.from(tablaIng)
         .update({ cantidad: Number(ing.cantidad) || 0, unidad: ing.unidad, costo_unitario: ing.costoUnit, insumo_id: ing.insumo_id ?? null })
         .eq('id', ing._id)
         .select()
-      console.log(`Resultado UPDATE "${ing.nombre}":`, data, error)
       if (error) {
         setSaving(false)
         showToast(`Error al actualizar "${ing.nombre}": ${error.message}`, 'error')
@@ -229,7 +226,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
     // 3. INSERT nuevos (sin _id)
     const nuevos = ingsConCosto.filter(i => !i._id)
     if (nuevos.length > 0) {
-      const { data, error } = await supabase.from(tablaIng)
+      const { error } = await supabase.from(tablaIng)
         .insert(nuevos.map(i => ({
           [fk]: receta.id,
           insumo_id: i.insumo_id ?? null,
@@ -239,7 +236,6 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
           costo_unitario: i.costoUnit,
         })))
         .select()
-      console.log('Resultado INSERT:', data, error)
       if (error) {
         setSaving(false)
         showToast(`Error al agregar ingredientes: ${error.message}`, 'error')
@@ -262,7 +258,6 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
     // 5. Verificar: recargar desde Supabase antes de confirmar
     const { data: verificados, error: errV } = await supabase
       .from(tablaIng).select('*').eq(fk, receta.id)
-    console.log('Resultado verificación:', verificados, errV)
     setSaving(false)
     if (errV) {
       showToast(`Error al verificar guardado: ${errV.message}`, 'error')

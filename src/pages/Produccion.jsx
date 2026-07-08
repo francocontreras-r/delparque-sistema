@@ -26,8 +26,6 @@ function decodearEAN(code) {
     const rawPeso4 = parseInt(code.substring(7, 11), 10) / 1000
     // Si rawPeso6 > 50 kg es irreal → usar rawPeso4; si rawPeso4 < 0.1 kg es irreal → usar rawPeso6
     const peso = rawPeso6 > 50 ? rawPeso4 : (rawPeso4 < 0.1 ? rawPeso6 : rawPeso6)
-    console.log('[EAN decode] prod=', prod,
-      '| rawPeso4=', rawPeso4.toFixed(3), 'kg | rawPeso6=', rawPeso6.toFixed(3), 'kg → usando', peso.toFixed(3), 'kg')
     return { prod, peso }
   }
   // Formato viejo: prefijo "200" + código de producto (4 dígitos) + peso (4 dígitos)
@@ -248,10 +246,6 @@ export default function Produccion() {
     const raw = rawValue ?? ''
     const clean = raw.trim().replace(/\D/g, '')
 
-    console.log('Código raw recibido:', JSON.stringify(raw))
-    console.log('Código limpio:', clean)
-    console.log('Longitud:', clean.length)
-    console.log('Primeros 5 dígitos:', clean.substring(0, 5))
 
     setDebugRaw(raw)
     setDebugClean(clean)
@@ -272,7 +266,6 @@ export default function Produccion() {
     }
 
     const productoPP = productos.find(p => p.codigo === decoded.prod)
-    console.log('Producto encontrado:', productoPP || null)
     const operario = operarios.find(o => String(o.id) === operarioSel)
     const nombreProd = productoPP?.nombre || `Producto #${decoded.prod}`
     // Determinar tipo_producto desde stock_camaras para mostrar correctamente en pre-carga
@@ -370,7 +363,6 @@ export default function Produccion() {
     if (preCarga.length === 0) return
     setConfirmando(true)
 
-    console.log('Iniciando confirmación, items:', preCarga)
 
     // 1. Insertar en producciones por item para poder identificar errores
     const erroresProduccion = []
@@ -501,8 +493,6 @@ export default function Produccion() {
       if (!errCam) {
         camarasActualizadas++
         await supabase.from('movimientos_camara').insert(movPayload)
-      } else {
-        console.log('Error al actualizar cámara:', errCam.message)
       }
     }
 

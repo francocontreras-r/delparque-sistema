@@ -11,7 +11,6 @@ import { useSearchParams } from 'react-router-dom'
 import { useUser } from '../context/UserContext'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import html2canvas from 'html2canvas'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 const logoUrl = '/logo-horizontal-black-v2.png'
 import { dibujarPortada, dibujarEncabezado, dibujarPie, dibujarKpi, dibujarKpiCard, dibujarSeccion, dibujarFirmas, getEstiloInforme, PDF_CONTENT_Y, PDF_NEGRO, PDF_SEM_NEG, PDF_SEM_OK, LOGO_PDF } from '../lib/pdfEstilos'
@@ -1707,10 +1706,7 @@ export default function Camaras() {
       operario_nombre: null,
       ultima_actualizacion: new Date().toISOString(),
     }
-    console.log('Payload enviado a stock_camaras:', payload)
-    const { data, error } = await supabase.from('stock_camaras').insert(payload).select()
-    console.log('Error al crear producto en cámara:', error)
-    console.log('Resultado INSERT:', data)
+    const { error } = await supabase.from('stock_camaras').insert(payload).select()
     setSavingAgregar(false)
     if (error) { mostrarToast(error.message, 'error'); return }
     mostrarToast(`"${nombre}" agregado a cámaras`)

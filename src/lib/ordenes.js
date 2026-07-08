@@ -67,7 +67,6 @@ export async function registrarMermaAutomatica(orden, kgProducidoFinal, usuarioE
       .eq('orden_id', orden.id)
       .maybeSingle()
     if (mermaExistente) {
-      console.log('Merma ya registrada para orden', orden.id)
       return { error: null, toastMsg: '✅ Orden completada', toastType: 'ok' }
     }
   }

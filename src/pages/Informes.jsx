@@ -4,7 +4,6 @@ import { crearCostoUnitario } from '../lib/costoUnitario'
 import { normalizarNombre } from '../lib/texto'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import html2canvas from 'html2canvas'
 import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
@@ -26,7 +25,6 @@ import {
   dibujarKpiCard, dibujarSeccion, dibujarFirmas,
   PDF_CONTENT_Y, PDF_NEGRO, PDF_SEM_NEG, PDF_SEM_CRIT, PDF_SEM_LOW, PDF_SEM_OK, PDF_SEM_EXC,
 } from '../lib/pdfEstilos'
-const logoUrl = '/logo-byn.png'
 
 const TABS = ['Producción', 'Mermas', 'Financiero']
 

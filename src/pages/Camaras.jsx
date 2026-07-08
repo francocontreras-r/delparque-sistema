@@ -741,7 +741,7 @@ function generarInforme(stock, showVal) {
   </div>
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:28px">
     ${kpiCard(totalImpUnidades + ' u.', 'Total Unidades Impulsivos', '#f59e0b')}
-    ${kpiCard(totalPostreUnidades + ' u.', 'Total Unidades Postres', '#a855f7')}
+    ${kpiCard(totalPostreUnidades + ' u.', 'Total Unidades Postres', colors.postres)}
     ${kpiCard(totalPostreKg.toFixed(1) + ' kg', 'Total KG Postres', '#7c3aed')}
   </div>
 
@@ -2388,7 +2388,7 @@ export default function Camaras() {
             <KpiCard label="Total Baldes (Helados)" value={loading ? '—' : kpiBaldесHelado} />
             <KpiCard label="Total KG (Helados)" value={loading ? '—' : `${kpiKgHelado.toFixed(1)} kg`} />
             <KpiCard label="Total Unidades (Impulsivos)" value={loading ? '—' : `${kpiImpUnidades} u.`} color={colors.warning} />
-            <KpiCard label="Total Unidades (Postres)" value={loading ? '—' : `${kpiPostreUnidades} u. / ${kpiPostreKg.toFixed(1)} kg`} color="#a855f7" />
+            <KpiCard label="Total Unidades (Postres)" value={loading ? '—' : `${kpiPostreUnidades} u. / ${kpiPostreKg.toFixed(1)} kg`} color={colors.postres} />
           </div>
           <div className={`grid gap-3 ${showVal ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-3'}`}>
             <KpiCard label="Con stock"  value={loading ? '—' : conStock}  color={colors.success} active={filtroEstado === 'ok'}      onClick={() => setFiltroEstado(prev => prev === 'ok' ? null : 'ok')} />

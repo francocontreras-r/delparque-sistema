@@ -25,6 +25,7 @@ export const tokens = {
     info: '#60A5FA',
     infoBg: 'rgba(96,165,250,0.12)',
     infoBorder: 'rgba(96,165,250,0.25)',
+    postres: '#A855F7', // color de categoría "postres" (antes hardcodeado suelto)
     // Paleta complementaria del manual de marca. Permitida en publicaciones/
     // categorías, NO en el isologo. Usada para distinguir tipos de producto.
     comp: {

@@ -28,6 +28,7 @@ export const colors = {
   info:         tokens.colors.info,
   infoBg:       tokens.colors.infoBg,
   infoBorder:   tokens.colors.infoBorder,
+  postres:      tokens.colors.postres,
   comp:         tokens.colors.comp,
 }
 
@@ -45,6 +46,14 @@ export const shadow = {
   md: tokens.shadow.md,
   lg: tokens.shadow.lg,
   xl: '0 20px 25px -5px rgb(0 0 0 / 0.1),  0 8px 10px -6px rgb(0 0 0 / 0.05)',
+}
+
+// Estilo de superficie de tarjeta — fuente única (antes copiado en 5 páginas).
+export const SURFACE = {
+  backgroundColor: colors.surface,
+  borderRadius: radius.lg,
+  border: `1px solid ${colors.border}`,
+  boxShadow: shadow.sm,
 }
 
 // Clases de botón reutilizables (se aplican como string en className)

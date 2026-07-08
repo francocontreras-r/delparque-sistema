@@ -944,7 +944,7 @@ export default function Informes() {
                 sub={<VariacionTag pct={variacionPct(produccionInforme.actual.unidadesImpulsivos, produccionInforme.anterior.unidadesImpulsivos)} />} />
               <KpiCard label="KG Postres" value={`${fmtNum(produccionInforme.actual.kgPostres, 1)} kg`} icon={Scale} color="#7c3aed"
                 sub={<VariacionTag pct={variacionPct(produccionInforme.actual.kgPostres, produccionInforme.anterior.kgPostres)} />} />
-              <KpiCard label="Postres registrados" value={`${fmtNum(produccionInforme.actual.regPostres, 0)}`} icon={Package} color="#a855f7"
+              <KpiCard label="Postres registrados" value={`${fmtNum(produccionInforme.actual.regPostres, 0)}`} icon={Package} color={colors.postres}
                 sub={`≈ ${fmtNum(produccionInforme.actual.promedioKgPostres, 2)} kg/reg`} />
             </div>
 
@@ -1042,7 +1042,7 @@ export default function Informes() {
                 {prodTableData.postres.length > 0 && (
                   <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
                     <div className="px-4 py-2.5 flex items-center gap-2" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: '#a855f7' }}>🍰 Postres</span>
+                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.postres }}>🍰 Postres</span>
                       <span className="text-xs ml-auto" style={{ color: colors.textMuted }}>{fmtNum(produccionInforme.actual.kgPostres, 1)} kg · {fmtNum(produccionInforme.actual.regPostres, 0)} reg.</span>
                     </div>
                     <Table className="min-w-[560px]">
@@ -1051,8 +1051,8 @@ export default function Informes() {
                         {prodTableData.postres.map(p => (
                           <Tr key={p.nombre} style={{ cursor: 'pointer' }}
                             onClick={() => setModalDetalle({ nombre: p.nombre, tipo: 'postre', registros: produccionesActual.filter(r => (r.producto_nombre || '') === p.nombre).sort((a, b) => { const da = new Date(a.created_at || a.fecha || 0); const db = new Date(b.created_at || b.fecha || 0); return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da) }) })}>
-                            <Td className="font-medium" style={{ color: '#a855f7' }}>{p.nombre}</Td>
-                            <Td className="text-right font-bold" style={{ color: '#a855f7' }}>{fmtNum(p.kg, 1)} kg</Td>
+                            <Td className="font-medium" style={{ color: colors.postres }}>{p.nombre}</Td>
+                            <Td className="text-right font-bold" style={{ color: colors.postres }}>{fmtNum(p.kg, 1)} kg</Td>
                             <Td className="text-right">{fmtNum(p.registros, 0)}</Td>
                             <Td className="text-right text-xs" style={{ color: colors.textMuted }}>{fmtNum(p.promedio, 2)} kg</Td>
                           </Tr>
@@ -1087,7 +1087,7 @@ export default function Informes() {
                             </p>
                           )}
                           {o.kgPostres > 0 && (
-                            <p className="text-xs" style={{ color: '#a855f7' }}>
+                            <p className="text-xs" style={{ color: colors.postres }}>
                               <span className="font-semibold">{fmtNum(o.kgPostres, 1)} kg</span>
                               <span style={{ color: colors.textMuted }}> postres · {o.regPostres} reg.</span>
                             </p>
@@ -1314,7 +1314,7 @@ export default function Informes() {
                           <tr key={r.id || i} style={{ borderBottom: `1px solid ${colors.border}` }}>
                             <td className="py-2.5 px-4 text-xs whitespace-nowrap" style={{ color: colors.textMuted }}>{fmtTS(r)}</td>
                             <td className="py-2.5 px-4 text-sm" style={{ color: colors.textSecondary }}>{r.operario_nombre || '—'}</td>
-                            <td className="py-2.5 px-4 text-sm font-semibold text-right" style={{ color: esHelado ? colors.brand : esImpulsivo ? colors.warning : '#a855f7' }}>
+                            <td className="py-2.5 px-4 text-sm font-semibold text-right" style={{ color: esHelado ? colors.brand : esImpulsivo ? colors.warning : colors.postres }}>
                               {fmtNum(r.peso_kg, esPeso ? 3 : 0)} {esPeso ? 'kg' : 'u'}
                             </td>
                             <td className="py-2.5 px-4 text-xs font-mono" style={{ color: colors.textMuted }}>{r.lote || '—'}</td>

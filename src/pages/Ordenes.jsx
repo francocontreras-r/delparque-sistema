@@ -20,7 +20,7 @@ import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
-import { colors, radius, shadow } from '../styles/design-system'
+import { colors, radius, shadow, SURFACE } from '../styles/design-system'
 import { finalizarOrdenManual, progresoColor, ESTADO_EN_PROCESO, ESTADO_COMPLETADA } from '../lib/ordenes'
 import { POSTRES } from '../lib/postres'
 import EtapasOrden from '../components/EtapasOrden'
@@ -53,7 +53,6 @@ const ESTADOS = [
   { key: 'cancelada',  label: 'Cancelada',  color: colors.textMuted, variant: 'neutral' },
 ]
 
-const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 
 const textareaClass = 'w-full rounded-lg border border-[#334155] text-sm text-[#F1F5F9] placeholder:text-[#64748B] bg-[#0F172A] outline-none transition-colors duration-150 px-3 py-2 resize-none focus:ring-2 focus:ring-[#FF4713]/25 focus:border-[#FF4713]'
 

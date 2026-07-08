@@ -28,7 +28,7 @@ import Input from '../components/ui/Input'
 import Select from '../components/ui/Select'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
-import { colors, radius, shadow } from '../styles/design-system'
+import { colors, radius, shadow, SURFACE } from '../styles/design-system'
 import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, ClipboardCheck, AlertTriangle, TrendingUp, BarChart2, ChevronRight, ChevronUp, ChevronDown, Plus, Trash2, Clock } from 'lucide-react'
 const logoUrl = '/logo-byn.png'
 import {
@@ -38,7 +38,6 @@ import {
   PDF_SEM_NEG, PDF_SEM_CRIT, PDF_SEM_OK, LOGO_PDF,
 } from '../lib/pdfEstilos'
 
-const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 
 const TABS         = ['Movimientos', 'Stock', 'Trazabilidad', 'Informes', 'Control Semanal', 'Plan de compras']
 const DESTINOS     = ['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones', 'Panadería', 'Uso interno', 'Venta', 'Otro']

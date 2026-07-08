@@ -7,7 +7,7 @@ import EmptyState from '../components/ui/EmptyState'
 import KpiCard from '../components/ui/KpiCard'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
-import { colors, radius, shadow } from '../styles/design-system'
+import { colors, radius, SURFACE } from '../styles/design-system'
 import { progresoColor, calcularHorasReales } from '../lib/ordenes'
 import { clasificarVencimiento, esAlertaVencimiento, labelDias } from '../lib/vencimientos'
 import { construirAlertas, resumenSeveridad } from '../lib/alertas'
@@ -21,7 +21,6 @@ import {
 } from 'recharts'
 
 const REFRESH_MS = 60000
-const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 const TIPO_BADGE = {
   Lisa:           { bg: 'rgba(96,165,250,0.12)',  color: '#60A5FA' },
   'Con Agregado': { bg: 'rgba(167,139,250,0.12)', color: '#A78BFA' },

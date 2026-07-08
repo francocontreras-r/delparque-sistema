@@ -9,7 +9,7 @@ import Modal from '../components/ui/Modal'
 import Button from '../components/ui/Button'
 import { PageHeader } from '../components/PageHeader'
 import Toast from '../components/ui/Toast'
-import { colors, radius, shadow } from '../styles/design-system'
+import { colors, SURFACE } from '../styles/design-system'
 import { BookOpen, Search, Edit2, RefreshCw, X, AlertTriangle, ChevronDown, ChevronUp, FileDown, Plus } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -31,7 +31,6 @@ function tipoIngrediente(nombre, intermedios) {
 
 const TABS = ['Bases', 'Sabores', 'Impulsivos', 'Postres']
 const UNIDADES = ['kg', 'L', 'u', 'g', 'ml']
-const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 
 function tipoVariant(tipo) {
   switch (tipo) {

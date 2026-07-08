@@ -15,7 +15,7 @@ import Button from '../components/ui/Button'
 import { PageHeader } from '../components/PageHeader'
 import Badge from '../components/ui/Badge'
 import Table, { Thead, Tbody, Tr, Th, Td } from '../components/ui/Table'
-import { colors, radius, shadow } from '../styles/design-system'
+import { colors, SURFACE } from '../styles/design-system'
 import { exportarCSV } from '../lib/exportar'
 import { crearCosteador } from '../lib/costeoRecetas'
 import { normalizarNombre } from '../lib/texto'
@@ -54,7 +54,6 @@ const CIF_PREDEFINIDOS = [
 const TIERS_SABOR = ['Lisa', 'Con Agregado', 'Agua', 'Especial', 'Pistacho', 'Rocher']
 const tierEmoji = { Lisa: '🔵', 'Con Agregado': '🟣', Agua: '🩵', Especial: '🟠', Pistacho: '🟢', Rocher: '🟤' }
 
-const SURFACE = { backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }
 
 const numInputClass = 'w-24 text-right rounded-md border border-[#d1d5db] text-sm px-2 py-1 outline-none focus:ring-2 focus:ring-[#FF4713]/30 focus:border-[#FF4713]'
 

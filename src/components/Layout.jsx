@@ -139,8 +139,9 @@ function SidebarContent({ onClose, user, profile, rol, onLogout, navItems, depos
         <div style={{ display: 'flex', alignItems: 'center', gap: '11px' }}>
           <img src={LOGO_ISOTIPO} style={{ height: '34px', width: '34px', objectFit: 'contain' }} alt="Del Parque" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {/* Logotipo real de marca (fuente Reklame), no un serif genérico */}
-            <img src="/logo-wordmark-white-hd.png" alt="Del Parque" style={{ height: '17px', objectFit: 'contain', display: 'block' }} />
+            {/* Logotipo de marca SOLO TEXTO (fuente Reklame). El wordmark completo
+                incluye su propia gota → junto al isotipo circular se duplicaba. */}
+            <img src="/logo-wordmark-text-white.png" alt="Del Parque" style={{ height: '18px', objectFit: 'contain', display: 'block' }} />
             <div style={{ color: colors.textMuted, fontSize: '9px', letterSpacing: '0.7px', textTransform: 'uppercase' }}>Sistema de Producción</div>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
 import { deduplicarOperarios } from '../lib/operarios'
 import { normalizarNombre } from '../lib/texto'
+import { deltaEnUnidadStock, requiereConversionKg } from '../lib/stockDeposito'
 import { costearProduccion } from '../lib/costeoProduccion'
 import { registrarCambioCosto } from '../lib/historialCostos'
 import { registrarConteoStock, cargarConteosPeriodo, resumenSemanal, nuevoCiclo, cargarConteosCiclo, cargarCiclos } from '../lib/conteos'
@@ -271,23 +272,43 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
   const pesoTotal = form.unidad === 'u' && pesoPorUnidad > 0 ? cantidad * pesoPorUnidad : 0
   const precioUnitario = parseFloat(form.precio_unitario) || 0
 
+  // El stock se lleva en la unidad del insumo. Si el producto se mide por peso
+  // (kg/L) y el operario carga en presentación (baldes), el peso por unidad es
+  // OBLIGATORIO: sin él no se puede pasar de "7 baldes" a "70 kg".
+  const unidadStock = insumoSel?.unidad || form.unidad
+  const requierePeso = !!insumoSel && requiereConversionKg(form.unidad, unidadStock)
+  const deltaStock = deltaEnUnidadStock({
+    cantidad, unidadMov: form.unidad, unidadStock,
+    pesoPorUnidad: pesoPorUnidad || insumoSel?.peso_por_unidad,
+  })
+  const stockResultante = insumoSel && deltaStock != null
+    ? Math.max(0, (insumoSel.stock_actual || 0) + (esIngreso ? 1 : -1) * deltaStock)
+    : null
+
   const nombreProducto = form.producto_nombre.trim()
   const existeInsumo = !!buscarInsumoPorNombre(nombreProducto, insumos)
   const mostrarAgregarInsumo = esIngreso && nombreProducto !== '' && !existeInsumo
 
-  const stockInfo = insumoSel
-    ? `Stock actual: ${insumoSel.stock_actual ?? 0} ${insumoSel.unidad || 'u'}${
-        insumoSel.unidad === 'u' && (insumoSel.peso_por_unidad || 0) > 0
-          ? ` / ${((insumoSel.stock_actual || 0) * insumoSel.peso_por_unidad).toFixed(1)} kg`
-          : ''
-      }`
-    : null
+  const stockInfo = (() => {
+    if (!insumoSel) return null
+    const s = insumoSel.stock_actual ?? 0
+    const u = insumoSel.unidad || 'u'
+    const ppu = insumoSel.peso_por_unidad || 0
+    let equiv = ''
+    if (u === 'u' && ppu > 0) equiv = ` / ${(s * ppu).toFixed(1)} kg`            // baldes → kg
+    else if ((u === 'kg' || u === 'L') && ppu > 0) equiv = ` · ≈ ${(s / ppu).toFixed(1)} ${form.presentacion.toLowerCase()}s`  // kg → presentación
+    return `Stock actual: ${s} ${u}${equiv}`
+  })()
 
   const precioAnterior = insumoSel?.costo_unitario > 0 ? insumoSel.costo_unitario : null
 
   function handleClickRegistrar() {
     if (!form.producto_nombre.trim()) { setLocalError('Falta seleccionar el producto'); return }
     if (!(parseFloat(form.cantidad) > 0)) { setLocalError('La cantidad debe ser mayor a 0'); return }
+    if (requierePeso && !(pesoPorUnidad > 0)) {
+      setLocalError(`"${insumoSel.nombre}" se lleva en ${unidadStock}. Indicá cuántos ${unidadStock} tiene cada ${form.presentacion.toLowerCase()} para descontar bien el stock.`)
+      return
+    }
     if (!form.marca.trim()) { setLocalError('Falta la marca'); return }
     if (esIngreso && !form.motivo) { setLocalError('El motivo es obligatorio'); return }
     if (!esIngreso && !form.motivo) { setLocalError('Falta seleccionar el motivo'); return }
@@ -340,8 +361,14 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
             </p>
             {pesoTotal > 0 && (
               <p className="text-sm" style={{ color: colors.brand }}>
-                Peso total: <b>{pesoTotal.toFixed(2)} kg</b>
-                <span className="text-xs ml-1" style={{ color: colors.textMuted }}>({form.cantidad} × {pesoPorUnidad} kg/u)</span>
+                {esIngreso ? 'Ingresan' : 'Salen'}: <b>{pesoTotal.toFixed(2)} {unidadStock}</b>
+                <span className="text-xs ml-1" style={{ color: colors.textMuted }}>({form.cantidad} × {pesoPorUnidad} {unidadStock}/{form.presentacion.toLowerCase()})</span>
+              </p>
+            )}
+            {stockResultante != null && (
+              <p className="text-xs" style={{ color: colors.textMuted }}>
+                Stock de <b>{form.producto_nombre}</b> quedará en{' '}
+                <b style={{ color: colors.textSecondary }}>{stockResultante.toFixed(1)} {unidadStock}</b>
               </p>
             )}
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs" style={{ color: colors.textMuted }}>
@@ -461,20 +488,37 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
             </Select>
           </div>
 
-          {/* Peso por unidad — solo cuando unidad='u' */}
+          {/* Peso por unidad — cuando la carga es en presentación (unidad='u').
+              Obligatorio si el producto se lleva por peso (kg/L): sin él no se
+              puede convertir "7 baldes" a "70 kg" y el stock quedaría mal. */}
           {form.unidad === 'u' && (
-            <div className="rounded-lg p-3 space-y-2" style={{ backgroundColor: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.25)' }}>
-              <Input label="Peso por unidad (kg) — opcional" type="number" min="0" step="0.001"
+            <div className="rounded-lg p-3 space-y-2"
+              style={requierePeso && !(pesoPorUnidad > 0)
+                ? { backgroundColor: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.4)' }
+                : { backgroundColor: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.25)' }}>
+              <Input
+                label={requierePeso ? `Peso por ${form.presentacion.toLowerCase()} (${unidadStock}) *` : 'Peso por unidad (kg) — opcional'}
+                type="number" min="0" step="0.001"
                 value={form.peso_por_unidad}
                 onChange={e => upd('peso_por_unidad', e.target.value)}
-                placeholder="ej: 4.6"
+                placeholder="ej: 10"
               />
+              {requierePeso && !(pesoPorUnidad > 0) && (
+                <p className="text-xs font-semibold" style={{ color: colors.warning }}>
+                  ⚠ "{insumoSel.nombre}" se lleva en {unidadStock}. Cargá cuántos {unidadStock} pesa cada {form.presentacion.toLowerCase()} para descontar el stock correcto.
+                </p>
+              )}
               {pesoTotal > 0 && (
                 <p className="text-sm font-semibold" style={{ color: colors.info }}>
-                  Peso total: {pesoTotal.toFixed(2)} kg
+                  {esIngreso ? 'Ingresan' : 'Salen'}: {pesoTotal.toFixed(2)} {unidadStock}
                   <span className="text-xs font-normal ml-1.5" style={{ color: colors.info }}>
-                    ({form.cantidad} u × {pesoPorUnidad} kg)
+                    ({form.cantidad} {form.presentacion.toLowerCase()}s × {pesoPorUnidad} {unidadStock})
                   </span>
+                </p>
+              )}
+              {stockResultante != null && pesoTotal > 0 && (
+                <p className="text-xs" style={{ color: colors.textMuted }}>
+                  Stock quedará en <b style={{ color: colors.textSecondary }}>{stockResultante.toFixed(1)} {unidadStock}</b>
                 </p>
               )}
             </div>
@@ -1209,6 +1253,41 @@ export default function Deposito() {
     const pesoPorUnidad = parseFloat(form.peso_por_unidad) || 0
     const pesoTotal = form._pesoTotal || (form.unidad === 'u' && pesoPorUnidad > 0
       ? parseFloat(form.cantidad) * pesoPorUnidad : 0)
+
+    // ── Resolver el insumo ANTES de insertar el movimiento ──────────────────────
+    // Necesitamos su unidad de stock para convertir la cantidad y, si hace falta
+    // convertir y no se puede, abortar sin dejar un movimiento huérfano.
+    const nombreProducto = form.producto_nombre.trim()
+    // 1. Coincidencia robusta contra el caché local (case/acentos/espacios).
+    let insumoMatch = buscarInsumoPorNombre(nombreProducto, insumos)
+    // 2. Respaldo: si por algún motivo el caché no lo tiene, exacto en Supabase.
+    if (!insumoMatch) {
+      const { data: found } = await supabase
+        .from('insumos')
+        .select('id, stock_actual, nombre, unidad, peso_por_unidad, costo_unitario')
+        .ilike('nombre', nombreProducto)
+        .limit(1)
+        .maybeSingle()
+      insumoMatch = found
+    }
+
+    // Cantidad a mover EXPRESADA EN LA UNIDAD DEL STOCK. Si el stock está en kg/L
+    // y el movimiento viene en presentación (baldes), esto exige el peso por unidad;
+    // sin él devuelve null y NO seguimos (este era el bug: 7 baldes ≠ 7 kg).
+    const unidadStock = insumoMatch?.unidad || form.unidad
+    const delta = insumoMatch
+      ? deltaEnUnidadStock({
+          cantidad: form.cantidad, unidadMov: form.unidad, unidadStock,
+          pesoPorUnidad: pesoPorUnidad || insumoMatch.peso_por_unidad,
+        })
+      : parseFloat(form.cantidad)
+    if (insumoMatch && delta == null) {
+      setSaving(false)
+      toast2(`No se puede actualizar el stock de "${insumoMatch.nombre}" (se lleva en ${unidadStock}): falta el peso por ${form.presentacion.toLowerCase()}.`, 'error')
+      return
+    }
+    const signo = modal === 'ingreso' ? 1 : -1
+
     const payload = {
       tipo: modal,
       fecha: form.fecha,
@@ -1236,36 +1315,17 @@ export default function Deposito() {
     if (error) { setSaving(false); toast2(error.message, 'error'); return }
 
     // ── Actualizar stock_actual del insumo (ingreso y egreso) ──────────────────
-    const nombreProducto = form.producto_nombre.trim()
-    const delta = pesoTotal > 0 ? pesoTotal : parseFloat(form.cantidad)
-    const signo = modal === 'ingreso' ? 1 : -1
-
-
-    // 1. Coincidencia robusta contra el caché local (case/acentos/espacios).
-    //    El caché tiene TODOS los insumos (cargar() los trae), así que esta es
-    //    la fuente autoritativa. Mismo criterio que el hint de stock en el form.
-    let insumoMatch = buscarInsumoPorNombre(nombreProducto, insumos)
-
-    // 2. Respaldo: si por algún motivo el caché no lo tiene, exacto en Supabase.
-    if (!insumoMatch) {
-      const { data: found } = await supabase
-        .from('insumos')
-        .select('id, stock_actual, nombre, peso_por_unidad, costo_unitario')
-        .ilike('nombre', nombreProducto)
-        .limit(1)
-        .maybeSingle()
-      insumoMatch = found
-    }
-
     if (insumoMatch) {
       const nuevoStock = Math.max(0, (insumoMatch.stock_actual || 0) + signo * delta)
       const updates = { stock_actual: nuevoStock }
+      // Guardamos la relación presentación↔peso apenas se conoce (ingreso o egreso),
+      // así la próxima vez viene precargada y la conversión es automática.
+      if (pesoPorUnidad > 0 && pesoPorUnidad !== (insumoMatch.peso_por_unidad || 0)) {
+        updates.peso_por_unidad = pesoPorUnidad
+      }
       if (modal === 'ingreso') {
         const precioUnitario = parseFloat(form.precio_unitario) || 0
         if (precioUnitario > 0) updates.costo_unitario = precioUnitario
-        if (pesoPorUnidad > 0 && pesoPorUnidad !== (insumoMatch.peso_por_unidad || 0)) {
-          updates.peso_por_unidad = pesoPorUnidad
-        }
       }
       const { error: stockErr } = await supabase.from('insumos').update(updates).eq('id', insumoMatch.id)
       if (stockErr) {

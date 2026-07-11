@@ -2127,11 +2127,11 @@ export default function Camaras() {
               <FileDown size={15} /> Stock Actual
             </Button>
           )}
-          {isAdmin && (
-            <Button variant="secondary" onClick={() => setModalConteo(true)} disabled={loading || !!errorCarga}>
-              <ClipboardCheck size={15} /> Conteo físico
-            </Button>
-          )}
+          {/* Conteo físico: lo hace el OPERARIO (a ciegas). El admin además puede
+              ver el número del sistema (permiteVerSistema={isAdmin} en el modal). */}
+          <Button variant="secondary" onClick={() => setModalConteo(true)} disabled={loading || !!errorCarga}>
+            <ClipboardCheck size={15} /> Conteo físico
+          </Button>
           {isAdmin && (
             <Button variant="secondary" onClick={abrirHistorialConteos} disabled={loading || !!errorCarga}>
               <FileDown size={15} /> Conteos / Comprobantes

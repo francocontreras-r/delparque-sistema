@@ -229,7 +229,7 @@ export async function aplicarProduccionAOrden(orden, kgIncremento, usuarioEmail 
   return { kgProducido, pct, estado: nuevoEstado, mermaError, toastMsg, toastType }
 }
 
-export async function finalizarOrdenManual(orden, fechaFinParam = null) {
+export async function finalizarOrdenManual(orden, fechaFinParam = null, fechaInicioParam = null) {
   const kgObjetivo = orden.kg_objetivo || 0
   const kgProducido = orden.kg_producido || 0
   const pct = pctCompletitud(kgProducido, kgObjetivo)
@@ -247,8 +247,13 @@ export async function finalizarOrdenManual(orden, fechaFinParam = null) {
   const seFinaliza = orden.estado !== ESTADO_COMPLETADA
   if (seFinaliza) {
     const fechaFin = fechaFinParam || new Date().toISOString()
-    const horasReales = calcularHorasReales(orden.fecha_inicio, fechaFin)
+    // El inicio puede venir del "iniciar" del operario (orden.fecha_inicio) o
+    // cargarse al cerrar (fechaInicioParam, derivado de "cuántas horas llevó").
+    // Así el tiempo queda registrado aunque nadie haya apretado "iniciar".
+    const fechaInicio = orden.fecha_inicio || fechaInicioParam || null
+    const horasReales = calcularHorasReales(fechaInicio, fechaFin)
     update.fecha_fin = fechaFin
+    if (!orden.fecha_inicio && fechaInicioParam) update.fecha_inicio = fechaInicioParam
     update.horas_reales = horasReales
     // Solo calculamos eficiencia/rendimiento si YA hay kg reales.
     if (!pendienteKg) {

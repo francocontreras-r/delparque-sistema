@@ -286,6 +286,7 @@ export default function Ordenes() {
   const [modalFin, setModalFin]       = useState(null) // { orden, fromDetalle }
   const [fechaInicioVal, setFechaInicioVal] = useState('')
   const [fechaFinVal, setFechaFinVal]       = useState('')
+  const [horasManual, setHorasManual]       = useState('')  // "cuántas horas llevó" al cerrar sin inicio registrado
   const [savingHora, setSavingHora]         = useState(false)
   // Alta de base usada al cerrar un sabor cuya base no figura en stock
   const [baseAlta, setBaseAlta]   = useState({ cantidad: '', fecha: '', operario: '' })
@@ -733,7 +734,14 @@ export default function Ordenes() {
 
     setSavingHora(true)
     const fechaFin = new Date(fechaFinVal).toISOString()
-    const { error, mermaError, toastMsg, toastType } = await finalizarOrdenManual(orden, fechaFin)
+    // Si la orden no tiene inicio registrado y el usuario cargó "cuántas horas
+    // llevó", derivamos el inicio = fin − horas, para que quede el tiempo real.
+    let fechaInicioManual = null
+    const hs = parseFloat(horasManual)
+    if (!orden.fecha_inicio && hs > 0) {
+      fechaInicioManual = new Date(new Date(fechaFin).getTime() - hs * 3600000).toISOString()
+    }
+    const { error, mermaError, toastMsg, toastType } = await finalizarOrdenManual(orden, fechaFin, fechaInicioManual)
     setSavingHora(false)
     if (error) { toast2(error.message, 'error'); return }
     if (mermaError) toast2(`Orden finalizada, error en merma: ${mermaError.message}`, 'error')
@@ -750,6 +758,7 @@ export default function Ordenes() {
   async function intentarCambiarEstado(item, estado) {
     if (estado === ESTADO_COMPLETADA) {
       setFechaFinVal(nowLocal())
+      setHorasManual(item.fecha_inicio ? '' : (item.horas_estimadas > 0 ? String(item.horas_estimadas) : ''))
       setModalFin({ orden: item, fromDetalle: false })
       return
     }
@@ -840,6 +849,7 @@ export default function Ordenes() {
   function finalizarManual() {
     if (!ordenDetalle) return
     setFechaFinVal(nowLocal())
+    setHorasManual(ordenDetalle.fecha_inicio ? '' : (ordenDetalle.horas_estimadas > 0 ? String(ordenDetalle.horas_estimadas) : ''))
     setModalFin({ orden: ordenDetalle, fromDetalle: true })
   }
 
@@ -1983,10 +1993,25 @@ export default function Ordenes() {
               value={fechaFinVal}
               onChange={e => setFechaFinVal(e.target.value)}
             />
-            {modalFin.orden.fecha_inicio && (
+            {modalFin.orden.fecha_inicio ? (
               <p className="text-xs" style={{ color: colors.textMuted }}>
-                Inicio registrado: {fmtDatetime(modalFin.orden.fecha_inicio)}
+                Inicio registrado: {fmtDatetime(modalFin.orden.fecha_inicio)} · el tiempo se calcula solo.
               </p>
+            ) : (
+              <div className="rounded-lg p-3 space-y-1.5" style={{ backgroundColor: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.25)' }}>
+                <Input
+                  label="¿Cuántas horas llevó la producción?"
+                  type="number" min="0" step="0.25"
+                  value={horasManual}
+                  onChange={e => setHorasManual(e.target.value)}
+                  placeholder="ej: 3.5"
+                />
+                <p className="text-[11px]" style={{ color: colors.textMuted }}>
+                  {parseFloat(horasManual) > 0
+                    ? `Queda registrado el tiempo (${formatDuracion(parseFloat(horasManual))}) para informes y rendimiento.`
+                    : 'Nadie apretó “iniciar”. Cargá el tiempo para que quede en los informes y en el rendimiento del operario.'}
+                </p>
+              </div>
             )}
 
             {(() => {

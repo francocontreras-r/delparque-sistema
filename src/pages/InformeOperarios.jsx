@@ -166,11 +166,17 @@ export default function InformeOperarios() {
         // Cumplimiento de postres = lotes terminados / asignados.
         const pctPostreCompl = unidadAsignadas > 0 ? Math.round((postresLotes / unidadAsignadas) * 100) : null
 
-        // ── Eficiencia de mano de obra (etapas) — el tiempo, medido bien ─────
-        // Solo etapas ACTIVAS finalizadas que hizo este operario; estándar/real.
+        // ── Eficiencia de mano de obra (tiempo) ──────────────────────────────
+        // Se suman DOS fuentes que no se pisan:
+        //  · Postres/impulsivos: etapas ACTIVAS finalizadas (estándar vs real).
+        //  · Helados/bases: tiempo de la orden (horas_estimadas vs horas_reales),
+        //    cargado al cerrar la orden. Así el tiempo del helado también cuenta.
         const misEtapas = etapas.filter(e => e.operario_nombre === op.nombre && e.es_activa && e.fin && Number(e.tiempo_min) > 0)
-        const stdMin  = misEtapas.reduce((a, e) => a + (Number(e.estandar_min) || 0), 0)
-        const realMin = misEtapas.reduce((a, e) => a + (Number(e.tiempo_min) || 0), 0)
+        let stdMin  = misEtapas.reduce((a, e) => a + (Number(e.estandar_min) || 0), 0)
+        let realMin = misEtapas.reduce((a, e) => a + (Number(e.tiempo_min) || 0), 0)
+        completadas
+          .filter(o => !esUnidad(o) && Number(o.horas_estimadas) > 0 && Number(o.horas_reales) > 0)
+          .forEach(o => { stdMin += Number(o.horas_estimadas) * 60; realMin += Number(o.horas_reales) * 60 })
         const pctEficiencia = (stdMin > 0 && realMin > 0) ? Math.round((stdMin / realMin) * 100) : null
         const unidadesTerminadas = etapas.filter(e => e.operario_nombre === op.nombre && e.es_cierre && e.fin)
           .reduce((a, e) => a + (Number(e.unidades) || 0), 0)

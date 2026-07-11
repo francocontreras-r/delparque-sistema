@@ -272,6 +272,8 @@ export default function Ordenes() {
   const [baseSel, setBaseSel]       = useState('')
   const [kgBaseAUsar, setKgBaseAUsar] = useState('')
   const [pdfLoadingGrupo, setPdfLoadingGrupo] = useState(null)
+  const [vincularBase, setVincularBase] = useState(null)   // lote de base a vincular manualmente
+  const [savingVinc, setSavingVinc]     = useState(false)
 
   const [modalProyeccion, setModalProyeccion] = useState(false)
   const [proyeccionData, setProyeccionData]   = useState({})
@@ -888,6 +890,40 @@ export default function Ordenes() {
     cargar()
   }
 
+  // Vinculación manual: registra que un producto (sabor/impulsivo/postre) consumió
+  // kg de este lote de base y descuenta la base. Deja la trazabilidad base→producto
+  // que el descuento automático no siempre logra (orden completada sin cargar en
+  // Producción, ventana de 4 días, nombre que no matchea, etc.).
+  async function vincularConsumoBase({ orden, producto_nombre, tipo_producto, kg, operario_nombre }) {
+    const lote = vincularBase
+    if (!lote || !(kg > 0)) return
+    setSavingVinc(true)
+    const { error: e1 } = await supabase.from('consumos_base').insert({
+      base_lote_id: lote.id,
+      base_nombre: lote.base_nombre,
+      producto_nombre,
+      tipo_producto: tipo_producto || null,
+      orden_id: orden?.id || null,
+      orden_numero: orden?.numero || null,
+      kg_consumidos: kg,
+      operario_nombre: operario_nombre || null,
+      usuario_email: user?.email || null,
+    })
+    if (e1) {
+      setSavingVinc(false)
+      const falta = /relation .*consumos_base.* does not exist|Could not find the table/i.test(e1.message || '')
+      toast2(falta ? 'Falta crear la tabla consumos_base en Supabase (te pasé el SQL).' : e1.message, 'error')
+      return
+    }
+    const nuevo = Math.max(0, (lote.kg_disponible || 0) - kg)
+    const { error: e2 } = await supabase.from('stock_bases').update({ kg_disponible: nuevo }).eq('id', lote.id)
+    setSavingVinc(false)
+    if (e2) { toast2(e2.message, 'error'); return }
+    setVincularBase(null)
+    toast2(`Vinculado: ${fmtNum(kg)} kg de ${lote.base_nombre} → ${producto_nombre}`)
+    cargar()
+  }
+
   const grupos = useMemo(() => {
     const m = {}
     ordenes.forEach(o => {
@@ -1310,6 +1346,19 @@ export default function Ordenes() {
 
       {reconcOpen && <ReconciliacionBases onClose={() => setReconcOpen(false)} />}
 
+      {vincularBase && (
+        <ModalVincularBase
+          lote={vincularBase}
+          ordenes={ordenes}
+          sabores={sabores}
+          resolverReceta={resolverReceta}
+          operarios={operarios}
+          saving={savingVinc}
+          onClose={() => setVincularBase(null)}
+          onSubmit={vincularConsumoBase}
+        />
+      )}
+
       <div className="grid grid-cols-3 gap-3">
         <KpiCard label="Pendientes"  value={loading ? '—' : kpiPendientes}  color={colors.warning} />
         <KpiCard label="En proceso"  value={loading ? '—' : kpiEnProceso}   color={colors.info} />
@@ -1349,7 +1398,12 @@ export default function Ordenes() {
                     <Td>{b.operario_nombre || '—'}</Td>
                     <Td>{b.orden_origen || '—'}</Td>
                     {isAdmin && (
-                      <Td className="text-right">
+                      <Td className="text-right whitespace-nowrap">
+                        <button onClick={() => setVincularBase(b)} title="Vincular consumo a un producto"
+                          className="px-2 py-1 rounded-md text-xs font-semibold hover:opacity-80 mr-1"
+                          style={{ color: colors.brand, border: `1px solid ${colors.brand}55` }}>
+                          🔗 Vincular
+                        </button>
                         <button onClick={() => eliminarBaseStock(b)} title="Eliminar del stock"
                           className="p-1 rounded-md hover:opacity-80" style={{ color: colors.danger }}>
                           <Trash2 size={15} />
@@ -2289,5 +2343,159 @@ export default function Ordenes() {
         )}
       </Modal>
     </div>
+  )
+}
+
+// ── Modal: vincular manualmente el consumo de un lote de base a un producto ────
+// Permite decir "este sabor/impulsivo/postre consumió X kg de esta base", descuenta
+// la base y deja registrado el vínculo (base → producto → orden → operario → kg).
+function ModalVincularBase({ lote, ordenes, sabores, resolverReceta, operarios, saving, onClose, onSubmit }) {
+  const [verTodas, setVerTodas]   = useState(false)
+  const [busq, setBusq]           = useState('')
+  const [ordenSel, setOrdenSel]   = useState(null)
+  const [kg, setKg]               = useState('')
+  const [operario, setOperario]   = useState('')
+
+  const baseNorm = normalizarNombre(lote.base_nombre || '')
+
+  // ¿La orden usa esta base? (por la base del sabor o por la base cargada en la orden)
+  const usaEstaBase = (o) => {
+    const sab = sabores.find(s => normalizarNombre(s.nombre) === normalizarNombre(o.sabor_nombre || ''))
+    return normalizarNombre(sab?.base_nombre || '') === baseNorm ||
+           normalizarNombre(o.base_nombre || '') === baseNorm
+  }
+
+  const completadas = useMemo(() =>
+    ordenes.filter(o => o.estado === 'completada')
+  , [ordenes])
+
+  const candidatas = useMemo(() => {
+    let arr = completadas
+    if (!verTodas) {
+      const conBase = arr.filter(usaEstaBase)
+      if (conBase.length) arr = conBase   // si ninguna matchea la base, mostramos todas
+    }
+    const q = busq.trim().toLowerCase()
+    if (q) arr = arr.filter(o =>
+      (o.sabor_nombre || '').toLowerCase().includes(q) ||
+      (o.numero || '').toLowerCase().includes(q) ||
+      (o.operario_nombre || '').toLowerCase().includes(q))
+    return [...arr].sort((a, b) => (b.fecha_produccion || '').localeCompare(a.fecha_produccion || '')).slice(0, 60)
+  }, [completadas, verTodas, busq]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function elegir(o) {
+    setOrdenSel(o)
+    // kg de base consumidos: lo que ya calculó la app, o receta (batches × litros/base),
+    // o el objetivo; siempre acotado a lo disponible en el lote.
+    let teorico = Number(o.kg_base_consumida) || 0
+    if (!teorico) {
+      const rec = resolverReceta(o.sabor_nombre)
+      if (rec && o.batches) teorico = (rec.litrosBase || LITROS_BATCH) * Number(o.batches)
+    }
+    if (!teorico) teorico = Number(o.kg_objetivo) || 0
+    const disp = Number(lote.kg_disponible) || 0
+    setKg(String(teorico > 0 ? Math.min(teorico, disp) : disp))
+    setOperario(o.operario_nombre || '')
+  }
+
+  const kgNum = parseFloat(kg) || 0
+  const disp = Number(lote.kg_disponible) || 0
+  const excede = kgNum > disp
+  const puede = ordenSel && kgNum > 0
+
+  return (
+    <Modal open onClose={onClose} title={`🔗 Vincular consumo — ${lote.base_nombre}`} maxWidth="max-w-lg" disableBackdropClose>
+      <div className="space-y-4">
+        <div className="rounded-lg p-3 text-sm" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+          <p style={{ color: colors.textSecondary }}>
+            Lote de <b style={{ color: colors.textPrimary }}>{lote.base_nombre}</b> · disponible{' '}
+            <b style={{ color: colors.brand }}>{fmtNum(disp)} kg</b>
+            {lote.orden_origen ? <> · origen {lote.orden_origen}</> : null}
+          </p>
+        </div>
+
+        {!ordenSel ? (
+          <>
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <Input placeholder="Buscar orden, sabor u operario…" value={busq} onChange={e => setBusq(e.target.value)} />
+              </div>
+              <label className="flex items-center gap-1.5 text-xs whitespace-nowrap" style={{ color: colors.textMuted }}>
+                <input type="checkbox" checked={verTodas} onChange={e => setVerTodas(e.target.checked)} />
+                Ver todas
+              </label>
+            </div>
+            <p className="text-xs" style={{ color: colors.textMuted }}>
+              Elegí la orden completada que consumió esta base:
+            </p>
+            <div className="max-h-72 overflow-y-auto rounded-lg" style={{ border: `1px solid ${colors.border}` }}>
+              {candidatas.length === 0 ? (
+                <p className="p-4 text-sm text-center" style={{ color: colors.textMuted }}>No hay órdenes completadas.</p>
+              ) : candidatas.map(o => (
+                <button key={o.id} onClick={() => elegir(o)}
+                  className="w-full text-left px-3 py-2.5 border-b last:border-0 hover:opacity-80 transition"
+                  style={{ borderColor: colors.border }}>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>{o.sabor_nombre}</span>
+                    <span className="text-xs" style={{ color: colors.textMuted }}>{o.numero || `#${o.id}`}</span>
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: colors.textMuted }}>
+                    {o.operario_nombre || 'Sin operario'} · {o.fecha_produccion || '—'}
+                    {o.kg_producido ? ` · ${fmtNum(o.kg_producido)} kg producidos` : ''}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="rounded-lg p-3" style={{ backgroundColor: 'rgba(255,71,19,0.08)', border: `1px solid ${colors.brand}40` }}>
+              <div className="flex justify-between items-start gap-2">
+                <div>
+                  <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>{ordenSel.sabor_nombre}</p>
+                  <p className="text-xs" style={{ color: colors.textMuted }}>
+                    {ordenSel.numero || `#${ordenSel.id}`} · {ordenSel.fecha_produccion || '—'}
+                  </p>
+                </div>
+                <button onClick={() => setOrdenSel(null)} className="text-xs underline" style={{ color: colors.brand }}>
+                  Cambiar
+                </button>
+              </div>
+            </div>
+
+            <Input label="Kg de base consumidos *" type="number" min="0" step="0.1"
+              value={kg} onChange={e => setKg(e.target.value)} />
+            {excede && (
+              <p className="text-xs font-semibold" style={{ color: colors.warning }}>
+                ⚠ Estás vinculando más ({fmtNum(kgNum)} kg) que lo disponible ({fmtNum(disp)} kg). La base quedará en 0.
+              </p>
+            )}
+
+            <Select label="Operario que lo produjo" value={operario} onChange={e => setOperario(e.target.value)}>
+              <option value="">— Sin especificar —</option>
+              {operarios.map(o => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+            </Select>
+
+            <p className="text-xs" style={{ color: colors.textMuted }}>
+              La base quedará en <b style={{ color: colors.textSecondary }}>{fmtNum(Math.max(0, disp - kgNum))} kg</b> después de vincular.
+            </p>
+          </>
+        )}
+      </div>
+
+      <div className="flex gap-2 mt-5">
+        <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">Cancelar</Button>
+        <Button variant="primary" className="flex-1" loading={saving} disabled={!puede}
+          onClick={() => onSubmit({
+            orden: ordenSel,
+            producto_nombre: ordenSel.sabor_nombre,
+            tipo_producto: ordenSel.tipo_producto,
+            kg: kgNum,
+            operario_nombre: operario,
+          })}>
+          Vincular y descontar
+        </Button>
+      </div>
+    </Modal>
   )
 }

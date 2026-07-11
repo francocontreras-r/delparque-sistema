@@ -16,6 +16,16 @@ import { resumenSemanal } from './conteos'
 const money = n => `$${(Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const num = n => (Number(n) || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 })
 
+// La fecha del ciclo llega como timestamp ISO (ej. 2026-07-04T16:36:19+00:00).
+// La mostramos legible: "04/07/2026 13:36 hs". Si no es una fecha válida,
+// devolvemos el texto recortado al día.
+const fmtFechaConteo = f => {
+  if (!f) return ''
+  const d = new Date(f)
+  if (isNaN(d.getTime())) return String(f).slice(0, 10)
+  return d.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' hs'
+}
+
 // rows: filas de conteos_stock de UN ciclo. meta: { area, fecha, responsable }
 export function generarComprobanteConteo({ rows = [], area = '', fecha = '', responsable = '' } = {}) {
   const R = resumenSemanal(rows)
@@ -27,6 +37,7 @@ export function generarComprobanteConteo({ rows = [], area = '', fecha = '', res
   const MOD = (areaLbl || 'STOCK').toUpperCase()
   const TIT = 'COMPROBANTE DE CONTEO'
   const hoy = new Date().toLocaleString('es-AR')
+  const fechaLbl = fmtFechaConteo(fecha)
   const encab = () => dibujarEncabezado(doc, pw, MOD, TIT, hoy)
   const BW_HEAD = { fillColor: [35, 35, 35], textColor: [255, 255, 255], halign: 'center', fontStyle: 'bold', lineWidth: 0.1, lineColor: [180, 180, 180] }
   const BW_BODY = { textColor: [25, 25, 25], halign: 'center', lineWidth: 0.1, lineColor: [210, 210, 210] }
@@ -39,14 +50,14 @@ export function generarComprobanteConteo({ rows = [], area = '', fecha = '', res
   const fmtVal = r => r.valor_impacto == null ? '—' : money(Math.abs(Number(r.valor_impacto)))
 
   // Portada
-  dibujarPortada(doc, pw, ph, MOD, 'Comprobante de Conteo', `${areaLbl}${fecha ? ' · ' + fecha : ''}`, hoy)
+  dibujarPortada(doc, pw, ph, MOD, 'Comprobante de Conteo', `${areaLbl}${fechaLbl ? ' · ' + fechaLbl : ''}`, hoy)
 
   // Resumen
   doc.addPage(); encab()
   let y = PDF_CONTENT_Y
   y = dibujarSeccion(doc, pw, 'Resumen del conteo', y)
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...N)
-  const linea = `Área: ${areaLbl}   ·   Fecha: ${fecha || hoy}   ·   Responsable: ${responsable || '—'}`
+  const linea = `Área: ${areaLbl}   ·   Fecha: ${fechaLbl || hoy}   ·   Responsable: ${responsable || '—'}`
   doc.text(linea, 14, y + 2); y += 8
   const resumen = `Se contaron ${R.totalContados} productos: ${R.faltantes.length} con faltante y ${R.sobrantes.length} con sobrante. ` +
     `Faltante valorizado $${num(R.valorFaltante)} · Sobrante valorizado $${num(R.valorSobrante)} · ` +

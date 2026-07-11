@@ -19,7 +19,10 @@ function cantidadDe(r) {
 function clave(r) {
   const nombre = normalizarNombre(r.producto_nombre || r.sabor_nombre || '')
   const cant = Math.round(cantidadDe(r) * 1000)
-  const dia = r.fecha || (r.created_at || '').split('T')[0] || ''
+  // Solo el día (YYYY-MM-DD). Ojo: `fecha` viene distinta en cada tabla —
+  // en producciones es timestamp ('2026-07-10 00:00:00+00') y en
+  // movimientos_camara es date ('2026-07-10'). slice(0,10) las empareja.
+  const dia = (r.fecha || r.created_at || '').slice(0, 10)
   return `${nombre}|${cant}|${dia}`
 }
 

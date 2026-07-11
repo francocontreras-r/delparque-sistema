@@ -243,10 +243,13 @@ export default function Informes() {
       supabase.from('impulsivos').select('*'),
       supabase.from('insumos').select('*'),
       supabase.from('stock_camaras').select('*'),
-      // Movimientos de cámara ingresados directamente desde Cámaras (motivo != null evita doble conteo con producciones)
-      supabase.from('movimientos_camara').select('*').eq('tipo', 'ingreso').not('motivo', 'is', null)
+      // Ingresos de cámara que SON producción (motivo 'Producción'): capturan la
+      // producción cargada directo en Cámaras. Los gemelos de `producciones` se
+      // sacan luego con movimientosSinGemelo. Se excluyen Ajuste/Transferencia/
+      // Devolución: son movimientos de inventario, no producción.
+      supabase.from('movimientos_camara').select('*').eq('tipo', 'ingreso').eq('motivo', 'Producción')
         .gte('created_at', desde + 'T00:00:00').lte('created_at', hasta + 'T23:59:59'),
-      supabase.from('movimientos_camara').select('*').eq('tipo', 'ingreso').not('motivo', 'is', null)
+      supabase.from('movimientos_camara').select('*').eq('tipo', 'ingreso').eq('motivo', 'Producción')
         .gte('created_at', antDesde + 'T00:00:00').lte('created_at', antHasta + 'T23:59:59'),
       supabase.from('bases').select('id,nombre,litros_batch,mano_de_obra'),
       supabase.from('base_ingredientes').select('base_id,insumo_nombre,cantidad,unidad'),

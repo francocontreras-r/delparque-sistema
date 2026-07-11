@@ -52,4 +52,23 @@ describe('movimientosSinGemelo', () => {
     const movimientos  = [mov('X', 4.09, '2026-07-10'), mov('X', 4.09, '2026-07-10')]
     expect(movimientosSinGemelo(producciones, movimientos)).toHaveLength(0)
   })
+
+  it('empareja aunque `fecha` venga como timestamp (producciones) vs date (cámara)', () => {
+    // Caso real: producciones.fecha es timestamp, movimientos_camara.fecha es date.
+    const producciones = [prod('MINI BARRA TRICOLOR', 18.82, '2026-07-10T00:00:00+00:00')]
+    const movimientos  = [mov('MINI BARRA TRICOLOR', 18.82, '2026-07-10')]
+    expect(movimientosSinGemelo(producciones, movimientos)).toHaveLength(0)
+  })
+
+  it('conserva la producción cargada directo en Cámaras (motivo Producción sin gemelo)', () => {
+    // Como los ids 337/400/526 de MINI BARRA TRICOLOR: no hay producciones con ese kg.
+    const producciones = [prod('MINI BARRA TRICOLOR', 18.82, '2026-07-10T00:00:00+00:00')]
+    const movimientos  = [
+      mov('MINI BARRA TRICOLOR', 18.82, '2026-07-10'),   // espejo → se quita
+      mov('MINI BARRA TRICOLOR', 7.31, '2026-06-27'),    // directo en cámaras → se conserva
+    ]
+    const r = movimientosSinGemelo(producciones, movimientos)
+    expect(r).toHaveLength(1)
+    expect(r[0].kg).toBe(7.31)
+  })
 })

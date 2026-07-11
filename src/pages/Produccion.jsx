@@ -601,6 +601,18 @@ export default function Produccion() {
     return m
   }, [saboresCamara])
 
+  // Impulsivos del selector: los de CÁMARA (stock_camaras) para que los nombres
+  // coincidan y aparezcan todos los que hay en cámara, MÁS los del catálogo
+  // (`impulsivos`) que todavía no están en cámara (por si hay que producir uno nuevo).
+  const impulsivosCamara = useMemo(
+    () => saboresCamara.filter(s => s.tipo_producto === 'impulsivo'),
+    [saboresCamara]
+  )
+  const impulsivosSoloCatalogo = useMemo(() => {
+    const enCamara = new Set(impulsivosCamara.map(s => normalizarNombre(s.nombre || '')))
+    return impulsivosList.filter(i => !enCamara.has(normalizarNombre(i.nombre || '')))
+  }, [impulsivosCamara, impulsivosList])
+
   // tipo_producto efectivo del producto seleccionado en carga manual
   const manualTipoCamara = useMemo(() => {
     if (!manualProducto) return 'helado'
@@ -815,7 +827,8 @@ export default function Produccion() {
                   {saboresCamara.filter(s => !s.tipo_producto || s.tipo_producto === 'helado').map(s => <option key={`sabor:${s.id}`} value={`sabor:${s.id}`}>{s.nombre.toUpperCase()}</option>)}
                 </optgroup>
                 <optgroup label="Impulsivos">
-                  {impulsivosList.map(i => <option key={`impulsivo:${i.id}`} value={`impulsivo:${i.id}`}>{i.nombre.toUpperCase()}</option>)}
+                  {impulsivosCamara.map(s => <option key={`sabor:${s.id}`} value={`sabor:${s.id}`}>{s.nombre.toUpperCase()}</option>)}
+                  {impulsivosSoloCatalogo.map(i => <option key={`impulsivo:${i.id}`} value={`impulsivo:${i.id}`}>{i.nombre.toUpperCase()}</option>)}
                 </optgroup>
                 {saboresCamara.filter(s => s.tipo_producto === 'postre').length > 0 && (
                   <optgroup label="Postres">

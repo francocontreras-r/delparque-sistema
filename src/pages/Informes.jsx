@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { crearCostoUnitario } from '../lib/costoUnitario'
 import { normalizarNombre } from '../lib/texto'
+import { movimientosSinGemelo } from '../lib/dedupeProduccion'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import Spinner from '../components/ui/Spinner'
@@ -252,8 +253,13 @@ export default function Informes() {
       supabase.from('sabor_ingredientes').select('sabor_id,insumo_nombre,cantidad,unidad'),
       supabase.from('impulsivo_ingredientes').select('impulsivo_id,insumo_nombre,cantidad,unidad'),
     ])
-    setProduccionesActual([...(prodAct || []), ...(movCamAct || []).map(normalizarMovCamara)])
-    setProduccionesAnterior([...(prodAnt || []), ...(movCamAnt || []).map(normalizarMovCamara)])
+    // Evitar DOBLE CONTEO: el módulo Producción escribe cada elaboración en DOS
+    // tablas — `producciones` (con lote) y `movimientos_camara` (motivo 'Producción',
+    // sin lote) — que son la misma cosa. Sumar las dos repetía cada producción.
+    // movimientosSinGemelo quita los movimientos que ya están en producciones y
+    // conserva los ingresos cargados DIRECTO desde Cámaras.
+    setProduccionesActual([...(prodAct || []), ...movimientosSinGemelo(prodAct, movCamAct).map(normalizarMovCamara)])
+    setProduccionesAnterior([...(prodAnt || []), ...movimientosSinGemelo(prodAnt, movCamAnt).map(normalizarMovCamara)])
     setMermasActual(merAct || [])
     setMermasAnterior(merAnt || [])
     setCategoriaPorCodigo(Object.fromEntries((pp || []).map(p => [p.codigo, p.categoria || 'OTRO'])))

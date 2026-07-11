@@ -183,6 +183,7 @@ export default function Informes() {
   const [baseIngredientes, setBaseIngredientes]     = useState([])
   const [saborIngredientes, setSaborIngredientes]   = useState([])
   const [impulsivoIngredientes, setImpulsivoIngredientes] = useState([])
+  const [consumosBase, setConsumosBase] = useState([])   // vínculos base→producto (Órdenes)
 
   const rango = useMemo(() => {
     try {
@@ -264,6 +265,12 @@ export default function Informes() {
     setBaseIngredientes(basIng || [])
     setSaborIngredientes(sabIng || [])
     setImpulsivoIngredientes(impIng || [])
+
+    // Consumo de bases (vínculos manuales base→producto). La tabla puede no
+    // existir todavía si no se corrió el SQL: en ese caso queda vacío, sin romper.
+    const cb = await supabase.from('consumos_base').select('*').gte('fecha', desde).lte('fecha', hasta)
+    setConsumosBase(cb.error ? [] : (cb.data || []))
+
     setLoading(false)
   }
 
@@ -404,6 +411,22 @@ export default function Informes() {
       .sort((a, b) => b.kg - a.kg)
       .slice(0, 8)
   ), [produccionInforme])
+
+  // Consumo de bases / materia prima del período (de los vínculos base→producto).
+  const consumoInforme = useMemo(() => {
+    const porBase = {}
+    consumosBase.forEach(c => {
+      const k = c.base_nombre || '—'
+      if (!porBase[k]) porBase[k] = { base: k, kg: 0, registros: 0, productos: new Set() }
+      porBase[k].kg += Number(c.kg_consumidos) || 0
+      porBase[k].registros++
+      if (c.producto_nombre) porBase[k].productos.add(c.producto_nombre)
+    })
+    const filas = Object.values(porBase)
+      .map(b => ({ base: b.base, kg: b.kg, registros: b.registros, productos: b.productos.size }))
+      .sort((a, b) => b.kg - a.kg)
+    return { filas, totalKg: filas.reduce((a, b) => a + b.kg, 0) }
+  }, [consumosBase])
 
   // ── B) Informe de Mermas ──────────────────────────────────────────────────
   const costoKgPorProducto = useMemo(() => {
@@ -640,7 +663,11 @@ export default function Informes() {
           .map(p => { const peso = p.tipo !== 'impulsivo'; return { nombre: p.nombre, v: peso ? p.kg : p.unidades, txt: `${fmtNum(peso ? p.kg : p.unidades, peso ? 1 : 0)} ${peso ? 'kg' : 'u'}` } })
           .sort((a, b) => b.v - a.v).slice(0, 8)
         barras('Top productos — cantidad producida', topProd, [255, 71, 19])
-        const topOps = [...actual.porOperario].map(o => ({ nombre: o.nombre, v: o.kgSabores, txt: `${fmtNum(o.kgSabores, 1)} kg` }))
+        // Kg totales del operario = bases + sabores + postres (todos van en kg).
+        // Antes usaba solo kgSabores, por eso un operario que hizo solo postres
+        // aparecía en 0 kg aunque la tabla de abajo sí lo contaba.
+        const topOps = [...actual.porOperario]
+          .map(o => { const kgTot = (o.kgBases || 0) + (o.kgSabores || 0) + (o.kgPostres || 0); return { nombre: o.nombre, v: kgTot, txt: `${fmtNum(kgTot, 1)} kg` } })
           .sort((a, b) => b.v - a.v).slice(0, 8)
         barras('Producción por operario — kg', topOps, [59, 130, 246])
 
@@ -697,6 +724,21 @@ export default function Informes() {
           }),
           didDrawPage: didDP,
         })
+
+        // Consumo de bases / materia prima (de los vínculos base→producto en Órdenes).
+        if (consumoInforme.filas.length) {
+          y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
+          y = dibujarSeccion(doc, pw, 'Consumo de bases / materia prima', y)
+          autoTable(doc, {
+            ...EST, startY: y,
+            head: [['BASE', 'KG CONSUMIDOS', 'PRODUCTOS', 'VÍNCULOS']],
+            body: [
+              ...consumoInforme.filas.map(b => [b.base, `${fmtNum(b.kg, 1)} kg`, String(b.productos), String(b.registros)]),
+              ['TOTAL', `${fmtNum(consumoInforme.totalKg, 1)} kg`, '', ''],
+            ],
+            didDrawPage: didDP,
+          })
+        }
       }
 
       // ── TAB: MERMAS ────────────────────────────────────────────────────────
@@ -1097,6 +1139,37 @@ export default function Informes() {
                     </div>
                   </div>
                 )}
+
+                {/* Consumo de bases / materia prima — de los vínculos base→producto */}
+                {consumoInforme.filas.length > 0 && (
+                  <div className="overflow-hidden" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, border: `1px solid ${colors.border}`, boxShadow: shadow.sm }}>
+                    <div className="px-4 py-2.5 flex items-center justify-between" style={{ backgroundColor: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>🧱 Consumo de bases / materia prima</span>
+                      <span className="text-xs font-semibold" style={{ color: colors.brand }}>{fmtNum(consumoInforme.totalKg, 1)} kg</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full" style={{ minWidth: 420 }}>
+                        <thead>
+                          <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+                            {['Base', 'Kg consumidos', 'Productos', 'Vínculos'].map((h, i) => (
+                              <th key={h} className="py-2 px-4 font-semibold uppercase" style={{ fontSize: 10, color: colors.textMuted, letterSpacing: '0.07em', textAlign: i === 0 ? 'left' : 'right' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {consumoInforme.filas.map(b => (
+                            <tr key={b.base} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                              <td className="py-2 px-4 text-sm font-medium" style={{ color: colors.textPrimary }}>{b.base}</td>
+                              <td className="py-2 px-4 text-sm font-semibold text-right" style={{ color: colors.brand }}>{fmtNum(b.kg, 1)} kg</td>
+                              <td className="py-2 px-4 text-xs text-right" style={{ color: colors.textMuted }}>{b.productos}</td>
+                              <td className="py-2 px-4 text-xs text-right" style={{ color: colors.textMuted }}>{b.registros}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </>
@@ -1380,7 +1453,7 @@ export default function Informes() {
         </BarChart>
       </div>
       <div ref={chartRefOp} style={{ position: 'fixed', left: '-9999px', top: 0, width: '760px', height: '260px', background: '#1e293b', padding: '16px 20px', zIndex: -1, borderRadius: '8px' }}>
-        <BarChart width={720} height={228} data={produccionInforme.actual.porOperario.map(o => ({ nombre: (o.nombre || '').split(' ')[0], kg: Number(o.kgSabores.toFixed(1)) }))}>
+        <BarChart width={720} height={228} data={produccionInforme.actual.porOperario.map(o => ({ nombre: (o.nombre || '').split(' ')[0], kg: Number(((o.kgBases || 0) + (o.kgSabores || 0) + (o.kgPostres || 0)).toFixed(1)) }))}>
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
           <XAxis dataKey="nombre" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />
           <YAxis stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 10 }} />

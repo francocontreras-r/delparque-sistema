@@ -674,10 +674,13 @@ let filtros = {razon:'', tipo:'', estado:''};
 // Miles con punto, decimal con coma (formato AR) — sin depender de toLocaleString
 // (que falla en algunos navegadores/impresión y dejaba los números sin separar).
 function fmtMiles(n){
-  n = Math.round(Number(n)||0);
-  const neg = n<0; n=Math.abs(n);
-  const s = String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  return (neg?'-':'')+s;
+  n = Number(n)||0;
+  const neg = n<0;
+  const cents = Math.round(Math.abs(n)*100);
+  const ent = Math.floor(cents/100), c = cents%100;
+  const s = String(ent).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  // Muestra los centavos solo si el importe los tiene (ej: 1.234.567,89).
+  return (neg?'-':'')+s+(c>0 ? ','+String(c).padStart(2,'0') : '');
 }
 const pesos = n => '$ '+fmtMiles(n);
 const nChe = n => n+' cheque'+(n!==1?'s':'');
@@ -1303,7 +1306,7 @@ function renderChequeForm(d, editing){
         <button class="${d.tipo==='recibido'?'on collect':''}" data-tipo="recibido">A cobrar (de tercero)</button>
       </div>
       <div class="frow">
-        <div class="field"><label>Importe</label><input type="number" inputmode="decimal" step="0.01" data-d="importe" value="${d.importe??''}" placeholder="0.00"></div>
+        <div class="field"><label>Importe</label><input type="text" inputmode="decimal" data-d="importe" value="${d.importe??''}" placeholder="Ej: 1.234.567,89"></div>
         <div class="field"><label>Razón social</label><select data-d="razon_social_id">${rzOpts}</select></div>
       </div>
       <div class="frow">
@@ -1357,8 +1360,8 @@ function modalBanco(id){
       <div class="field"><label>Entidad</label><input id="bkEnt" value="${esc(b.entidad)}" placeholder="Banco Nación — Cta Cte"></div>
       ${state.razones.length>1?`<div class="field"><label>Razón social</label><select id="bkRz">${rzOpts}</select></div>`:`<input type="hidden" id="bkRz" value="${b.razon_social_id||''}">`}
       <div class="frow">
-        <div class="field"><label>Saldo actual</label><input id="bkSaldo" type="number" step="0.01" value="${b.saldo??0}"></div>
-        <div class="field"><label>Acuerdo (descubierto)</label><input id="bkAcuerdo" type="number" step="0.01" value="${b.acuerdo??0}"></div>
+        <div class="field"><label>Saldo actual</label><input id="bkSaldo" type="text" inputmode="decimal" value="${b.saldo??0}" placeholder="Ej: 1.234.567,89"></div>
+        <div class="field"><label>Acuerdo (descubierto)</label><input id="bkAcuerdo" type="text" inputmode="decimal" value="${b.acuerdo??0}" placeholder="0"></div>
       </div>
     </div>
     <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn" data-save-banco="${id||''}">Guardar</button></div>
@@ -1497,8 +1500,8 @@ function syncDraft(){
 function saveCheque(){
   syncDraft(); const d=window._draft;
   if(!d.razon_social_id){ toast('Elegí una razón social'); return; }
-  if(!(Number(d.importe)>0)){ toast('Poné el importe'); return; }
-  d.importe=Number(d.importe)||0;
+  d.importe=parseImporteImp(d.importe);
+  if(!(d.importe>0)){ toast('Poné el importe'); return; }
   // Aviso de posible duplicado (mismo tipo + banco + número)
   if(d.numero && String(d.numero).trim()){
     const dup=state.cheques.find(c=>c.id!==d.id && c.tipo===d.tipo && _norm(c.banco)===_norm(d.banco) && String(c.numero).trim()===String(d.numero).trim());
@@ -1555,7 +1558,7 @@ function saveRazon(id){
 }
 function saveBanco(id){
   const entidad=$('#bkEnt').value.trim(); if(!entidad){ toast('Poné la entidad'); return; }
-  const razon_social_id=$('#bkRz').value, saldo=Number($('#bkSaldo').value)||0, acuerdo=Number($('#bkAcuerdo').value)||0; let row;
+  const razon_social_id=$('#bkRz').value, saldo=parseImporteImp($('#bkSaldo').value), acuerdo=parseImporteImp($('#bkAcuerdo').value); let row;
   if(id){ const b=state.bancos.find(x=>x.id===id); Object.assign(b,{entidad,razon_social_id,saldo,acuerdo}); row=b; }
   else { row={id:uid(),entidad,razon_social_id,saldo,acuerdo}; state.bancos.push(row); }
   save(); closeModal(); render(); toast('Cuenta guardada'); cloudPush('bancos',{...row});

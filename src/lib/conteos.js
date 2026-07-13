@@ -159,18 +159,23 @@ export function resumenSemanal(rows) {
     if (!ultimoPorClave[clave] || masAutoritativa(r, ultimoPorClave[clave])) ultimoPorClave[clave] = r
   })
   const items = Object.values(ultimoPorClave)
-  const faltantes = items.filter(r => (Number(r.diferencia) || 0) < 0)
+  // Diferencia redondeada a 3 decimales: elimina el ruido de punto flotante
+  // (ej. 10.1 − 10.100000000000001 = -1e-15) que hacía que un producto SIN
+  // diferencia real figurara como faltante "-0" con costo $0. Ahora esas colitas
+  // se tratan como 0 (sin diferencia) y no ensucian el informe.
+  const dif = r => { const d = Math.round((Number(r.diferencia) || 0) * 1000) / 1000; return d === 0 ? 0 : d }
+  const faltantes = items.filter(r => dif(r) < 0)
     .sort((a, b) => (Number(a.valor_impacto) || 0) - (Number(b.valor_impacto) || 0))
-  const sobrantes = items.filter(r => (Number(r.diferencia) || 0) > 0)
+  const sobrantes = items.filter(r => dif(r) > 0)
     .sort((a, b) => (Number(b.valor_impacto) || 0) - (Number(a.valor_impacto) || 0))
-  const sinDif = items.filter(r => (Number(r.diferencia) || 0) === 0)
+  const sinDif = items.filter(r => dif(r) === 0)
   const valorFaltante = faltantes.reduce((a, r) => a + Math.abs(Number(r.valor_impacto) || 0), 0)
   const valorSobrante = sobrantes.reduce((a, r) => a + Math.abs(Number(r.valor_impacto) || 0), 0)
   const porArea = { deposito: { faltantes: 0, sobrantes: 0, contados: 0 }, camara: { faltantes: 0, sobrantes: 0, contados: 0 } }
   items.forEach(r => {
     const a = porArea[r.tipo] || (porArea[r.tipo] = { faltantes: 0, sobrantes: 0, contados: 0 })
     a.contados += 1
-    const d = Number(r.diferencia) || 0
+    const d = dif(r)
     if (d < 0) a.faltantes += 1
     else if (d > 0) a.sobrantes += 1
   })

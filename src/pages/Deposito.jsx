@@ -1618,13 +1618,16 @@ export default function Deposito() {
     setSavingConteo(true)
     try {
       const fecha = new Date().toISOString().split('T')[0]
+      // Solo se registran diferencias REALES: se compara con la diferencia
+      // redondeada a 3 decimales, para que el ruido de punto flotante (ej.
+      // 10.1 vs 10.100000000000001) no genere un "ajuste" fantasma de -0.
       const filasDepo = conteoFilasDepo.filter(f => {
         const fis = parseFloat(f.stockFisico)
-        return !isNaN(fis) && fis !== f.stockSistema
+        return !isNaN(fis) && redondearStock(fis - f.stockSistema) !== 0
       })
       const filasCAM = conteoFilasCam.filter(c => {
         const fk = parseFloat(c.fisKg)
-        return !isNaN(fk) && fk !== c.stockKg
+        return !isNaN(fk) && redondearStock(fk - c.stockKg) !== 0
       })
       for (const f of filasDepo) {
         const fis = parseFloat(f.stockFisico)

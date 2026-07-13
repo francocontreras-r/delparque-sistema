@@ -58,6 +58,20 @@ describe('resumenSemanal', () => {
     expect(r.porArea.deposito.contados).toBe(2)
   })
 
+  it('ignora diferencias-ruido de punto flotante (no las cuenta como faltante/sobrante)', () => {
+    const rows2 = [
+      { tipo: 'deposito', producto_nombre: 'Amoretta Pistacho', diferencia: -0.000000000000001, valor_impacto: -0.00001, created_at: '2026-07-02' },
+      { tipo: 'deposito', producto_nombre: 'LPE', diferencia: 0.0000000001, valor_impacto: 0.0001, created_at: '2026-07-02' },
+      { tipo: 'deposito', producto_nombre: 'Mix Frutos', diferencia: -3, valor_impacto: 0, created_at: '2026-07-02' },
+    ]
+    const r = resumenSemanal(rows2)
+    // Las dos colitas se tratan como sin diferencia; solo Mix Frutos es faltante real.
+    expect(r.faltantes).toHaveLength(1)
+    expect(r.faltantes[0].producto_nombre).toBe('Mix Frutos')
+    expect(r.sobrantes).toHaveLength(0)
+    expect(r.sinDif).toHaveLength(2)
+  })
+
   it('sin filas → totales en cero', () => {
     const r = resumenSemanal([])
     expect(r.totalContados).toBe(0)

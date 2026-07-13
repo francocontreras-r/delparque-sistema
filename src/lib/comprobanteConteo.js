@@ -47,7 +47,11 @@ export function generarComprobanteConteo({ rows = [], area = '', fecha = '', res
     styles: { fontSize: 8, cellPadding: 2, halign: 'center', valign: 'middle' },
     margin: { top: PDF_CONTENT_Y, left: 14, right: 14 }, didDrawPage: encab, ...opts,
   })
-  const fmtDif = r => `${(Number(r.diferencia) || 0) > 0 ? '+' : ''}${num(r.diferencia)}`
+  const fmtDif = r => {
+    const d0 = Math.round((Number(r.diferencia) || 0) * 1000) / 1000
+    const d = d0 === 0 ? 0 : d0   // normaliza -0 → 0 (evita el "-0" poco profesional)
+    return `${d > 0 ? '+' : ''}${num(d)}`
+  }
   const fmtVal = r => r.valor_impacto == null ? '—' : money(Math.abs(Number(r.valor_impacto)))
 
   // Portada

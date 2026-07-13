@@ -12,8 +12,7 @@ import {
   dibujarKpiCard, dibujarKpiCardDestacada,
   PDF_CONTENT_Y, PDF_SEM_NEG, PDF_SEM_OK,
 } from './pdfEstilos'
-import { resumenSemanal } from './conteos'
-import { normalizarNombre } from './texto'
+import { resumenSemanal, revalorizarConteo } from './conteos'
 
 const money = n => `$${(Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const num = n => (Number(n) || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 })
@@ -34,14 +33,7 @@ const fmtFechaConteo = f => {
 // precio no estaba cargado al momento del conteo), así el comprobante refleja el
 // costo real aunque el precio se haya cargado después.
 export function generarComprobanteConteo({ rows = [], area = '', fecha = '', responsable = '', precios = {} } = {}) {
-  const rowsVal = rows.map(r => {
-    const vi = Number(r.valor_impacto) || 0
-    if (vi !== 0) return r
-    const dif = Number(r.diferencia) || 0
-    const precio = Number(precios[normalizarNombre(r.producto_nombre || '')]) || 0
-    return (dif !== 0 && precio > 0) ? { ...r, valor_impacto: dif * precio } : r
-  })
-  const R = resumenSemanal(rowsVal)
+  const R = resumenSemanal(revalorizarConteo(rows, precios))
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()

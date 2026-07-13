@@ -147,6 +147,20 @@ export function discrepanciasSinResolver(rows = []) {
   )
 }
 
+// Re-valoriza las filas cuyo valor_impacto quedó en 0/null (porque el precio no
+// estaba cargado al momento del conteo) usando el precio ACTUAL del producto:
+// valor = diferencia × costo. precios: normalizarNombre(nombre) → costo unitario.
+// Así los informes reflejan el costo real aunque el precio se cargue después.
+export function revalorizarConteo(rows = [], precios = {}) {
+  return (rows || []).map(r => {
+    const vi = Number(r.valor_impacto) || 0
+    if (vi !== 0) return r
+    const d = Number(r.diferencia) || 0
+    const p = Number(precios[norm(r.producto_nombre || '')]) || 0
+    return (d !== 0 && p > 0) ? { ...r, valor_impacto: d * p } : r
+  })
+}
+
 // Consolida los conteos de la semana: se queda con el ÚLTIMO conteo por
 // (área, producto) para no duplicar si algo se contó en dos lugares, y separa
 // faltantes (dif<0) de sobrantes (dif>0). Devuelve totales valorizados.

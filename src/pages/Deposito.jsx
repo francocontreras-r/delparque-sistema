@@ -7,7 +7,7 @@ import { normalizarNombre } from '../lib/texto'
 import { deltaEnUnidadStock, requiereConversionKg } from '../lib/stockDeposito'
 import { costearProduccion } from '../lib/costeoProduccion'
 import { registrarCambioCosto } from '../lib/historialCostos'
-import { registrarConteoStock, cargarConteosPeriodo, resumenSemanal, nuevoCiclo, cargarConteosCiclo, cargarCiclos } from '../lib/conteos'
+import { registrarConteoStock, cargarConteosPeriodo, resumenSemanal, revalorizarConteo, nuevoCiclo, cargarConteosCiclo, cargarCiclos } from '../lib/conteos'
 import { generarComprobanteConteo } from '../lib/comprobanteConteo'
 import { calcularPlanCompras, pendienteDeOrden } from '../lib/mrp'
 import { POSTRES } from '../lib/postres'
@@ -34,7 +34,7 @@ import { Warehouse, ArrowUp, ArrowDown, Search, Printer, FileDown, DollarSign, C
 const logoUrl = '/logo-byn.png'
 import {
   getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
-  dibujarKpi, dibujarKpiCard, dibujarSeccion, dibujarFirmas,
+  dibujarKpi, dibujarKpiCard, dibujarKpiCardDestacada, dibujarSeccion, dibujarFirmas,
   PDF_CONTENT_Y, PDF_PIE_H, PDF_NEGRO, PDF_GRIS_OSC, PDF_BLANCO,
   PDF_SEM_NEG, PDF_SEM_CRIT, PDF_SEM_OK, LOGO_PDF,
 } from '../lib/pdfEstilos'
@@ -653,12 +653,12 @@ function ModalEditarInsumo({ insumo, onClose, onSubmit, saving, isAdmin, categor
           <Input label="Nombre" value={insumo.nombre} disabled />
         )}
 
-        {/* Categoría */}
+        {/* Categoría — solo admin edita */}
         <div>
           <label style={{ display: 'block', fontSize: '13px', color: '#94a3b8', marginBottom: '6px' }}>Categoría</label>
-          <select value={form.categoria} onChange={e => upd('categoria', e.target.value)}
+          <select value={form.categoria} onChange={e => upd('categoria', e.target.value)} disabled={!isAdmin}
             style={{ width: '100%', background: '#0f172a', border: '1px solid #334155',
-                     color: '#f1f5f9', padding: '8px 12px', borderRadius: '6px' }}>
+                     color: '#f1f5f9', padding: '8px 12px', borderRadius: '6px', opacity: isAdmin ? 1 : 0.6 }}>
             {(categorias || TODAS_LAS_CATS).map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
@@ -677,11 +677,11 @@ function ModalEditarInsumo({ insumo, onClose, onSubmit, saving, isAdmin, categor
           <Input label="Unidad" value={insumo.unidad || 'u'} disabled />
         )}
 
-        <Input label={`Stock actual (${form.unidad || 'u'})`} type="number" min="0" step="0.01"
+        <Input label={`Stock actual (${form.unidad || 'u'})`} type="number" min="0" step="0.01" disabled={!isAdmin}
           value={form.stock_actual} onChange={e => upd('stock_actual', e.target.value)} />
-        <Input label={`Stock mínimo (${form.unidad || 'u'})`} type="number" min="0" step="0.01"
+        <Input label={`Stock mínimo (${form.unidad || 'u'})`} type="number" min="0" step="0.01" disabled={!isAdmin}
           value={form.stock_minimo} onChange={e => upd('stock_minimo', e.target.value)} />
-        <Input label={`Stock máximo (${form.unidad || 'u'})`} type="number" min="0" step="0.01"
+        <Input label={`Stock máximo (${form.unidad || 'u'})`} type="number" min="0" step="0.01" disabled={!isAdmin}
           value={form.stock_maximo} onChange={e => upd('stock_maximo', e.target.value)} />
 
         {isAdmin && (
@@ -689,11 +689,18 @@ function ModalEditarInsumo({ insumo, onClose, onSubmit, saving, isAdmin, categor
             value={form.costo_unitario} onChange={e => upd('costo_unitario', e.target.value)} />
         )}
 
-        <button onClick={() => onSubmit(form)} disabled={saving}
-          style={{ padding: '10px', background: '#FF4713', color: 'white', border: 'none',
-                   borderRadius: '6px', cursor: 'pointer', fontWeight: '600', marginTop: '8px' }}>
-          {saving ? 'Guardando...' : 'Guardar cambios'}
-        </button>
+        {isAdmin ? (
+          <button onClick={() => onSubmit(form)} disabled={saving}
+            style={{ padding: '10px', background: '#FF4713', color: 'white', border: 'none',
+                     borderRadius: '6px', cursor: 'pointer', fontWeight: '600', marginTop: '8px' }}>
+            {saving ? 'Guardando...' : 'Guardar cambios'}
+          </button>
+        ) : (
+          <p style={{ fontSize: '12px', color: '#94a3b8', textAlign: 'center', marginTop: '8px',
+                      padding: '10px', background: 'rgba(148,163,184,0.1)', borderRadius: '6px' }}>
+            🔒 Solo un administrador puede editar productos. Para ajustar stock, usá el <b>Conteo físico</b>.
+          </p>
+        )}
       </div>
     </Modal>
   )
@@ -1731,8 +1738,10 @@ export default function Deposito() {
   async function generarInformeSemanalConteo() {
     setGenerandoInformeSem(true)
     try {
-      const rows = await cargarConteosPeriodo({ desde: rangoCS.desde, hasta: rangoCS.hasta })
-      const R = resumenSemanal(rows)
+      const rowsRaw = await cargarConteosPeriodo({ desde: rangoCS.desde, hasta: rangoCS.hasta })
+      // Revalorizar con el precio actual los conteos que quedaron en $0/null.
+      const precios = Object.fromEntries(insumos.map(i => [normalizarNombre(i.nombre || ''), Number(i.costo_unitario) || 0]))
+      const R = resumenSemanal(revalorizarConteo(rowsRaw, precios))
 
       const doc = new jsPDF({ unit: 'mm', format: 'a4' })
       const pw  = doc.internal.pageSize.getWidth()
@@ -1743,7 +1752,7 @@ export default function Deposito() {
       const EST = getEstiloInforme()
       const peri = `${fmtFecha(rangoCS.desde)} – ${fmtFecha(rangoCS.hasta)}`
       const areaLbl = a => a === 'camara' ? 'Cámara' : 'Depósito'
-      const fmtDif = r => `${(Number(r.diferencia) || 0) > 0 ? '+' : ''}${(Number(r.diferencia) || 0).toFixed(2)}`
+      const fmtDif = r => { const d = redondearStock(Number(r.diferencia) || 0); return `${d > 0 ? '+' : ''}${d.toFixed(2)}` }
       const fmtVal = r => r.valor_impacto == null ? '—' : `$${pesos(Math.abs(Number(r.valor_impacto)))}`
 
       // Encabezado en la primera hoja (con logo). Sin portada aparte: todo el
@@ -1770,7 +1779,7 @@ export default function Deposito() {
       dibujarKpiCard(doc, 14, y, cardW, cardH, 'Faltante valorizado', `-$${pesos(R.valorFaltante)}`, PDF_SEM_NEG)
       dibujarKpiCard(doc, 14 + cardW + 6, y, cardW, cardH, 'Sobrante valorizado', `+$${pesos(R.valorSobrante)}`, PDF_SEM_OK)
       const netoAccent = R.impactoNeto < 0 ? PDF_SEM_NEG : PDF_SEM_OK
-      dibujarKpiCard(doc, 14 + 2 * (cardW + 6), y, cardW, cardH, 'Impacto neto',
+      dibujarKpiCardDestacada(doc, 14 + 2 * (cardW + 6), y, cardW, cardH, 'Impacto neto',
         `${R.impactoNeto >= 0 ? '+' : '-'}$${pesos(Math.abs(R.impactoNeto))}`, netoAccent)
       y += cardH + 8
 

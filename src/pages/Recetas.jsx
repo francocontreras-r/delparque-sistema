@@ -110,7 +110,6 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
   const [vinculandoKey, setVinculandoKey] = useState(null)
   const [deletedIds, setDeletedIds] = useState([])
   const [mano, setMano]     = useState(receta.manoDeObra || 0)
-  const [baseNombre, setBaseNombre] = useState(receta.baseNombre || '') // solo Sabores
   const [saving, setSaving] = useState(false)
   const [busq, setBusq]     = useState('')
 
@@ -136,11 +135,16 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
   // (bases se miden en L, sabores en kg). Al vincular con depósito solo insumos.
   const fuentes = useMemo(() => {
     const self = normalizarNombre(receta.nombre || '')
+    // Solo se excluye la receta A SÍ MISMA (para no auto-referenciarse), y solo
+    // dentro de su MISMA clase. Así una base y un sabor con el mismo nombre
+    // (ej. base "Chocolate Dubai" y sabor "Chocolate Dubai") no se pisan: la base
+    // sigue apareciendo para agregarse como ingrediente del sabor.
+    const claseSelf = tipo === 'Bases' ? 'base' : tipo === 'Sabores' ? 'sabor' : ''
     const ins = insumos.map(i => ({ id: i.id, nombre: i.nombre, unidad: i.unidad || 'kg', clase: 'insumo' }))
     const bas = bases.map(b => ({ id: null, nombre: b.nombre, unidad: 'L', clase: 'base' }))
     const sab = sabores.map(s => ({ id: null, nombre: s.nombre, unidad: 'kg', clase: 'sabor' }))
-    return [...ins, ...bas, ...sab].filter(x => normalizarNombre(x.nombre || '') !== self)
-  }, [insumos, bases, sabores, receta.nombre])
+    return [...ins, ...bas, ...sab].filter(x => !(x.clase === claseSelf && normalizarNombre(x.nombre || '') === self))
+  }, [insumos, bases, sabores, receta.nombre, tipo])
 
   const sugerencias = useMemo(() => {
     if (!busq.trim()) return []
@@ -249,7 +253,16 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
       mano_de_obra: Number(mano) || 0,
       costo_total: costoFinal,
     }
-    if (tipo === 'Sabores') updatePadre.base_nombre = baseNombre || null
+    if (tipo === 'Sabores') {
+      // La base del sabor se toma del ingrediente que ES una base (mismo criterio
+      // que el costeo). Así, al agregar la base como ingrediente, queda vinculada
+      // sola para el descuento al producir. Si no hay ninguna base entre los
+      // ingredientes, NO tocamos base_nombre (para no borrar el de sabores que ya
+      // lo tienen cargado de otra forma).
+      const baseNames = new Set(bases.map(b => normalizarNombre(b.nombre || '')))
+      const baseIng = ings.find(i => baseNames.has(normalizarNombre(i.nombre || '')))
+      if (baseIng) updatePadre.base_nombre = baseIng.nombre
+    }
     const { error: errP } = await supabase.from(tablaP).update(updatePadre).eq('id', receta.id)
     if (errP) {
       setSaving(false)
@@ -384,25 +397,6 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
             </div>
           )}
         </div>
-
-        {/* Base del sabor — para controlar el consumo de base al producir */}
-        {tipo === 'Sabores' && (
-          <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
-            <label className="text-sm font-medium flex-1" style={{ color: colors.textSecondary }}>
-              Base del sabor
-              <span className="block text-[11px] font-normal" style={{ color: colors.textMuted }}>
-                El sistema la descuenta al producir este sabor
-              </span>
-            </label>
-            <select value={baseNombre} onChange={e => setBaseNombre(e.target.value)}
-              className="w-52 rounded-md border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-orange-300"
-              style={{ borderColor: colors.border, background: colors.surface, color: colors.textPrimary }}>
-              <option value="">— Sin base —</option>
-              {[...bases].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
-                .map(b => <option key={b.id} value={b.nombre}>{b.nombre}</option>)}
-            </select>
-          </div>
-        )}
 
         {/* Mano de obra */}
         <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>

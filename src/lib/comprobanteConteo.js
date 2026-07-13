@@ -9,7 +9,8 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import {
   dibujarPortada, dibujarEncabezado, dibujarPie, dibujarSeccion, dibujarFirmas,
-  PDF_CONTENT_Y,
+  dibujarKpiCard, dibujarKpiCardDestacada,
+  PDF_CONTENT_Y, PDF_SEM_NEG, PDF_SEM_OK,
 } from './pdfEstilos'
 import { resumenSemanal } from './conteos'
 
@@ -52,18 +53,48 @@ export function generarComprobanteConteo({ rows = [], area = '', fecha = '', res
   // Portada
   dibujarPortada(doc, pw, ph, MOD, 'Comprobante de Conteo', `${areaLbl}${fechaLbl ? ' · ' + fechaLbl : ''}`, hoy)
 
-  // Resumen
+  // ── Resumen ────────────────────────────────────────────────────────────────
   doc.addPage(); encab()
   let y = PDF_CONTENT_Y
   y = dibujarSeccion(doc, pw, 'Resumen del conteo', y)
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(...N)
-  const linea = `Área: ${areaLbl}   ·   Fecha: ${fechaLbl || hoy}   ·   Responsable: ${responsable || '—'}`
-  doc.text(linea, 14, y + 2); y += 8
-  const resumen = `Se contaron ${R.totalContados} productos: ${R.faltantes.length} con faltante y ${R.sobrantes.length} con sobrante. ` +
-    `Faltante valorizado $${num(R.valorFaltante)} · Sobrante valorizado $${num(R.valorSobrante)} · ` +
-    `Neto ${R.impactoNeto >= 0 ? '+' : '-'}$${num(Math.abs(R.impactoNeto))}.`
-  doc.splitTextToSize(resumen, pw - 28).forEach((l, i) => doc.text(l, 14, y + i * 5))
-  y += doc.splitTextToSize(resumen, pw - 28).length * 5 + 6
+
+  // Metadatos del conteo
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(90, 90, 90)
+  doc.text(`Área: ${areaLbl}      ·      Fecha: ${fechaLbl || hoy}      ·      Responsable: ${responsable || '—'}`, 14, y + 1)
+  y += 10
+
+  // Tarjetas: faltante (rojo), sobrante (verde) y ajuste neto (destacado, verde/rojo)
+  const gap = 6
+  const cardW = (pw - 28 - 2 * gap) / 3
+  const cardH = 23
+  const netoColor = R.impactoNeto >= 0 ? PDF_SEM_OK : PDF_SEM_NEG
+  dibujarKpiCard(doc, 14, y, cardW, cardH, 'Faltante valorizado', `$${num(R.valorFaltante)}`, PDF_SEM_NEG)
+  dibujarKpiCard(doc, 14 + cardW + gap, y, cardW, cardH, 'Sobrante valorizado', `$${num(R.valorSobrante)}`, PDF_SEM_OK)
+  dibujarKpiCardDestacada(doc, 14 + 2 * (cardW + gap), y, cardW, cardH, 'Ajuste neto',
+    `${R.impactoNeto >= 0 ? '+' : '-'}$${num(Math.abs(R.impactoNeto))}`, netoColor)
+  y += cardH + 10
+
+  // Redacción profesional del resultado
+  const sinDif = Math.max(0, R.totalContados - R.faltantes.length - R.sobrantes.length)
+  const plN = R.totalContados === 1 ? 'producto' : 'productos'
+  const narrativa =
+    `Se realizó el conteo físico de ${R.totalContados} ${plN} del área de ${areaLbl}. ` +
+    `Del total relevado, ${sinDif} no presentó diferencias respecto del sistema, ${R.faltantes.length} registró faltante y ${R.sobrantes.length} sobrante. ` +
+    `El faltante representa una pérdida valorizada de $${num(R.valorFaltante)} y el sobrante un excedente de $${num(R.valorSobrante)}, ` +
+    `resultando en un ajuste neto ${R.impactoNeto > 0 ? 'positivo (sobrante)' : R.impactoNeto < 0 ? 'negativo (faltante)' : 'nulo'} de $${num(Math.abs(R.impactoNeto))} sobre el inventario valorizado.`
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...N)
+  const lineasNar = doc.splitTextToSize(narrativa, pw - 28)
+  lineasNar.forEach((l, i) => doc.text(l, 14, y + i * 5)); y += lineasNar.length * 5 + 3
+
+  // Recomendación de cierre
+  const cierre = R.impactoNeto < 0
+    ? 'Los faltantes se imputan como merma valorizada. Se recomienda investigar sus causas y dejar registrado el motivo de cada diferencia para el control interno.'
+    : R.impactoNeto > 0
+      ? 'Los sobrantes suelen originarse en producción no registrada o en saldos iniciales pendientes de ajuste. Se recomienda validar los motivos indicados por producto.'
+      : 'El inventario físico coincide con el sistema; no se requieren ajustes.'
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.setTextColor(110, 110, 110)
+  const lineasCie = doc.splitTextToSize(cierre, pw - 28)
+  lineasCie.forEach((l, i) => doc.text(l, 14, y + i * 5)); y += lineasCie.length * 5 + 6
 
   if (R.totalContados === 0) {
     doc.setTextColor(120, 120, 120); doc.text('Sin diferencias registradas en este conteo.', 14, y + 2)

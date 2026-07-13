@@ -225,6 +225,23 @@ export function dibujarKpiCard(doc, x, y, w, h, label, valor, accent = PDF_NEGRO
   doc.text(doc.splitTextToSize(String(valor), w - 5)[0], x + 3, y + 15)
 }
 
+// ── KPI card DESTACADA: valor grande y coloreado ──────────────────────────────
+// Para netos / totales de sobrante-faltante. El valor va en el color (verde =
+// positivo, rojo = negativo) para que salte a la vista. Reutilizable en todos
+// los informes que muestren un impacto económico.
+export function dibujarKpiCardDestacada(doc, x, y, w, h, label, valor, color = PDF_NEGRO) {
+  const [r, g, b] = color
+  // Fondo tenue = el color mezclado con blanco (~88% blanco), sin depender de opacidad.
+  const light = [Math.round(r + (255 - r) * 0.88), Math.round(g + (255 - g) * 0.88), Math.round(b + (255 - b) * 0.88)]
+  doc.setFillColor(...light); doc.rect(x, y, w, h, 'F')
+  doc.setDrawColor(...color); doc.setLineWidth(0.6); doc.rect(x, y, w, h)
+  doc.setFillColor(...color); doc.rect(x, y, w, 2.2, 'F')
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.setTextColor(90, 90, 90)
+  doc.text(String(label).toUpperCase(), x + 3, y + 8)
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.setTextColor(...color)
+  doc.text(doc.splitTextToSize(String(valor), w - 6)[0], x + 3, y + 17)
+}
+
 // ── Título de sección (H2 dentro de una página) ───────────────────────────────
 // Devuelve el nuevo Y después del título
 export function dibujarSeccion(doc, pw, texto, y) {

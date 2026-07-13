@@ -678,13 +678,20 @@ export default function Informes() {
           .map(p => { const peso = p.tipo !== 'impulsivo'; return { nombre: p.nombre, v: peso ? p.kg : p.unidades, txt: `${fmtNum(peso ? p.kg : p.unidades, peso ? 1 : 0)} ${peso ? 'kg' : 'u'}` } })
           .sort((a, b) => b.v - a.v).slice(0, 8)
         barras('Top productos — cantidad producida', topProd, [255, 71, 19])
-        // Kg totales del operario = bases + sabores + postres (todos van en kg).
-        // Antes usaba solo kgSabores, por eso un operario que hizo solo postres
-        // aparecía en 0 kg aunque la tabla de abajo sí lo contaba.
-        const topOps = [...actual.porOperario]
-          .map(o => { const kgTot = (o.kgBases || 0) + (o.kgSabores || 0) + (o.kgPostres || 0); return { nombre: o.nombre, v: kgTot, txt: `${fmtNum(kgTot, 1)} kg` } })
-          .sort((a, b) => b.v - a.v).slice(0, 8)
-        barras('Producción por operario — kg', topOps, [59, 130, 246])
+        // Producción por operario SEPARADA por unidad de medida: el peso (kg) y
+        // los impulsivos (unidades) no se mezclan en un mismo gráfico. Así un
+        // operario dedicado a impulsivos aparece con su cifra real y NO como
+        // "0 kg" (que era engañoso: sí producía, pero en otra unidad).
+        const opsKg = [...actual.porOperario]
+          .map(o => ({ nombre: o.nombre, v: (o.kgBases || 0) + (o.kgSabores || 0) + (o.kgPostres || 0) }))
+          .filter(o => o.v > 0).sort((a, b) => b.v - a.v).slice(0, 8)
+          .map(o => ({ ...o, txt: `${fmtNum(o.v, 1)} kg` }))
+        const opsU = [...actual.porOperario]
+          .map(o => ({ nombre: o.nombre, v: o.unidImpulsivos || 0 }))
+          .filter(o => o.v > 0).sort((a, b) => b.v - a.v).slice(0, 8)
+          .map(o => ({ ...o, txt: `${fmtNum(o.v, 0)} u` }))
+        barras('Producción por operario — peso (kg)', opsKg, [59, 130, 246])
+        barras('Producción por operario — impulsivos (u)', opsU, [234, 88, 12])
 
         y = saltarSiNecesario(y)
         y = dibujarSeccion(doc, pw, 'Resumen general', y)
@@ -725,46 +732,98 @@ export default function Informes() {
         })
         y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
 
-        // ── Detalle por operario: QUÉ produjo cada uno (por tipo) ──────────────
-        y = dibujarSeccion(doc, pw, 'Detalle por operario — qué produjo cada uno', y)
+        // ── Destacados del período (impacto visual para la dirección) ──────────
+        const rankOp = actual.porOperario.map(o => ({
+          nombre: o.nombre,
+          kg: (o.kgBases || 0) + (o.kgSabores || 0) + (o.kgPostres || 0),
+          u: o.unidImpulsivos || 0,
+        }))
+        const totKgOps = rankOp.reduce((a, o) => a + o.kg, 0)
+        const topKg = [...rankOp].sort((a, b) => b.kg - a.kg)[0]
+        const topU  = [...rankOp].sort((a, b) => b.u - a.u)[0]
+        const soloImp = rankOp.filter(o => o.kg === 0 && o.u > 0)
+
+        // Tarjeta destacada de "líder": nombre grande + cifra coloreada.
+        const cardDestacado = (x, w, label, nombre, valor, color) => {
+          const h = 20, [r, g, b] = color
+          const light = [Math.round(r + (255 - r) * 0.9), Math.round(g + (255 - g) * 0.9), Math.round(b + (255 - b) * 0.9)]
+          doc.setFillColor(...light); doc.rect(x, y, w, h, 'F')
+          doc.setDrawColor(...color); doc.setLineWidth(0.5); doc.rect(x, y, w, h)
+          doc.setFillColor(...color); doc.rect(x, y, w, 2, 'F')
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.setTextColor(90, 90, 90)
+          doc.text(String(label).toUpperCase(), x + 3, y + 7)
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...PDF_NEGRO)
+          doc.text(doc.splitTextToSize(nombre, w - 6)[0], x + 3, y + 13)
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...color)
+          doc.text(valor, x + 3, y + 18.5)
+        }
+        if ((topKg && topKg.kg > 0) || (topU && topU.u > 0)) {
+          y = saltarSiNecesario(y)
+          const gapd = 6, wd = (pw - 28 - gapd) / 2
+          if (topKg && topKg.kg > 0) cardDestacado(14, wd, 'Líder en producción (peso)', topKg.nombre, `${fmtNum(topKg.kg, 1)} kg  ·  ${totKgOps > 0 ? Math.round((topKg.kg / totKgOps) * 100) : 0}% del total`, [30, 110, 200])
+          if (topU && topU.u > 0) cardDestacado(14 + wd + gapd, wd, 'Líder en impulsivos', topU.nombre, `${fmtNum(topU.u, 0)} unidades`, [234, 88, 12])
+          y += 20 + 8
+        }
+
+        // ── Detalle por operario: perfil + qué produce, sin columnas muertas ───
+        // No mostramos columnas que están en cero para TODOS (ej. Bases si nadie
+        // cargó bases), y usamos "—" en vez de "0,0" para lo que un operario no
+        // hizo: el informe queda limpio y sin ceros que parezcan un error.
+        y = saltarSiNecesario(y)
+        y = dibujarSeccion(doc, pw, 'Detalle por operario — qué produce cada uno', y)
+        const opsDet = actual.porOperario.map(o => {
+          const kgH = o.kgSabores || 0, kgP = o.kgPostres || 0, kgB = o.kgBases || 0, u = o.unidImpulsivos || 0
+          const act = []
+          if (kgH > 0) act.push('Helados')
+          if (kgP > 0) act.push('Postres')
+          if (kgB > 0) act.push('Bases')
+          if (u > 0) act.push('Impulsivos')
+          const perfil = act.length === 0 ? '—' : act.length <= 2 ? act.join(' + ') : 'Mixto'
+          return { nombre: o.nombre, perfil, kgB, kgH, kgP, u, kgTot: kgH + kgP + kgB, reg: o.registros || 0 }
+        }).sort((a, b) => (b.kgTot - a.kgTot) || (b.u - a.u))
+        const anyB = opsDet.some(o => o.kgB > 0), anyH = opsDet.some(o => o.kgH > 0)
+        const anyP = opsDet.some(o => o.kgP > 0), anyU = opsDet.some(o => o.u > 0)
+        const dash = (v, d) => (Number(v) || 0) === 0 ? '—' : fmtNum(v, d)
+        const cols = [{ h: 'OPERARIO', al: 'left', f: o => o.nombre }, { h: 'PERFIL', al: 'left', f: o => o.perfil }]
+        if (anyB) cols.push({ h: 'BASES (kg)', f: o => dash(o.kgB, 1) })
+        if (anyH) cols.push({ h: 'HELADOS (kg)', f: o => dash(o.kgH, 1) })
+        if (anyP) cols.push({ h: 'POSTRES (kg)', f: o => dash(o.kgP, 1) })
+        if (anyU) cols.push({ h: 'IMPULSIVOS (u)', f: o => dash(o.u, 0) })
+        cols.push({ h: 'PRODUCCIONES', f: o => String(o.reg) })
         autoTable(doc, {
           ...EST, startY: y,
-          head: [['OPERARIO', 'BASES (kg)', 'HELADOS (kg)', 'POSTRES (kg)', 'IMPULSIVOS (u)', 'REG.']],
-          body: [...actual.porOperario]
-            .sort((a, b) => (((b.kgBases || 0) + (b.kgSabores || 0) + (b.kgPostres || 0)) - ((a.kgBases || 0) + (a.kgSabores || 0) + (a.kgPostres || 0))))
-            .map(o => [
-              o.nombre,
-              fmtNum(o.kgBases || 0, 1),
-              fmtNum(o.kgSabores || 0, 1),
-              fmtNum(o.kgPostres || 0, 1),
-              fmtNum(o.unidImpulsivos || 0, 0),
-              String(o.registros || 0),
-            ]),
-          columnStyles: { 0: { halign: 'left' } },
+          head: [cols.map(c => c.h)],
+          body: opsDet.map(o => cols.map(c => c.f(o))),
+          columnStyles: cols.reduce((a, c, i) => { if (c.al === 'left') a[i] = { halign: 'left' }; return a }, {}),
+          didParseCell: d => { if (d.section === 'body' && d.row.index === 0) d.cell.styles.fontStyle = 'bold' },
           didDrawPage: didDP,
         })
         y = saltarSiNecesario(doc.lastAutoTable.finalY + 3)
         doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(110, 110, 110)
-        doc.splitTextToSize('Los impulsivos se miden en unidades: un operario dedicado solo a impulsivos figura con 0 kg (su producción está en la columna Impulsivos, no en cero).', pw - 28)
+        doc.splitTextToSize('«Perfil» resume la actividad principal de cada operario. Un guion (—) indica que no elaboró ese tipo de producto. Los impulsivos se miden en unidades y el resto de la producción en kilogramos.', pw - 28)
           .forEach((l, i) => doc.text(l, 14, y + i * 4)); y += 12
 
         // ── Análisis de producción (reseña profesional) ────────────────────────
         y = saltarSiNecesario(y)
         y = dibujarSeccion(doc, pw, 'Análisis de producción', y)
-        const rankOp = actual.porOperario.map(o => ({ nombre: o.nombre, kg: (o.kgBases || 0) + (o.kgSabores || 0) + (o.kgPostres || 0), u: o.unidImpulsivos || 0 }))
-        const totKgOps = rankOp.reduce((a, o) => a + o.kg, 0)
-        const topKg = [...rankOp].sort((a, b) => b.kg - a.kg)[0]
-        const topU  = [...rankOp].sort((a, b) => b.u - a.u)[0]
-        const soloImp = rankOp.filter(o => o.kg === 0 && o.u > 0)
+        // Variación en prosa (evita el "variaron Nuevo": lo traduce a lenguaje).
+        const varProsa = (a, b) => {
+          const p = variacionPct(a, b)
+          if (p === null) return 'se mantuvieron sin registros'
+          if (p === Infinity) return 'no tenían producción comparable en el período anterior'
+          if (Math.abs(p) < 0.05) return 'se mantuvieron sin cambios'
+          return `${p > 0 ? 'crecieron' : 'cayeron'} ${fmtNum(Math.abs(p), 1)}%`
+        }
         const reseña =
-          `En el período se elaboraron ${fmtNum(actual.kgHelados, 1)} kg de helados, ${fmtNum(actual.kgPostres, 1)} kg de postres y ${fmtNum(actual.unidadesImpulsivos, 0)} unidades de impulsivos, con ${actual.porOperario.length} operario${actual.porOperario.length === 1 ? '' : 's'} activo${actual.porOperario.length === 1 ? '' : 's'}. ` +
-          (topKg && topKg.kg > 0 ? `${topKg.nombre} lideró la producción por peso con ${fmtNum(topKg.kg, 1)} kg (${totKgOps > 0 ? Math.round((topKg.kg / totKgOps) * 100) : 0}% del total en kg)` : 'No hubo producción por peso en el período') +
-          (topU && topU.u > 0 ? `, y ${topU.nombre} encabezó los impulsivos con ${fmtNum(topU.u, 0)} unidades. ` : '. ') +
-          (soloImp.length > 0 ? `${soloImp.length} operario${soloImp.length > 1 ? 's se dedicaron' : ' se dedicó'} exclusivamente a impulsivos (producción medida en unidades). ` : '') +
-          `Frente al período anterior, los helados variaron ${fmtVar(variacionPct(actual.kgHelados, anterior.kgHelados))}, los postres ${fmtVar(variacionPct(actual.kgPostres, anterior.kgPostres))} y los impulsivos ${fmtVar(variacionPct(actual.unidadesImpulsivos, anterior.unidadesImpulsivos))}.`
+          `En el período se elaboraron ${fmtNum(actual.kgHelados, 1)} kg de helados, ${fmtNum(actual.kgPostres, 1)} kg de postres y ${fmtNum(actual.unidadesImpulsivos, 0)} unidades de impulsivos, con el trabajo de ${actual.porOperario.length} operario${actual.porOperario.length === 1 ? '' : 's'}. ` +
+          (topKg && topKg.kg > 0 ? `${topKg.nombre} encabezó la producción por peso con ${fmtNum(topKg.kg, 1)} kg, el ${totKgOps > 0 ? Math.round((topKg.kg / totKgOps) * 100) : 0}% del total elaborado. ` : '') +
+          (topU && topU.u > 0 ? `En impulsivos, ${topU.nombre} lideró con ${fmtNum(topU.u, 0)} unidades. ` : '') +
+          (soloImp.length > 0 ? `${soloImp.length} operario${soloImp.length > 1 ? 's se dedicaron' : ' se dedicó'} exclusivamente a impulsivos, cuya producción se mide en unidades y no en kilos, por lo que no deben leerse como "0 kg". ` : '') +
+          `Frente al período anterior, los helados ${varProsa(actual.kgHelados, anterior.kgHelados)}, los postres ${varProsa(actual.kgPostres, anterior.kgPostres)} y los impulsivos ${varProsa(actual.unidadesImpulsivos, anterior.unidadesImpulsivos)}.`
         doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...PDF_NEGRO)
-        doc.splitTextToSize(reseña, pw - 28).forEach((l, i) => doc.text(l, 14, y + i * 5))
-        y += doc.splitTextToSize(reseña, pw - 28).length * 5 + 5
+        const lineasR = doc.splitTextToSize(reseña, pw - 28)
+        lineasR.forEach((l, i) => doc.text(l, 14, y + i * 5))
+        y += lineasR.length * 5 + 5
 
         // Consumo de bases / materia prima (de los vínculos base→producto en Órdenes).
         if (consumoInforme.filas.length) {

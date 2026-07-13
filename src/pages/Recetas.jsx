@@ -959,8 +959,8 @@ export default function Recetas() {
 
             return (
               <div key={key} className="overflow-hidden" style={SURFACE}>
-                {/* Header */}
-                <div className="flex items-center gap-2 px-4 py-3 cursor-pointer"
+                {/* Header — en celular apila (contenido arriba, botones abajo) */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 px-4 py-3 cursor-pointer"
                   onMouseEnter={e => { e.currentTarget.style.backgroundColor = colors.bg }}
                   onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent' }}
                   onClick={() => setExpandida(abierta ? null : key)}>
@@ -987,7 +987,7 @@ export default function Recetas() {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex items-center gap-2 flex-wrap sm:flex-shrink-0 sm:justify-end">
                     <button
                       onClick={e => { e.stopPropagation(); abrirEditor(r) }}
                       className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-80"

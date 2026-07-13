@@ -110,6 +110,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
   const [vinculandoKey, setVinculandoKey] = useState(null)
   const [deletedIds, setDeletedIds] = useState([])
   const [mano, setMano]     = useState(receta.manoDeObra || 0)
+  const [baseNombre, setBaseNombre] = useState(receta.baseNombre || '') // solo Sabores
   const [saving, setSaving] = useState(false)
   const [busq, setBusq]     = useState('')
 
@@ -242,12 +243,14 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
       }
     }
 
-    // 4. UPDATE tabla padre (costo_total + mano_de_obra)
-    const { error: errP } = await supabase.from(tablaP).update({
+    // 4. UPDATE tabla padre (costo_total + mano_de_obra, y la base en Sabores)
+    const updatePadre = {
       costo_materiales: subtotalMP,
       mano_de_obra: Number(mano) || 0,
       costo_total: costoFinal,
-    }).eq('id', receta.id)
+    }
+    if (tipo === 'Sabores') updatePadre.base_nombre = baseNombre || null
+    const { error: errP } = await supabase.from(tablaP).update(updatePadre).eq('id', receta.id)
     if (errP) {
       setSaving(false)
       showToast(`Error al actualizar costo: ${errP.message}`, 'error')
@@ -381,6 +384,25 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
             </div>
           )}
         </div>
+
+        {/* Base del sabor — para controlar el consumo de base al producir */}
+        {tipo === 'Sabores' && (
+          <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+            <label className="text-sm font-medium flex-1" style={{ color: colors.textSecondary }}>
+              Base del sabor
+              <span className="block text-[11px] font-normal" style={{ color: colors.textMuted }}>
+                El sistema la descuenta al producir este sabor
+              </span>
+            </label>
+            <select value={baseNombre} onChange={e => setBaseNombre(e.target.value)}
+              className="w-52 rounded-md border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-orange-300"
+              style={{ borderColor: colors.border, background: colors.surface, color: colors.textPrimary }}>
+              <option value="">— Sin base —</option>
+              {[...bases].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
+                .map(b => <option key={b.id} value={b.nombre}>{b.nombre}</option>)}
+            </select>
+          </div>
+        )}
 
         {/* Mano de obra */}
         <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>

@@ -13,6 +13,7 @@ import {
   PDF_CONTENT_Y, PDF_SEM_NEG, PDF_SEM_OK,
 } from './pdfEstilos'
 import { resumenSemanal } from './conteos'
+import { normalizarNombre } from './texto'
 
 const money = n => `$${(Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const num = n => (Number(n) || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 })
@@ -27,9 +28,20 @@ const fmtFechaConteo = f => {
   return d.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' hs'
 }
 
-// rows: filas de conteos_stock de UN ciclo. meta: { area, fecha, responsable }
-export function generarComprobanteConteo({ rows = [], area = '', fecha = '', responsable = '' } = {}) {
-  const R = resumenSemanal(rows)
+// rows: filas de conteos_stock de UN ciclo. meta: { area, fecha, responsable }.
+// precios: mapa normalizarNombre(producto) → costo unitario ACTUAL. Se usa para
+// re-valorizar las diferencias cuyo valor_impacto quedó en 0/null (porque el
+// precio no estaba cargado al momento del conteo), así el comprobante refleja el
+// costo real aunque el precio se haya cargado después.
+export function generarComprobanteConteo({ rows = [], area = '', fecha = '', responsable = '', precios = {} } = {}) {
+  const rowsVal = rows.map(r => {
+    const vi = Number(r.valor_impacto) || 0
+    if (vi !== 0) return r
+    const dif = Number(r.diferencia) || 0
+    const precio = Number(precios[normalizarNombre(r.producto_nombre || '')]) || 0
+    return (dif !== 0 && precio > 0) ? { ...r, valor_impacto: dif * precio } : r
+  })
+  const R = resumenSemanal(rowsVal)
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const pw = doc.internal.pageSize.getWidth()
   const ph = doc.internal.pageSize.getHeight()
@@ -78,27 +90,40 @@ export function generarComprobanteConteo({ rows = [], area = '', fecha = '', res
     `${R.impactoNeto >= 0 ? '+' : '-'}$${num(Math.abs(R.impactoNeto))}`, netoColor)
   y += cardH + 10
 
-  // Redacción profesional del resultado
+  // ── Redacción profesional: propósito + resultado + exactitud ────────────────
   const sinDif = Math.max(0, R.totalContados - R.faltantes.length - R.sobrantes.length)
   const plN = R.totalContados === 1 ? 'producto' : 'productos'
+  const exactitud = R.totalContados > 0 ? Math.round((sinDif / R.totalContados) * 100) : 100
+  const netoTxt = R.impactoNeto > 0 ? 'positivo (sobrante)' : R.impactoNeto < 0 ? 'negativo (faltante)' : 'nulo'
   const narrativa =
-    `Se realizó el conteo físico de ${R.totalContados} ${plN} del área de ${areaLbl}. ` +
-    `Del total relevado, ${sinDif} no presentó diferencias respecto del sistema, ${R.faltantes.length} registró faltante y ${R.sobrantes.length} sobrante. ` +
-    `El faltante representa una pérdida valorizada de $${num(R.valorFaltante)} y el sobrante un excedente de $${num(R.valorSobrante)}, ` +
-    `resultando en un ajuste neto ${R.impactoNeto > 0 ? 'positivo (sobrante)' : R.impactoNeto < 0 ? 'negativo (faltante)' : 'nulo'} de $${num(Math.abs(R.impactoNeto))} sobre el inventario valorizado.`
+    `El conteo físico contrasta las existencias reales contra el inventario del sistema: permite corregir desvíos y valorizar pérdidas o excedentes originados en merma, error de carga, producción o consumo no registrados. ` +
+    `En este relevamiento se contaron ${R.totalContados} ${plN} del área de ${areaLbl}, con una exactitud del ${exactitud}% (coincidencia con el sistema): ${sinDif} sin diferencias, ${R.faltantes.length} con faltante y ${R.sobrantes.length} con sobrante. ` +
+    `El faltante implica una pérdida valorizada de $${num(R.valorFaltante)} y el sobrante un excedente de $${num(R.valorSobrante)}, con un ajuste neto ${netoTxt} de $${num(Math.abs(R.impactoNeto))} sobre el inventario valorizado.`
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...N)
   const lineasNar = doc.splitTextToSize(narrativa, pw - 28)
-  lineasNar.forEach((l, i) => doc.text(l, 14, y + i * 5)); y += lineasNar.length * 5 + 3
+  lineasNar.forEach((l, i) => doc.text(l, 14, y + i * 5)); y += lineasNar.length * 5 + 5
 
-  // Recomendación de cierre
-  const cierre = R.impactoNeto < 0
-    ? 'Los faltantes se imputan como merma valorizada. Se recomienda investigar sus causas y dejar registrado el motivo de cada diferencia para el control interno.'
-    : R.impactoNeto > 0
-      ? 'Los sobrantes suelen originarse en producción no registrada o en saldos iniciales pendientes de ajuste. Se recomienda validar los motivos indicados por producto.'
-      : 'El inventario físico coincide con el sistema; no se requieren ajustes.'
-  doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.setTextColor(110, 110, 110)
-  const lineasCie = doc.splitTextToSize(cierre, pw - 28)
-  lineasCie.forEach((l, i) => doc.text(l, 14, y + i * 5)); y += lineasCie.length * 5 + 6
+  // ── Diagnóstico y recomendaciones (según los datos del conteo) ──────────────
+  const recos = []
+  if (exactitud >= 98) recos.push(`Exactitud alta (${exactitud}%): el control de stock es confiable. Sostené la frecuencia de conteo para mantenerla.`)
+  else if (exactitud >= 90) recos.push(`Exactitud aceptable (${exactitud}%), con margen de mejora. Reforzá el registro de ingresos y egresos para acercarla al 100%.`)
+  else recos.push(`Exactitud baja (${exactitud}%): revisá el circuito de cargas (movimientos sin registrar) y priorizá recontar los productos con mayor desvío.`)
+  const sinPrecio = R.faltantes.filter(r => (Number(r.valor_impacto) || 0) === 0).length
+  if (sinPrecio > 0) recos.push(`${sinPrecio} ${sinPrecio === 1 ? 'producto con faltante no tiene' : 'productos con faltante no tienen'} precio cargado: cargá su costo en Depósito para valorizar correctamente la pérdida.`)
+  if (R.impactoNeto < 0) recos.push(`El faltante neto de $${num(Math.abs(R.impactoNeto))} debe investigarse (merma, consumo sin registrar o error de carga) y dejar asentado el motivo de cada diferencia.`)
+  else if (R.impactoNeto > 0) recos.push(`Los sobrantes suelen indicar producción o ingresos no registrados: cargalos en el sistema para que el stock refleje la realidad.`)
+  recos.push('Documentar el motivo de cada diferencia es la base para reducir los desvíos en los próximos conteos y sostener la trazabilidad del inventario.')
+
+  y = dibujarSeccion(doc, pw, 'Diagnóstico y recomendaciones', y)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60, 60, 60)
+  recos.forEach(t => {
+    if (y > ph - 30) { doc.addPage(); encab(); y = PDF_CONTENT_Y }
+    const ls = doc.splitTextToSize(t, pw - 34)
+    doc.text('•', 15, y)
+    ls.forEach((l, i) => doc.text(l, 19, y + i * 4.6))
+    y += ls.length * 4.6 + 2
+  })
+  y += 5
 
   if (R.totalContados === 0) {
     doc.setTextColor(120, 120, 120); doc.text('Sin diferencias registradas en este conteo.', 14, y + 2)

@@ -1684,7 +1684,8 @@ export default function Deposito() {
       const rows = await cargarConteosCiclo(conteoCicloId)
       if (!rows.length) { toast2('No se encontraron datos de este conteo', 'error'); return }
       const fecha = new Date().toISOString().split('T')[0]
-      generarComprobanteConteo({ rows, area: 'deposito', fecha, responsable: conteoResponsable })
+      const precios = Object.fromEntries(insumos.map(i => [normalizarNombre(i.nombre || ''), Number(i.costo_unitario) || 0]))
+      generarComprobanteConteo({ rows, area: 'deposito', fecha, responsable: conteoResponsable, precios })
         .save(`comprobante_conteo_deposito_${fecha}.pdf`)
       toast2('Comprobante generado')
     } catch (err) {
@@ -1714,7 +1715,8 @@ export default function Deposito() {
     try {
       const rows = await cargarConteosCiclo(ciclo.ciclo_id)
       if (!rows.length) { toast2('No se encontraron datos de este conteo', 'error'); return }
-      generarComprobanteConteo({ rows, area: ciclo.area, fecha: ciclo.fecha, responsable: ciclo.responsable })
+      const precios = Object.fromEntries(insumos.map(i => [normalizarNombre(i.nombre || ''), Number(i.costo_unitario) || 0]))
+      generarComprobanteConteo({ rows, area: ciclo.area, fecha: ciclo.fecha, responsable: ciclo.responsable, precios })
         .save(`comprobante_conteo_${ciclo.area}_${ciclo.fecha}.pdf`)
     } catch (err) {
       toast2(err.message || 'No se pudo reimprimir', 'error')

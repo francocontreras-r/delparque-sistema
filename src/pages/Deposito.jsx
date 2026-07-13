@@ -79,6 +79,11 @@ function pctNivel(actual, minimo, maximo) {
 
 function pesos(n) { return Math.round(n || 0).toLocaleString('es-AR') }
 
+// Redondea el stock a 3 decimales para evitar las "colas" de punto flotante de
+// JavaScript (ej. 10.2 − 0.1 → 0.8999999999999986). 3 decimales alcanza para
+// gramos/mililitros y elimina el ruido. Se usa al guardar y al mostrar.
+function redondearStock(n) { return Math.round((Number(n) || 0) * 1000) / 1000 }
+
 // Coincidencia robusta de un insumo por nombre. Usa normalizarNombre (ignora
 // mayúsculas, acentos y espacios de más) para que un ingreso no quede sin
 // actualizar stock solo porque el nombre se tipeó con una variación mínima
@@ -291,7 +296,7 @@ function ModalMovimiento({ tipo, onClose, onSubmit, saving, insumos, operarios, 
 
   const stockInfo = (() => {
     if (!insumoSel) return null
-    const s = insumoSel.stock_actual ?? 0
+    const s = redondearStock(insumoSel.stock_actual ?? 0)
     const u = insumoSel.unidad || 'u'
     const ppu = insumoSel.peso_por_unidad || 0
     let equiv = ''
@@ -1316,7 +1321,7 @@ export default function Deposito() {
 
     // ── Actualizar stock_actual del insumo (ingreso y egreso) ──────────────────
     if (insumoMatch) {
-      const nuevoStock = Math.max(0, (insumoMatch.stock_actual || 0) + signo * delta)
+      const nuevoStock = redondearStock(Math.max(0, (insumoMatch.stock_actual || 0) + signo * delta))
       const updates = { stock_actual: nuevoStock }
       // Guardamos la relación presentación↔peso apenas se conoce (ingreso o egreso),
       // así la próxima vez viene precargada y la conversión es automática.
@@ -1625,7 +1630,7 @@ export default function Deposito() {
         const fis = parseFloat(f.stockFisico)
         const diff = fis - f.stockSistema
         const motivo = motivos[f.nombre] || 'Ajuste de inventario'
-        await supabase.from('insumos').update({ stock_actual: fis }).eq('id', f.id)
+        await supabase.from('insumos').update({ stock_actual: redondearStock(fis) }).eq('id', f.id)
         await supabase.from('movimientos_deposito').insert({
           tipo: diff > 0 ? 'ingreso' : 'egreso',
           fecha, producto_nombre: f.nombre,
@@ -3622,7 +3627,7 @@ export default function Deposito() {
                               })()}
                             </div>
                             <p className="text-xs" style={{ color: colors.textMuted }}>
-                              {ins.stock_actual ?? '—'} {ins.unidad}
+                              {ins.stock_actual != null ? redondearStock(ins.stock_actual) : '—'} {ins.unidad}
                               {ins.unidad === 'u' && (ins.peso_por_unidad || 0) > 0
                                 ? ` / ${((ins.stock_actual || 0) * ins.peso_por_unidad).toFixed(1)} kg`
                                 : ''}

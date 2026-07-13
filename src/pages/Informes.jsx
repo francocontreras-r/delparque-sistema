@@ -23,7 +23,7 @@ import {
 } from 'recharts'
 import {
   getEstiloInforme, dibujarPortada, dibujarEncabezado, dibujarPie,
-  dibujarKpiCard, dibujarSeccion, dibujarFirmas,
+  dibujarKpiCard, dibujarKpiCardDestacada, dibujarSeccion, dibujarFirmas,
   PDF_CONTENT_Y, PDF_NEGRO, PDF_SEM_NEG, PDF_SEM_CRIT, PDF_SEM_LOW, PDF_SEM_OK, PDF_SEM_EXC,
 } from '../lib/pdfEstilos'
 
@@ -614,9 +614,15 @@ export default function Informes() {
       const semMerma  = p => p < 3 ? PDF_SEM_OK : p < 8 ? PDF_SEM_CRIT : PDF_SEM_NEG
 
       // Fila de KPI cards (estilo unificado). Devuelve el nuevo Y.
+      // items: [label, valor, color?, 'destacada'?]. La 4ª marca la tarjeta como
+      // destacada (valor grande y coloreado) para resaltar el total clave.
       const kpiRow = (items, yTop) => {
         const gap = 4, n = items.length, cw = (pw - 28 - gap * (n - 1)) / n, ch = 22
-        items.forEach((it, i) => dibujarKpiCard(doc, 14 + i * (cw + gap), yTop, cw, ch, it[0], it[1], it[2] || PDF_NEGRO))
+        items.forEach((it, i) => {
+          const x = 14 + i * (cw + gap)
+          if (it[3] === 'destacada') dibujarKpiCardDestacada(doc, x, yTop, cw, ch, it[0], it[1], it[2] || PDF_NEGRO)
+          else dibujarKpiCard(doc, x, yTop, cw, ch, it[0], it[1], it[2] || PDF_NEGRO)
+        })
         return yTop + ch + 8
       }
 
@@ -756,7 +762,7 @@ export default function Informes() {
         y = kpiRow([
           ['Kg merma total',    `${fmtNum(actual.totalDif)} kg`,    PDF_SEM_NEG],
           ['% merma global',    `${fmtNum(actual.pctGlobal)}%`,     semMerma(actual.pctGlobal)],
-          ['Costo total merma', `$${pesos(actual.costoTotal)}`,     PDF_SEM_NEG],
+          ['Costo total merma', `$${pesos(actual.costoTotal)}`,     PDF_SEM_NEG, 'destacada'],
         ], y)
 
         y = dibujarSeccion(doc, pw, 'Resumen general', y)

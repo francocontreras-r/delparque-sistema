@@ -725,24 +725,50 @@ export default function Informes() {
         })
         y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
 
-        y = dibujarSeccion(doc, pw, 'Producción por operario', y)
+        // ── Detalle por operario: QUÉ produjo cada uno (por tipo) ──────────────
+        y = dibujarSeccion(doc, pw, 'Detalle por operario — qué produjo cada uno', y)
         autoTable(doc, {
           ...EST, startY: y,
-          head: [['OPERARIO', 'KG PRODUCIDOS', 'UNIDADES', 'REGISTROS']],
-          // Cada producto en UNA sola columna según cómo se mide:
-          // KG = lo que va por peso (bases + sabores + postres) · UNIDADES = lo que
-          // va por unidad (solo impulsivos). Sin doble conteo.
-          body: actual.porOperario.map(o => {
-            const kgTot = (o.kgBases || 0) + (o.kgSabores || 0) + (o.kgPostres || 0)
-            const unidTot = (o.unidImpulsivos || 0)
-            return [o.nombre, `${fmtNum(kgTot)} kg`, `${fmtNum(unidTot, 0)} u`, String(o.registros)]
-          }),
+          head: [['OPERARIO', 'BASES (kg)', 'HELADOS (kg)', 'POSTRES (kg)', 'IMPULSIVOS (u)', 'REG.']],
+          body: [...actual.porOperario]
+            .sort((a, b) => (((b.kgBases || 0) + (b.kgSabores || 0) + (b.kgPostres || 0)) - ((a.kgBases || 0) + (a.kgSabores || 0) + (a.kgPostres || 0))))
+            .map(o => [
+              o.nombre,
+              fmtNum(o.kgBases || 0, 1),
+              fmtNum(o.kgSabores || 0, 1),
+              fmtNum(o.kgPostres || 0, 1),
+              fmtNum(o.unidImpulsivos || 0, 0),
+              String(o.registros || 0),
+            ]),
+          columnStyles: { 0: { halign: 'left' } },
           didDrawPage: didDP,
         })
+        y = saltarSiNecesario(doc.lastAutoTable.finalY + 3)
+        doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(110, 110, 110)
+        doc.splitTextToSize('Los impulsivos se miden en unidades: un operario dedicado solo a impulsivos figura con 0 kg (su producción está en la columna Impulsivos, no en cero).', pw - 28)
+          .forEach((l, i) => doc.text(l, 14, y + i * 4)); y += 12
+
+        // ── Análisis de producción (reseña profesional) ────────────────────────
+        y = saltarSiNecesario(y)
+        y = dibujarSeccion(doc, pw, 'Análisis de producción', y)
+        const rankOp = actual.porOperario.map(o => ({ nombre: o.nombre, kg: (o.kgBases || 0) + (o.kgSabores || 0) + (o.kgPostres || 0), u: o.unidImpulsivos || 0 }))
+        const totKgOps = rankOp.reduce((a, o) => a + o.kg, 0)
+        const topKg = [...rankOp].sort((a, b) => b.kg - a.kg)[0]
+        const topU  = [...rankOp].sort((a, b) => b.u - a.u)[0]
+        const soloImp = rankOp.filter(o => o.kg === 0 && o.u > 0)
+        const reseña =
+          `En el período se elaboraron ${fmtNum(actual.kgHelados, 1)} kg de helados, ${fmtNum(actual.kgPostres, 1)} kg de postres y ${fmtNum(actual.unidadesImpulsivos, 0)} unidades de impulsivos, con ${actual.porOperario.length} operario${actual.porOperario.length === 1 ? '' : 's'} activo${actual.porOperario.length === 1 ? '' : 's'}. ` +
+          (topKg && topKg.kg > 0 ? `${topKg.nombre} lideró la producción por peso con ${fmtNum(topKg.kg, 1)} kg (${totKgOps > 0 ? Math.round((topKg.kg / totKgOps) * 100) : 0}% del total en kg)` : 'No hubo producción por peso en el período') +
+          (topU && topU.u > 0 ? `, y ${topU.nombre} encabezó los impulsivos con ${fmtNum(topU.u, 0)} unidades. ` : '. ') +
+          (soloImp.length > 0 ? `${soloImp.length} operario${soloImp.length > 1 ? 's se dedicaron' : ' se dedicó'} exclusivamente a impulsivos (producción medida en unidades). ` : '') +
+          `Frente al período anterior, los helados variaron ${fmtVar(variacionPct(actual.kgHelados, anterior.kgHelados))}, los postres ${fmtVar(variacionPct(actual.kgPostres, anterior.kgPostres))} y los impulsivos ${fmtVar(variacionPct(actual.unidadesImpulsivos, anterior.unidadesImpulsivos))}.`
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...PDF_NEGRO)
+        doc.splitTextToSize(reseña, pw - 28).forEach((l, i) => doc.text(l, 14, y + i * 5))
+        y += doc.splitTextToSize(reseña, pw - 28).length * 5 + 5
 
         // Consumo de bases / materia prima (de los vínculos base→producto en Órdenes).
         if (consumoInforme.filas.length) {
-          y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
+          y = saltarSiNecesario(y + 3)
           y = dibujarSeccion(doc, pw, 'Consumo de bases / materia prima', y)
           autoTable(doc, {
             ...EST, startY: y,

@@ -98,6 +98,10 @@ input.f{background-image:none;padding-right:12px}
 .prange{display:flex;align-items:center;gap:8px;margin-top:9px}
 .prange input.f{min-width:0;flex:1}
 .pactivo{margin-top:9px;font-size:12.5px;color:var(--brand);font-weight:700;background:#EAF2FA;border:1px solid #D4E5F4;border-radius:9px;padding:7px 11px;display:inline-block}
+.att{display:flex;gap:10px;align-items:center;background:#f6f8fb;border:1px solid var(--line);border-radius:11px;padding:9px 11px}
+.att-ic{width:40px;height:40px;border-radius:9px;background:#e7eef6;display:flex;align-items:center;justify-content:center;font-size:19px;flex:none}
+.att-n{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.att-m{font-size:11.5px;color:var(--green,#137a41)}
 .linkbtn{color:var(--brand);font-weight:700;font-size:13.5px;padding:6px 8px;border-radius:8px}
 .linkbtn:hover{background:#E7EFF6}
 
@@ -452,7 +456,7 @@ const REMOTE = { razones:'razones_sociales', bancos:'bancos', cheques:'cheques' 
 const COLS = {
   razones:['id','nombre','cuit','activo'],
   bancos :['id','razon_social_id','entidad','saldo','acuerdo'],
-  cheques:['id','razon_social_id','tipo','formato','banco','numero','importe','fecha_emision','fecha_pago','fecha_acreditacion','estado','librador','cuit_librador','contraparte','concepto','observaciones','creado_por','historial','endosado_a','endosado_fecha'],
+  cheques:['id','razon_social_id','tipo','formato','banco','numero','importe','fecha_emision','fecha_pago','fecha_acreditacion','estado','librador','cuit_librador','contraparte','concepto','observaciones','creado_por','historial','endosado_a','endosado_fecha','comprobante_path','comprobante_nombre'],
 };
 const DATE_COLS = new Set(['fecha_emision','fecha_pago','fecha_acreditacion']);
 const NUM_COLS  = new Set(['importe','saldo','acuerdo']);
@@ -979,7 +983,7 @@ function chequeCard(ch){
       </div>
       <div class="chq-meta">
         <span class="pill" style="background:${ch.tipo==='emitido'?'#E3ECF5':'#DEF4F1'};color:${TIPOS[ch.tipo].color};padding:1px 7px">${TIPOS[ch.tipo].label}</span>
-        <span>${esc(ch.banco||'—')} · N° ${esc(ch.numero||'—')} · ${FORMATOS[ch.formato]||'Físico'}</span>
+        <span>${esc(ch.banco||'—')} · N° ${esc(ch.numero||'—')} · ${FORMATOS[ch.formato]||'Físico'}${ch.comprobante_path?' · 📎':''}</span>
         <span class="venc" style="color:${c&&c.est!=='ok'?c.color:'var(--ink3)'}">${fmtFecha(ch.fecha_pago)}${c&&c.est!=='ok'?' · '+c.label+' '+labelDias(c.d):''}</span>
       </div>
       ${ch.estado==='endosado'&&ch.endosado_a?`<div style="margin-top:6px;font-size:12px;color:#6b4b8a">↪ Endosado a <b>${esc(ch.endosado_a)}</b>${ch.endosado_fecha?` · ${fmtFecha(ch.endosado_fecha)}`:''}</div>`:''}
@@ -1340,6 +1344,41 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('sh
 function openModal(html){ $('#modalRoot').innerHTML = `<div class="overlay" data-overlay>${html}</div>`; document.body.style.overflow='hidden'; }
 function closeModal(){ $('#modalRoot').innerHTML=''; document.body.style.overflow=''; }
 
+/* ── Comprobantes (foto/PDF del cheque) — Supabase Storage ──────────────── */
+const COMPROB_BUCKET='comprobantes';
+async function subirComprobante(file){
+  if(!file) return;
+  if(!cloudOn()){ toast('Iniciá sesión en la nube para adjuntar archivos'); return; }
+  if(file.size > 10*1024*1024){ toast('El archivo es muy grande (máx. 10 MB)'); return; }
+  syncDraft(); const d=window._draft; if(!d) return;
+  const ext=(file.name.split('.').pop()||'bin').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const path=`${uid()}.${ext||'bin'}`;
+  toast('Subiendo comprobante…');
+  try{
+    const { error }=await sb.storage.from(COMPROB_BUCKET).upload(path, file, { contentType:file.type||'application/octet-stream', upsert:false });
+    if(error) throw error;
+    if(d.comprobante_path){ sb.storage.from(COMPROB_BUCKET).remove([d.comprobante_path]).catch(()=>{}); }
+    d.comprobante_path=path; d.comprobante_nombre=file.name;
+    renderChequeForm(d, !!d.id);
+    toast('Comprobante adjuntado ✓');
+  }catch(e){ toast('No se pudo subir: '+(e.message||e)); }
+}
+async function verComprobante(path){
+  if(!path) return;
+  if(!cloudOn()){ toast('Iniciá sesión para ver el comprobante'); return; }
+  try{
+    const { data, error }=await sb.storage.from(COMPROB_BUCKET).createSignedUrl(path, 3600);
+    if(error||!data?.signedUrl) throw error||new Error('sin url');
+    window.open(data.signedUrl, '_blank');
+  }catch(e){ toast('No se pudo abrir el comprobante'); }
+}
+function quitarComprobante(){
+  syncDraft(); const d=window._draft; if(!d||!d.comprobante_path) return;
+  if(!confirm('¿Quitar el comprobante adjunto?')) return;
+  const p=d.comprobante_path; if(cloudOn()) sb.storage.from(COMPROB_BUCKET).remove([p]).catch(()=>{});
+  d.comprobante_path=''; d.comprobante_nombre='';
+  renderChequeForm(d, !!d.id); toast('Comprobante quitado');
+}
 function modalCheque(id){
   const ch = id ? state.cheques.find(c=>c.id===id) : null;
   const tipo = ch?.tipo || filtros.tipo || 'emitido';
@@ -1410,6 +1449,16 @@ function renderChequeForm(d, editing){
         <div class="field"><label>Concepto <span class="mut3">(opcional)</span></label><input data-d="concepto" value="${esc(d.concepto)}" placeholder="Ej: Factura 0001-00012"></div>
       </div>
       <div class="field"><label>Observaciones <span class="mut3">(opcional)</span></label><textarea data-d="observaciones" rows="2" placeholder="Notas...">${esc(d.observaciones)}</textarea></div>
+      <div class="field"><label>Comprobante <span class="mut3">(foto o PDF del cheque)</span></label>
+        ${!cloudOn()
+          ? '<div class="hint" style="padding:0">Iniciá sesión en la nube para adjuntar archivos.</div>'
+          : d.comprobante_path
+            ? `<div class="att"><div class="att-ic">${/\.pdf$/i.test(d.comprobante_nombre||'')?'🧾':'🖼️'}</div><div style="flex:1;min-width:0"><div class="att-n">${esc(d.comprobante_nombre||'Comprobante')}</div><div class="att-m">Adjuntado ✓</div></div><button type="button" class="linkbtn" data-ver-comprob="${esc(d.comprobante_path)}">Ver</button><button type="button" class="linkbtn" style="color:var(--red)" data-quitar-comprob>Quitar</button></div>`
+            : `<div style="display:flex;gap:8px;flex-wrap:wrap">
+                <label class="btn ghost sm" style="flex:1;justify-content:center;cursor:pointer"><input type="file" accept="image/*" capture="environment" data-comprobante hidden>📷 Sacar foto</label>
+                <label class="btn ghost sm" style="flex:1;justify-content:center;cursor:pointer"><input type="file" accept="image/*,application/pdf" data-comprobante hidden>📁 Elegir archivo</label>
+              </div>`}
+      </div>
     </div>
     </fieldset>
     ${editing?`<div style="padding:2px 16px 10px">${histHTML(d)}</div>`:''}
@@ -1456,7 +1505,7 @@ function modalBanco(id){
    EVENTOS
    ══════════════════════════════════════════════════════════════════════════ */
 document.addEventListener('click', e=>{
-  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-periodo],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-confirm-cheque],[data-volver-form],[data-confirm-endoso],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
+  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-periodo],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-confirm-cheque],[data-volver-form],[data-confirm-endoso],[data-ver-comprob],[data-quitar-comprob],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
   if(!t) return;
 
   // Cambio rápido de estado desde la lista
@@ -1554,6 +1603,8 @@ document.addEventListener('click', e=>{
   if(t.hasAttribute('data-confirm-cheque')){ commitCheque(); return; }
   if(t.dataset.confirmEndoso){ confirmarEndoso(t.dataset.confirmEndoso); return; }
   if(t.hasAttribute('data-volver-form')){ renderChequeForm(window._draft, !!window._draft.id); return; }
+  if(t.dataset.verComprob){ verComprobante(t.dataset.verComprob); return; }
+  if(t.hasAttribute('data-quitar-comprob')){ quitarComprobante(); return; }
   if(t.hasAttribute('data-del-cheque')){ if(confirm('¿Eliminar este cheque?')){ const id=window._draft.id; state.cheques=state.cheques.filter(c=>c.id!==id); save(); closeModal(); render(); toast('Cheque eliminado'); cloudDelete('cheques',id); } return; }
 
   // razones
@@ -1573,6 +1624,8 @@ document.addEventListener('change', e=>{
   if(f){ filtros[f.dataset.filtro]=f.value; if(f.dataset.filtro==='tipo') filtros.estado=''; render(); return; }
   const rg=e.target.closest('[data-rango]');
   if(rg){ filtros[rg.dataset.rango]=rg.value; filtros.periodo='custom'; render(); return; }
+  const cp=e.target.closest('[data-comprobante]');
+  if(cp){ subirComprobante(cp.files&&cp.files[0]); return; }
   const s=e.target.closest('[data-set]');
   if(s){ state.settings[s.dataset.set]= s.dataset.set==='notifDias'?+s.value:s.value; save(); renderSubtitle();
     if(s.dataset.set==='notifDias' && cloudOn() && esAdmin()){ apiNotif({action:'config-set', dias:+s.value}).catch(()=>{}); }

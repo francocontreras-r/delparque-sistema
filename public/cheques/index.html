@@ -91,6 +91,13 @@ a{color:var(--brand);text-decoration:none}
 select.f,input.f{appearance:none;-webkit-appearance:none;background:#F4F6F9 url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235B6472' stroke-width='3'><path d='M6 9l6 6 6-6'/></svg>") no-repeat right 10px center;
   border:1px solid var(--line);border-radius:10px;padding:9px 30px 9px 12px;font-weight:600;color:var(--ink);min-width:120px}
 input.f{background-image:none;padding-right:12px}
+.periodo{margin:-8px 0 16px}
+.pchips{display:flex;gap:7px;flex-wrap:wrap}
+.pchip{font-size:12.5px;font-weight:700;padding:7px 12px;border-radius:999px;background:#eef1f6;color:var(--ink2);border:1.5px solid transparent;cursor:pointer;white-space:nowrap}
+.pchip.on{background:var(--brand);color:#fff}
+.prange{display:flex;align-items:center;gap:8px;margin-top:9px}
+.prange input.f{min-width:0;flex:1}
+.pactivo{margin-top:9px;font-size:12.5px;color:var(--brand);font-weight:700;background:#EAF2FA;border:1px solid #D4E5F4;border-radius:9px;padding:7px 11px;display:inline-block}
 .linkbtn{color:var(--brand);font-weight:700;font-size:13.5px;padding:6px 8px;border-radius:8px}
 .linkbtn:hover{background:#E7EFF6}
 
@@ -668,7 +675,7 @@ async function cloudCount(){
 
 /* ── UI state ───────────────────────────────────────────────────────────── */
 let view = 'dashboard';
-let filtros = {razon:'', tipo:'', estado:''};
+let filtros = {razon:'', tipo:'', estado:'', periodo:'', desde:'', hasta:''};
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 // Miles con punto, decimal con coma (formato AR) — sin depender de toLocaleString
@@ -721,8 +728,28 @@ function chequesFiltrados(){
     if(filtros.razon && ch.razon_social_id!==filtros.razon) return false;
     if(filtros.tipo  && ch.tipo!==filtros.tipo) return false;
     if(filtros.estado && ch.estado!==filtros.estado) return false;
+    // Filtro por período (fecha de vencimiento). Sin fecha = queda fuera del período.
+    if(filtros.desde){ if(!ch.fecha_pago || String(ch.fecha_pago).slice(0,10) < filtros.desde) return false; }
+    if(filtros.hasta){ if(!ch.fecha_pago || String(ch.fecha_pago).slice(0,10) > filtros.hasta) return false; }
     return true;
   });
+}
+// Calcula desde/hasta (ISO) para cada atajo de período.
+function rangoPreset(k){
+  const d=new Date(); d.setHours(0,0,0,0);
+  const y=d.getFullYear(), m=d.getMonth();
+  const iso=x=>{ const z=new Date(x); z.setMinutes(z.getMinutes()-z.getTimezoneOffset()); return z.toISOString().slice(0,10); };
+  if(k==='mes')  return {desde:iso(new Date(y,m,1)),   hasta:iso(new Date(y,m+1,0))};
+  if(k==='30d')  return {desde:hoyISO(),               hasta:iso(new Date(d.getTime()+30*86400000))};
+  if(k==='trim'){ const q=Math.floor(m/3); return {desde:iso(new Date(y,q*3,1)), hasta:iso(new Date(y,q*3+3,0))}; }
+  if(k==='anio') return {desde:iso(new Date(y,0,1)),   hasta:iso(new Date(y,11,31))};
+  return {desde:'',hasta:''};
+}
+function periodoLabel(){
+  const P={mes:'Este mes','30d':'Próximos 30 días',trim:'Este trimestre',anio:String(new Date().getFullYear()),custom:'Personalizado'};
+  const base = P[filtros.periodo]||'';
+  if(filtros.desde||filtros.hasta) return `${base?base+' · ':''}${filtros.desde?fmtFecha(filtros.desde):'…'} → ${filtros.hasta?fmtFecha(filtros.hasta):'…'}`;
+  return base;
 }
 const suma = arr => arr.reduce((s,ch)=>s+(Number(ch.importe)||0),0);
 function alertas(){ // cheques abiertos vencidos o que vencen dentro del rango de aviso
@@ -777,12 +804,20 @@ function filtrosBar(){
   const estSet = filtros.tipo ? ESTADOS[filtros.tipo] : [...ESTADOS.recibido,...ESTADOS.emitido].filter((e,i,a)=>a.findIndex(x=>x.v===e.v)===i);
   const esOpts = ['<option value="">Estado: todos</option>']
     .concat(estSet.map(e=>`<option value="${e.v}" ${filtros.estado===e.v?'selected':''}>${e.l}</option>`)).join('');
-  const limpiar = (filtros.razon||filtros.tipo||filtros.estado) ? '<button class="linkbtn" data-act="limpiar">Limpiar</button>':'';
+  const hayFiltro = filtros.razon||filtros.tipo||filtros.estado||filtros.desde||filtros.hasta||filtros.periodo;
+  const limpiar = hayFiltro ? '<button class="linkbtn" data-act="limpiar">Limpiar</button>':'';
+  const presets=[['','Todo'],['mes','Este mes'],['30d','Próx. 30 días'],['trim','Trimestre'],['anio',String(new Date().getFullYear())],['custom','Personalizado']];
+  const chips = presets.map(([k,l])=>`<button class="pchip ${filtros.periodo===k?'on':''}" data-periodo="${k}">${l}</button>`).join('');
   return `<div class="filters noprint">
     <select class="f" data-filtro="razon">${rzOpts}</select>
     <select class="f" data-filtro="tipo">${tpOpts}</select>
     <select class="f" data-filtro="estado">${esOpts}</select>
     ${limpiar}
+  </div>
+  <div class="periodo noprint">
+    <div class="pchips">${chips}</div>
+    ${filtros.periodo==='custom'?`<div class="prange"><input type="date" class="f" data-rango="desde" value="${filtros.desde||''}"><span class="mut3">→</span><input type="date" class="f" data-rango="hasta" value="${filtros.hasta||''}"></div>`:''}
+    ${(filtros.desde||filtros.hasta)&&filtros.periodo!=='custom'?`<div class="pactivo">📆 ${esc(periodoLabel())}</div>`:''}
   </div>`;
 }
 
@@ -1421,7 +1456,7 @@ function modalBanco(id){
    EVENTOS
    ══════════════════════════════════════════════════════════════════════════ */
 document.addEventListener('click', e=>{
-  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-confirm-cheque],[data-volver-form],[data-confirm-endoso],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
+  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-periodo],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-confirm-cheque],[data-volver-form],[data-confirm-endoso],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
   if(!t) return;
 
   // Cambio rápido de estado desde la lista
@@ -1470,7 +1505,13 @@ document.addEventListener('click', e=>{
   }
 
   const act = t.dataset.act;
-  if(act==='limpiar'){ filtros={razon:'',tipo:'',estado:''}; render(); return; }
+  if(act==='limpiar'){ filtros={razon:'',tipo:'',estado:'',periodo:'',desde:'',hasta:''}; render(); return; }
+  if(t.hasAttribute('data-periodo')){
+    const k=t.dataset.periodo;
+    if(k==='custom'){ filtros.periodo='custom'; }
+    else { filtros.periodo=k; const r=rangoPreset(k); filtros.desde=r.desde; filtros.hasta=r.hasta; }
+    render(); return;
+  }
   if(act==='nuevo'||act===undefined && t.id==='fab'){ }
   if(act==='nuevo'){ modalCheque(); return; }
   if(act==='importar'){ abrirImportar(); return; }
@@ -1530,6 +1571,8 @@ document.addEventListener('click', e=>{
 document.addEventListener('change', e=>{
   const f=e.target.closest('[data-filtro]');
   if(f){ filtros[f.dataset.filtro]=f.value; if(f.dataset.filtro==='tipo') filtros.estado=''; render(); return; }
+  const rg=e.target.closest('[data-rango]');
+  if(rg){ filtros[rg.dataset.rango]=rg.value; filtros.periodo='custom'; render(); return; }
   const s=e.target.closest('[data-set]');
   if(s){ state.settings[s.dataset.set]= s.dataset.set==='notifDias'?+s.value:s.value; save(); renderSubtitle();
     if(s.dataset.set==='notifDias' && cloudOn() && esAdmin()){ apiNotif({action:'config-set', dias:+s.value}).catch(()=>{}); }
@@ -1670,7 +1713,8 @@ function download(name,blob){ const u=URL.createObjectURL(blob); const a=documen
 function prepararImpresion(){
   const rz = filtros.razon ? razonNombre(filtros.razon) : 'Todas las razones sociales';
   const m = $('#printMeta');
-  if(m) m.innerHTML = `<b>${esc(rz)}</b><br>Fecha base: <b>${fmtFecha(hoyISO())}</b><br>${nChe(chequesFiltrados().length)}`;
+  const per = (filtros.desde||filtros.hasta) ? `<br>Período: <b>${esc(periodoLabel())}</b>` : '';
+  if(m) m.innerHTML = `<b>${esc(rz)}</b><br>Fecha base: <b>${fmtFecha(hoyISO())}</b>${per}<br>${nChe(chequesFiltrados().length)}`;
   const f = $('#printFoot');
   if(f) f.textContent = 'Generado el ' + fmtFecha(hoyISO());
   const r = $('#printReport');

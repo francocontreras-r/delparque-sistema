@@ -21,6 +21,7 @@ const MODULOS = [
   { key: 'rendimientos', label: 'Rendimientos' },
   { key: 'mermas',       label: 'Mermas' },
   { key: 'ordenes',      label: 'Órdenes' },
+  { key: 'vincularBases', label: 'Vincular bases (cámara)' },
   { key: 'recetas',      label: 'Recetas' },
   { key: 'finanzas',     label: 'Finanzas' },
   { key: 'usuarios',     label: 'Usuarios' },

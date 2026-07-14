@@ -11,6 +11,9 @@ export const ROLE_PERMISOS = {
     produccion: true, camaras: true, rendimientos: true,
     deposito: true, mermas: true, ordenes: true, recetas: true,
     informes: true, rendimientoOperarios: true,
+    // Puede vincular el consumo de una base a un producto (tarea de cámara).
+    // Borrar lotes de base sigue siendo solo admin.
+    vincularBases: true,
   },
   admin: {
     dashboard: true,

@@ -42,6 +42,11 @@ function toISODate(d) {
   return `${y}-${m}-${day}`
 }
 function hoyISO() { return toISODate(new Date()) }
+// producciones.fecha puede venir como timestamp ("2026-07-14T00:00:00+00:00")
+// y no como fecha simple. Normalizamos al día (YYYY-MM-DD) antes de comparar,
+// si no la comparación estricta con `hoy` nunca coincide y el Dashboard muestra
+// "0 kg producidos hoy" aunque sí se haya producido.
+function diaDe(f) { return String(f || '').slice(0, 10) }
 function sumarDias(fechaISO, dias) {
   const [y, m, d] = fechaISO.split('-').map(Number)
   const date = new Date(y, m - 1, d)
@@ -160,12 +165,12 @@ export default function Dashboard() {
 
   // ── KPIs ───────────────────────────────────────────────────────────────────
   const kgHoy = useMemo(() => (
-    producciones.filter(p => p.fecha === hoy).reduce((a, p) => a + (p.peso_kg || 0), 0)
+    producciones.filter(p => diaDe(p.fecha) === hoy).reduce((a, p) => a + (p.peso_kg || 0), 0)
   ), [producciones, hoy])
 
   const kgAyer = useMemo(() => {
     const ayer = sumarDias(hoy, -1)
-    return producciones.filter(p => p.fecha === ayer).reduce((a, p) => a + (p.peso_kg || 0), 0)
+    return producciones.filter(p => diaDe(p.fecha) === ayer).reduce((a, p) => a + (p.peso_kg || 0), 0)
   }, [producciones, hoy])
 
   // Tendencia de producción vs ayer: null si ayer no hubo datos
@@ -174,7 +179,7 @@ export default function Dashboard() {
     return ((kgHoy - kgAyer) / kgAyer) * 100
   }, [kgHoy, kgAyer])
 
-  const registrosHoy = useMemo(() => producciones.filter(p => p.fecha === hoy).length, [producciones, hoy])
+  const registrosHoy = useMemo(() => producciones.filter(p => diaDe(p.fecha) === hoy).length, [producciones, hoy])
 
   const insumosBajoMinimo = useMemo(() => (
     insumos.filter(i => (i.stock_actual || 0) < (i.stock_minimo || 0))
@@ -220,7 +225,7 @@ export default function Dashboard() {
     const inicio = lunesDeSemana(hoy)
     return DIAS.map((dia, i) => {
       const fecha = sumarDias(inicio, i)
-      const kg = producciones.filter(p => p.fecha === fecha).reduce((a, p) => a + (p.peso_kg || 0), 0)
+      const kg = producciones.filter(p => diaDe(p.fecha) === fecha).reduce((a, p) => a + (p.peso_kg || 0), 0)
       const [, m, d] = fecha.split('-')
       return { dia, fechaLabel: `${dia} ${d}/${m}`, kg: Number(kg.toFixed(2)) }
     })
@@ -234,7 +239,7 @@ export default function Dashboard() {
   // ── Actividad reciente ────────────────────────────────────────────────────
   const actividad = useMemo(() => {
     const items = []
-    producciones.filter(p => p.fecha === hoy).forEach(p => {
+    producciones.filter(p => diaDe(p.fecha) === hoy).forEach(p => {
       items.push({
         hora: p.created_at, icon: Package, color: colors.brand,
         desc: `${fmtNum(p.peso_kg)} kg · ${p.producto_nombre}`, operario: p.operario_nombre,
@@ -399,7 +404,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <KpiCard
               label="Producción hoy" value={`${fmtNum(kgHoy)} kg`}
-              sub={`${producciones.filter(p => p.fecha === hoy).length} registro(s)`}
+              sub={`${producciones.filter(p => diaDe(p.fecha) === hoy).length} registro(s)`}
               icon={Factory} color={colors.brand}
               onClick={() => navigate('/produccion')}
             />

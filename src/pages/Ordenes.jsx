@@ -293,7 +293,12 @@ export default function Ordenes() {
   // Alta de base usada al cerrar un sabor cuya base no figura en stock
   const [baseAlta, setBaseAlta]   = useState({ cantidad: '', fecha: '', operario: '' })
 
-  const { isAdmin, user } = useUser()
+  const { isAdmin, tienePermiso, user } = useUser()
+  // Vincular consumo de una base a un producto es una tarea operativa (la hace
+  // cámara), no un cambio sensible. La habilitamos por permiso: admin siempre, y
+  // quien tenga el permiso 'vincularBases' (supervisores por defecto). Borrar un
+  // lote de base sigue siendo solo admin.
+  const puedeVincular = isAdmin || tienePermiso('vincularBases')
 
   // Al abrir el modal de finalización de un sabor sin base en stock, prellenar
   // el alta de base con lo que la receta dice que se necesitó.
@@ -1432,7 +1437,7 @@ export default function Ordenes() {
                 <Th>Fecha elaboración</Th>
                 <Th>Operario</Th>
                 <Th>Orden origen</Th>
-                {isAdmin && <Th></Th>}
+                {puedeVincular && <Th></Th>}
               </Tr>
             </Thead>
             <Tbody>
@@ -1450,17 +1455,19 @@ export default function Ordenes() {
                     <Td>{b.fecha || '—'}</Td>
                     <Td>{b.operario_nombre || '—'}</Td>
                     <Td>{b.orden_origen || '—'}</Td>
-                    {isAdmin && (
+                    {puedeVincular && (
                       <Td className="text-right whitespace-nowrap">
                         <button onClick={() => setVincularBase(b)} title="Vincular consumo a un producto"
                           className="px-2 py-1 rounded-md text-xs font-semibold hover:opacity-80 mr-1"
                           style={{ color: colors.brand, border: `1px solid ${colors.brand}55` }}>
                           🔗 Vincular
                         </button>
-                        <button onClick={() => eliminarBaseStock(b)} title="Eliminar del stock"
-                          className="p-1 rounded-md hover:opacity-80" style={{ color: colors.danger }}>
-                          <Trash2 size={15} />
-                        </button>
+                        {isAdmin && (
+                          <button onClick={() => eliminarBaseStock(b)} title="Eliminar del stock"
+                            className="p-1 rounded-md hover:opacity-80" style={{ color: colors.danger }}>
+                            <Trash2 size={15} />
+                          </button>
+                        )}
                       </Td>
                     )}
                   </Tr>

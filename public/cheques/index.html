@@ -263,37 +263,59 @@ body.locked{padding-bottom:0}
 /* ── INFORME PDF (documento dedicado, solo impresión) ──────────────────── */
 .print-only{display:none}
 @media print{
-  @page{ margin:12mm 11mm 17mm; }
+  @page{ margin:11mm 10mm 15mm; }
   html,body{background:#fff!important}
   body{padding:0!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .appbar,.bottomnav,.fab,.noprint,#app{display:none!important}
   .print-only{display:block}
-  /* Encabezado */
-  .print-header{display:flex;align-items:center;gap:14px;padding-bottom:11px;margin-bottom:14px;border-bottom:2.5px solid #063F6D}
-  .print-header .plogo{height:50px;width:auto}
-  .print-header .pmid{flex:1}
-  .print-title{font-size:21px;font-weight:800;color:#0f1b2b;letter-spacing:-.01em}
-  .print-firm{font-size:11.5px;color:#5B6472;font-weight:700;letter-spacing:.06em}
-  .print-meta{text-align:right;font-size:10.5px;color:#5B6472;line-height:1.55}
+  /* Encabezado con banda de marca */
+  .print-header{display:flex;align-items:stretch;border-bottom:3px solid #063F6D;margin-bottom:13px}
+  .print-header .pbar{width:7px;background:#063F6D;flex:none}
+  .print-header .pin{flex:1;display:flex;align-items:center;gap:16px;padding:2px 2px 11px 14px}
+  .print-header .plogo{height:70px;width:auto}
+  .print-title{font-size:22px;font-weight:800;color:#0f1b2b;letter-spacing:-.02em;line-height:1.05}
+  .print-desc{font-size:11px;color:#5B6472;font-weight:600;margin-top:3px}
+  .print-meta{margin-left:auto;text-align:right;font-size:10.5px;color:#5B6472;line-height:1.7}
   .print-meta b{color:#0f1b2b}
+  .print-meta .chip{display:inline-block;background:#f6f8fb;border:1px solid #e3e7ee;border-radius:6px;padding:1px 8px;font-weight:700;color:#063F6D}
   /* Pie confidencial en cada página */
-  .print-footer{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:1px solid #d6dae2;font-size:9px;color:#7a828e}
-  .print-footer .conf{font-weight:700;color:#5B6472}
+  .print-footer{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:1px solid #d6dae2;font-size:8.5px;color:#8a929e}
+  .print-footer .conf{font-weight:800;color:#5B6472;letter-spacing:.03em}
+  /* KPI cards */
+  .pr-kpis{display:flex;gap:9px;margin-bottom:11px}
+  .pr-kpi{flex:1;border-radius:11px;padding:11px 12px;color:#fff;position:relative;overflow:hidden}
+  .pr-kpi .l{font-size:8px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;opacity:.92}
+  .pr-kpi .v{font-size:16px;font-weight:800;letter-spacing:-.02em;margin-top:5px;font-variant-numeric:tabular-nums}
+  .pr-kpi .s{font-size:8px;opacity:.9;margin-top:2px}
+  .pr-kpi.tl{background:#0B7D70}.pr-kpi.nv{background:#063F6D}.pr-kpi.rd{background:#b71d2b}.pr-kpi.gr{background:#137a41}
+  .pr-kpi svg{position:absolute;right:7px;bottom:6px;width:25px;height:25px;opacity:.20}
+  /* Resumen ejecutivo */
+  .pr-exec{font-size:10px;color:#3a4759;line-height:1.55;background:#f6f8fb;border:1px solid #e3e7ee;border-left:3px solid #063F6D;border-radius:7px;padding:9px 12px;margin-bottom:2px}
+  .pr-exec b{color:#0f1b2b}
   /* Cuerpo del informe */
-  .pr-kpis{display:flex;gap:8px;margin-bottom:6px}
-  .pr-kpi{flex:1;border:1px solid #dfe4ec;border-radius:8px;padding:8px 11px;background:#fbfcfe}
-  .pr-kpi span{display:block;font-size:8.5px;color:#6b7280;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
-  .pr-kpi b{font-size:15px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
-  .pr-sec{font-size:12px;font-weight:800;color:#0f1b2b;margin:16px 0 6px;padding-bottom:3px;border-bottom:1.5px solid #063F6D;display:flex;justify-content:space-between;align-items:baseline}
-  .pr-sec .sub{font-weight:700;color:#5B6472;font-size:10.5px}
+  .pr-sec{font-size:12px;font-weight:800;color:#0f1b2b;margin:15px 0 6px;padding-bottom:4px;border-bottom:2px solid #063F6D;display:flex;justify-content:space-between;align-items:baseline}
+  .pr-sec .dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px;vertical-align:middle;background:#063F6D}
+  .pr-sec .sub{font-weight:700;color:#5B6472;font-size:10px}
+  .pr-chartbox{border:1px solid #e3e7ee;border-radius:10px;padding:10px 12px 6px;background:#f6f8fb}
+  .pr-legend{display:flex;gap:16px;font-size:9px;color:#5B6472;font-weight:700;margin-top:2px}
+  .pr-legend b{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:middle;margin-right:4px}
   table.pr{width:100%;border-collapse:collapse;font-size:9.3px}
-  table.pr thead th{background:#063F6D;color:#fff;font-weight:700;text-align:left;padding:5px 6px;font-size:8.8px;letter-spacing:.02em}
+  table.pr thead th{background:#063F6D;color:#fff;font-weight:700;text-align:left;padding:5px 7px;font-size:8.8px;letter-spacing:.02em}
   table.pr thead th.r{text-align:right}
-  table.pr td{padding:4px 6px;border-bottom:1px solid #e9ecf1;vertical-align:top}
+  table.pr td{padding:4.5px 7px;border-bottom:1px solid #e9ecf1;vertical-align:middle}
   table.pr tbody tr:nth-child(even){background:#f6f8fb}
   table.pr .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-  table.pr .venc{color:#b71d2b;font-weight:700}
-  table.pr tfoot td{font-weight:800;border-top:1.5px solid #063F6D;background:#eef2f6;padding:5px 6px}
+  table.pr .who{font-weight:700;color:#0f1b2b}
+  table.pr .venc{color:#b71d2b;font-weight:800}
+  table.pr tfoot td{font-weight:800;border-top:2px solid #063F6D;background:#eef2f6;padding:5.5px 7px}
+  .pr-pill{display:inline-block;font-size:8px;font-weight:800;padding:1.5px 7px;border-radius:999px;white-space:nowrap}
+  .pr-pill.ok{background:#e3f6ec;color:#137a41}.pr-pill.warn{background:#fdefd6;color:#8a5a00}.pr-pill.info{background:#e3f0ff;color:#1f56c7}
+  .pr-pill.pur{background:#efe8fe;color:#5b27c4}.pr-pill.dang{background:#fdecec;color:#b71d2b}.pr-pill.mut{background:#eef1f5;color:#5B6472}
+  .pr-callout{display:flex;justify-content:space-between;align-items:center;border-radius:10px;padding:10px 14px;margin-top:10px;background:#eaf7ef;border:1px solid #bfe6cd}
+  .pr-callout.neg{background:#fdecec;border-color:#f2c2c2}
+  .pr-callout .t{font-size:10px;color:#5B6472;font-weight:700}
+  .pr-callout .n{font-size:16px;font-weight:800;color:#137a41;font-variant-numeric:tabular-nums}
+  .pr-callout.neg .n{color:#b71d2b}
   .pr-block{break-inside:auto}
   table.pr tr{break-inside:avoid}
   table.pr thead{display:table-header-group}
@@ -304,12 +326,15 @@ body.locked{padding-bottom:0}
 
 <!-- Encabezado del informe (aparece SOLO en el PDF/impresión) -->
 <div class="print-only print-header">
-  <img class="plogo" src="logo-ciaf.png" alt="CIAF Consultora Integral" />
-  <div class="pmid">
-    <div class="print-title">Informe de Cheques</div>
-    <div class="print-firm">CIAF · CONSULTORA INTEGRAL</div>
+  <div class="pbar"></div>
+  <div class="pin">
+    <img class="plogo" src="logo-ciaf.png" alt="CIAF Consultora Integral" />
+    <div>
+      <div class="print-title">Informe de Cheques</div>
+      <div class="print-desc">Reporte de cartera de valores</div>
+    </div>
+    <div class="print-meta" id="printMeta">—</div>
   </div>
-  <div class="print-meta" id="printMeta">—</div>
 </div>
 <div class="print-only print-report" id="printReport"></div>
 <div class="print-only print-footer">
@@ -1765,57 +1790,118 @@ function download(name,blob){ const u=URL.createObjectURL(blob); const a=documen
 
 // Arma el informe PDF completo (encabezado, resumen, detalle de cheques y bancos).
 function prepararImpresion(){
-  const rz = filtros.razon ? razonNombre(filtros.razon) : 'Todas las razones sociales';
+  const rz = filtros.razon ? razonNombre(filtros.razon) : 'Todas las razones';
   const m = $('#printMeta');
-  const per = (filtros.desde||filtros.hasta) ? `<br>Período: <b>${esc(periodoLabel())}</b>` : '';
-  if(m) m.innerHTML = `<b>${esc(rz)}</b><br>Fecha base: <b>${fmtFecha(hoyISO())}</b>${per}<br>${nChe(chequesFiltrados().length)}`;
+  const per = (filtros.desde||filtros.hasta) ? `<br>Período: <span class="chip">${esc(periodoLabel())}</span>` : '';
+  if(m) m.innerHTML = `Empresa: <b>${esc(rz)}</b>${per}<br>Emitido: <b>${fmtFecha(hoyISO())}</b>`;
   const f = $('#printFoot');
   if(f) f.textContent = 'Generado el ' + fmtFecha(hoyISO());
   const r = $('#printReport');
   if(r) r.innerHTML = construirInforme();
 }
+// Íconos de línea sobrios para las tarjetas KPI del informe.
+const PR_ICONS = {
+  cobrar:'<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+  pagar:'<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+  venc:'<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+  neto:'<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7"><path d="M5 5h14L10 12l9 7H5"/></svg>',
+};
+// Chart de vencimientos por mes para el informe (SVG, colores fijos de impresión).
+function chartInformeMeses(chs){
+  const abiertos=chs.filter(c=>esAbierto(c)&&c.fecha_pago);
+  const m={};
+  abiertos.forEach(c=>{ const k=String(c.fecha_pago).slice(0,7); (m[k]||=({cob:0,pag:0})); if(c.tipo==='emitido') m[k].pag+=Number(c.importe)||0; else m[k].cob+=Number(c.importe)||0; });
+  const keys=Object.keys(m).sort().slice(0,8);
+  if(!keys.length) return '';
+  const max=Math.max(1,...keys.map(k=>Math.max(m[k].cob,m[k].pag)));
+  const W=760,H=190,padL=58,padR=12,padT=16,padB=34,plotH=H-padT-padB,plotW=W-padL-padR,step=plotW/keys.length;
+  const grid=[0,.5,1].map(g=>{ const y=H-padB-g*plotH; return `<line x1="${padL}" x2="${W-padR}" y1="${y.toFixed(0)}" y2="${y.toFixed(0)}" stroke="#e3e7ee"${g?' stroke-dasharray="3 4"':''}/><text x="${padL-8}" y="${(y+3).toFixed(0)}" font-size="10" fill="#8a929e" text-anchor="end">${pesosK(g*max).replace('$ ','')}</text>`; }).join('');
+  let bars='';
+  keys.forEach((k,i)=>{ const cx=padL+step*i+step/2, bw=Math.min(24,step*0.28), gap=bw*0.62;
+    const draw=(v,dx,fill)=>{ if(v<=0) return ''; const h=Math.max(2,v/max*plotH), x=cx+dx-bw/2, y=H-padB-h; return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${fill}"/>`; };
+    bars+=draw(m[k].cob,-gap,'#0B7D70')+draw(m[k].pag,gap,'#063F6D');
+    bars+=`<text x="${cx.toFixed(0)}" y="${H-padB+16}" font-size="10.5" fill="#5B6472" text-anchor="middle" font-weight="700">${fmtMes(k).split(' ')[0]}</text>`;
+  });
+  return `<div class="pr-sec"><span><span class="dot"></span>Vencimientos por mes</span><span class="sub">a cobrar vs a pagar</span></div>
+    <div class="pr-chartbox"><svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${grid}${bars}</svg>
+    <div class="pr-legend"><span><b style="background:#0B7D70"></b>A cobrar</span><span><b style="background:#063F6D"></b>A pagar</span></div></div>`;
+}
 function construirInforme(){
   const chs = chequesFiltrados().slice().sort((a,b)=>((a.fecha_pago||'9999')<(b.fecha_pago||'9999')?-1:1));
   const abCobrar=chs.filter(c=>c.tipo==='recibido'&&esAbierto(c)), abPagar=chs.filter(c=>c.tipo==='emitido'&&esAbierto(c));
   const vencidos=chs.filter(c=>esAbierto(c)&&diasHasta(c.fecha_pago)!=null&&diasHasta(c.fecha_pago)<0);
+  const totCob=suma(abCobrar), totPag=suma(abPagar), neto=totCob-totPag, totVen=suma(vencidos);
+  const dispo = disponibilidadBancaria();
+  const signo=n=>(n<0?'− ':'+ ')+pesos(Math.abs(n));
+
+  // Tarjetas KPI (color por semántica y por signo)
   const kpis = `<div class="pr-kpis">
-    <div class="pr-kpi"><span>Total a cobrar</span><b style="color:#0B7D70">${pesos(suma(abCobrar))}</b></div>
-    <div class="pr-kpi"><span>Total a pagar</span><b style="color:#063F6D">${pesos(suma(abPagar))}</b></div>
-    <div class="pr-kpi"><span>Vencidos</span><b style="color:#7A3FF2">${pesos(suma(vencidos))}</b></div>
-    <div class="pr-kpi"><span>Cheques</span><b>${chs.length}</b></div>
+    <div class="pr-kpi tl"><div class="l">A cobrar</div><div class="v">${pesos(totCob)}</div><div class="s">${nChe(abCobrar.length)} en cartera</div>${PR_ICONS.cobrar}</div>
+    <div class="pr-kpi nv"><div class="l">A pagar</div><div class="v">${pesos(totPag)}</div><div class="s">${nChe(abPagar.length)} emitidos</div>${PR_ICONS.pagar}</div>
+    <div class="pr-kpi ${vencidos.length?'rd':'nv'}"><div class="l">Vencidos</div><div class="v">${pesos(totVen)}</div><div class="s">${vencidos.length?nChe(vencidos.length):'al día ✓'}</div>${PR_ICONS.venc}</div>
+    <div class="pr-kpi ${neto<0?'rd':'gr'}"><div class="l">Posición neta</div><div class="v">${signo(neto)}</div><div class="s">cobrar − pagar</div>${PR_ICONS.neto}</div>
   </div>`;
-  const grupo = (titulo, arr) => {
+
+  // Resumen ejecutivo en palabras
+  const exec = `<div class="pr-exec">Al <b>${fmtFecha(hoyISO())}</b>, la cartera registra <b>${nChe(abPagar.length)} a pagar</b> por <b>${pesos(totPag)}</b> y <b>${nChe(abCobrar.length)} a cobrar</b> por <b>${pesos(totCob)}</b>${vencidos.length?`, con <b style="color:#b71d2b">${pesos(totVen)} vencidos</b>`:', sin cheques vencidos'}.${dispo.rows.length?` El disponible bancario es de <b>${pesos(dispo.disp)}</b>${dispo.disp-totPag<0?', que no cubre los pagos abiertos.':'.'}`:''}</div>`;
+
+  // Resumen por razón social (solo con "Todas las razones" y más de una)
+  let porRazon='';
+  if(!filtros.razon && state.razones.length>1){
+    const filas = state.razones.map(r=>{
+      const p=suma(chs.filter(c=>c.razon_social_id===r.id&&c.tipo==='emitido'&&esAbierto(c)));
+      const c=suma(chs.filter(x=>x.razon_social_id===r.id&&x.tipo==='recibido'&&esAbierto(x)));
+      return {n:r.nombre,p,c,neto:c-p};
+    }).filter(x=>x.p||x.c).sort((a,b)=>a.neto-b.neto);
+    if(filas.length){
+      porRazon = `<div class="pr-block"><div class="pr-sec"><span><span class="dot"></span>Resumen por razón social</span><span class="sub">a pagar · a cobrar · neto</span></div>
+      <table class="pr"><thead><tr><th>Razón social</th><th class="r">A pagar</th><th class="r">A cobrar</th><th class="r">Neto</th></tr></thead>
+      <tbody>${filas.map(f=>`<tr><td class="who">${esc(f.n)}</td><td class="r">${f.p?pesos(f.p):'—'}</td><td class="r">${f.c?pesos(f.c):'—'}</td><td class="r" style="font-weight:800;color:${f.neto<0?'#b71d2b':'#137a41'}">${signo(f.neto)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td>Total</td><td class="r">${pesos(totPag)}</td><td class="r">${pesos(totCob)}</td><td class="r" style="color:${neto<0?'#b71d2b':'#137a41'}">${signo(neto)}</td></tr></tfoot></table></div>`;
+    }
+  }
+
+  // Detalle a pagar / a cobrar con chips de estado
+  const grupo = (titulo, dotColor, arr, quienLbl) => {
     if(!arr.length) return '';
     const rows = arr.map(ch=>{
       const c=clasif(ch), est=estadoInfo(ch.tipo,ch.estado);
       const vto = fmtFecha(ch.fecha_pago) + (c&&c.est!=='ok'?` <span class="venc">(${c.label} ${labelDias(c.d)})</span>`:'');
+      const pillCls = ch.estado==='endosado'?'pur':({ok:'ok',warn:'warn',info:'info',danger:'dang',purple:'pur',mut:'mut'}[est.b]||'mut');
+      const pillTxt = ch.estado==='endosado'&&ch.endosado_a ? `Endosado → ${esc(ch.endosado_a)}` : esc(est.l);
       return `<tr>
         <td>${vto}</td>
-        <td><b>${esc(ch.contraparte||ch.librador||'—')}</b></td>
+        <td class="who">${esc(ch.contraparte||ch.librador||'—')}</td>
         <td>${esc(razonNombre(ch.razon_social_id))}</td>
-        <td>${esc(ch.banco||'—')} · N° ${esc(ch.numero||'—')}</td>
-        <td>${FORMATOS[ch.formato]||'Físico'}</td>
-        <td>${est.l}</td>
+        <td>${esc(ch.banco||'—')} · N° ${esc(ch.numero||'—')} · ${FORMATOS[ch.formato]||'Físico'}</td>
+        <td><span class="pr-pill ${pillCls}">${pillTxt}</span></td>
         <td class="r">${pesos(ch.importe)}</td>
       </tr>`;
     }).join('');
     return `<div class="pr-block">
-      <div class="pr-sec">${titulo}<span class="sub">${nChe(arr.length)} · ${pesos(suma(arr))}</span></div>
-      <table class="pr"><thead><tr><th>Vencimiento</th><th>Contraparte</th><th>Empresa</th><th>Banco / N°</th><th>Formato</th><th>Estado</th><th class="r">Importe</th></tr></thead>
+      <div class="pr-sec"><span><span class="dot" style="background:${dotColor}"></span>${titulo}</span><span class="sub">${nChe(arr.length)} · ${pesos(suma(arr))}</span></div>
+      <table class="pr"><thead><tr><th>Vencimiento</th><th>${quienLbl}</th><th>Empresa</th><th>Banco / N° / Formato</th><th>Estado</th><th class="r">Importe</th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr><td colspan="6">Subtotal · ${titulo.toLowerCase()}</td><td class="r">${pesos(suma(arr))}</td></tr></tfoot></table>
+      <tfoot><tr><td colspan="5">Subtotal · ${titulo.toLowerCase()}</td><td class="r">${pesos(suma(arr))}</td></tr></tfoot></table>
     </div>`;
   };
   const pagar=chs.filter(c=>c.tipo==='emitido'), cobrar=chs.filter(c=>c.tipo==='recibido');
-  const dispo = disponibilidadBancaria();
+
+  // Disponibilidad bancaria + posición tras pagar
   let banco='';
   if(dispo.rows.length){
-    banco = `<div class="pr-block"><div class="pr-sec">Disponibilidad bancaria<span class="sub">Disponible ${pesos(dispo.disp)}</span></div>
+    const tras=dispo.disp-totPag;
+    banco = `<div class="pr-block"><div class="pr-sec"><span><span class="dot"></span>Disponibilidad bancaria</span><span class="sub">Disponible ${pesos(dispo.disp)}</span></div>
       <table class="pr"><thead><tr><th>Entidad</th><th class="r">Saldo</th><th class="r">Acuerdo</th><th class="r">Disponible</th></tr></thead>
       <tbody>${dispo.rows.map(r=>`<tr><td>${esc(r.entidad)}${r.razon?` · ${esc(r.razon)}`:''}</td><td class="r">${pesos(r.saldo)}</td><td class="r">${pesos(r.acuerdo)}</td><td class="r">${pesos(r.disp)}</td></tr>`).join('')}</tbody>
-      <tfoot><tr><td>Total</td><td class="r">${pesos(dispo.saldo)}</td><td class="r">${pesos(dispo.acuerdo)}</td><td class="r">${pesos(dispo.disp)}</td></tr></tfoot></table></div>`;
+      <tfoot><tr><td>Total</td><td class="r">${pesos(dispo.saldo)}</td><td class="r">${pesos(dispo.acuerdo)}</td><td class="r">${pesos(dispo.disp)}</td></tr></tfoot></table>
+      <div class="pr-callout ${tras<0?'neg':''}"><span class="t">Disponible tras cubrir los pagos abiertos</span><span class="n">${tras<0?'− ':''}${pesos(Math.abs(tras))}</span></div></div>`;
   }
-  return kpis + grupo('CHEQUES A PAGAR', pagar) + grupo('CHEQUES A COBRAR', cobrar) + banco;
+
+  return kpis + exec + porRazon + chartInformeMeses(chs)
+    + grupo('CHEQUES A PAGAR', '#063F6D', pagar, 'Beneficiario')
+    + grupo('CHEQUES A COBRAR', '#0B7D70', cobrar, 'Librador')
+    + banco;
 }
 
 /* ── Compartir vencimientos (WhatsApp / Mail / share nativo) ─────────────── */

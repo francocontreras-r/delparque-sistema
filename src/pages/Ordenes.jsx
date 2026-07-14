@@ -439,10 +439,31 @@ export default function Ordenes() {
     setModal(true)
   }
 
+  // IMPULSIVOS orderables = catálogo maestro (tabla impulsivos) UNIDO a los que
+  // estén en cámara. Antes solo se listaban los de stock_camaras, por eso los
+  // "mini" (almendrado, barra tricolor, etc.) que viven en la tabla impulsivos
+  // pero no están cargados en cámara no se podían pedir en una orden. Dedup por
+  // nombre normalizado, priorizando el registro de cámara si existe.
+  const impulsivosOpts = (() => {
+    const porNombre = new Map()
+    // El catálogo (tabla impulsivos) manda: define el id que se guarda en la
+    // orden y coincide con las claves de la proyección (imp-<id>).
+    impulsivos.forEach(p => {
+      porNombre.set(normalizarNombre(p.nombre), { ...p, _key: `imp-${p.id}`, _tipo: 'impulsivo', _grupo: 'IMPULSIVOS', nombre: (p.nombre || '').toUpperCase() })
+    })
+    // Sumamos los que estén en cámara pero no en el catálogo (clave aparte para
+    // no chocar con un id igual del catálogo).
+    saboresCamara.filter(s => s.tipo_producto === 'impulsivo').forEach(p => {
+      const k = normalizarNombre(p.nombre)
+      if (!porNombre.has(k)) porNombre.set(k, { ...p, _key: `imp-cam-${p.id}`, _tipo: 'impulsivo', _grupo: 'IMPULSIVOS', nombre: (p.nombre || '').toUpperCase() })
+    })
+    return [...porNombre.values()].sort((a, b) => a.nombre.localeCompare(b.nombre))
+  })()
+
   const opcionesActivas = [
     ...bases.map(b => ({ ...b, _key: `base-${b.id}`, _tipo: 'base', _grupo: 'BASES', nombre: (b.nombre || '').toUpperCase() })),
     ...sabores.map(s => ({ ...s, _key: `sabor-${s.id}`, _tipo: 'sabor', _grupo: 'SABORES', nombre: (s.nombre || '').toUpperCase() })),
-    ...saboresCamara.filter(s => s.tipo_producto === 'impulsivo').map(p => ({ ...p, _key: `imp-${p.id}`, _tipo: 'impulsivo', _grupo: 'IMPULSIVOS', nombre: (p.nombre || '').toUpperCase() })),
+    ...impulsivosOpts,
     ...saboresCamara.filter(s => s.tipo_producto === 'postre').map(p => ({ ...p, _key: `postre-${p.id}`, _tipo: 'postre', _grupo: 'POSTRES', nombre: (p.nombre || '').toUpperCase() })),
   ]
   const opcionesDelTab = opcionesActivas.filter(p => p._grupo === tabProducto)

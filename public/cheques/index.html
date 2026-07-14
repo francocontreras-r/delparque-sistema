@@ -445,7 +445,7 @@ const REMOTE = { razones:'razones_sociales', bancos:'bancos', cheques:'cheques' 
 const COLS = {
   razones:['id','nombre','cuit','activo'],
   bancos :['id','razon_social_id','entidad','saldo','acuerdo'],
-  cheques:['id','razon_social_id','tipo','formato','banco','numero','importe','fecha_emision','fecha_pago','fecha_acreditacion','estado','librador','cuit_librador','contraparte','concepto','observaciones','creado_por','historial'],
+  cheques:['id','razon_social_id','tipo','formato','banco','numero','importe','fecha_emision','fecha_pago','fecha_acreditacion','estado','librador','cuit_librador','contraparte','concepto','observaciones','creado_por','historial','endosado_a','endosado_fecha'],
 };
 const DATE_COLS = new Set(['fecha_emision','fecha_pago','fecha_acreditacion']);
 const NUM_COLS  = new Set(['importe','saldo','acuerdo']);
@@ -947,6 +947,7 @@ function chequeCard(ch){
         <span>${esc(ch.banco||'—')} · N° ${esc(ch.numero||'—')} · ${FORMATOS[ch.formato]||'Físico'}</span>
         <span class="venc" style="color:${c&&c.est!=='ok'?c.color:'var(--ink3)'}">${fmtFecha(ch.fecha_pago)}${c&&c.est!=='ok'?' · '+c.label+' '+labelDias(c.d):''}</span>
       </div>
+      ${ch.estado==='endosado'&&ch.endosado_a?`<div style="margin-top:6px;font-size:12px;color:#6b4b8a">↪ Endosado a <b>${esc(ch.endosado_a)}</b>${ch.endosado_fecha?` · ${fmtFecha(ch.endosado_fecha)}`:''}</div>`:''}
     </div>
   </div>`;
 }
@@ -965,10 +966,36 @@ function estadoRapido(id){
 }
 function aplicarEstado(id, estado){
   const ch = state.cheques.find(c=>c.id===id); if(!ch) return;
+  // Al endosar un cheque a cobrar, primero pedimos a quién se lo endosa.
+  if(estado==='endosado' && ch.tipo==='recibido'){ pedirEndoso(id); return; }
   if(ch.estado!==estado) logHist(ch,'estado',{de:ch.estado,a:estado});
   ch.estado = estado; save(); closeModal(); render();
   toast('Estado: ' + estadoInfo(ch.tipo, estado).l);
   cloudPush('cheques', {...ch});
+}
+// Modal para registrar el endoso: a quién y en qué fecha.
+function pedirEndoso(id){
+  const ch = state.cheques.find(c=>c.id===id); if(!ch) return;
+  const sugeridos=[...new Set(state.cheques.map(c=>c.endosado_a).filter(Boolean))].sort();
+  openModal(`<div class="modal" style="max-width:440px">
+    <div class="modal-h"><h3>Endosar cheque</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-b">
+      <div class="hint" style="padding:2px 2px 12px"><b style="color:var(--ink)">${esc(ch.contraparte||ch.librador||'—')}</b> · ${pesos(ch.importe)} · N° ${esc(ch.numero||'—')} · ${razonNombre(ch.razon_social_id)}</div>
+      <div class="field"><label>¿A quién se lo endosás?</label><input id="endA" value="${esc(ch.endosado_a)}" placeholder="Nombre / empresa / proveedor" list="endosList" autocomplete="off"></div>
+      <div class="field"><label>Fecha del endoso</label><input id="endF" type="date" value="${ch.endosado_fecha||hoyISO()}"></div>
+      <div class="hint" style="padding:0">Queda registrado en el historial del cheque y en la lista de endosos (pestaña Análisis).</div>
+    </div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn" data-confirm-endoso="${id}" style="flex:1;justify-content:center">Endosar</button></div>
+  </div>
+  <datalist id="endosList">${sugeridos.map(x=>`<option value="${esc(x)}">`).join('')}</datalist>`);
+}
+function confirmarEndoso(id){
+  const ch = state.cheques.find(c=>c.id===id); if(!ch) return;
+  const a=($('#endA').value||'').trim(); if(!a){ toast('Poné a quién se lo endosás'); return; }
+  ch.endosado_a=a; ch.endosado_fecha=$('#endF').value||hoyISO();
+  logHist(ch,'estado',{de:ch.estado,a:'endosado',endosado_a:a});
+  ch.estado='endosado'; save(); closeModal(); render();
+  toast('Endosado a '+a+' ✓'); cloudPush('cheques',{...ch});
 }
 function viewCheques(){
   const chs = chequesFiltrados().slice().sort((a,b)=>{
@@ -1072,6 +1099,7 @@ function viewAnalisis(){
   const porEstado = agrupar(chs, c=>estadoInfo(c.tipo,c.estado).l);
   const porRazon  = agrupar(abiertos, c=>razonNombre(c.razon_social_id));
   const echeq = suma(abiertos.filter(c=>c.formato==='echeq')), fisico=suma(abiertos.filter(c=>c.formato!=='echeq'));
+  const endosados = chs.filter(c=>c.estado==='endosado').slice().sort((a,b)=>((a.endosado_fecha||'')<(b.endosado_fecha||'')?1:-1));
 
   return `${filtrosBar()}
   <div class="grid g4" style="margin-bottom:8px">
@@ -1096,6 +1124,23 @@ function viewAnalisis(){
     </table></div>
     ${flujoRows.some(f=>f.saldo<0)?`<div style="margin-top:12px;padding:11px 13px;border-radius:12px;background:#FDECEC;color:var(--red);font-size:13px;font-weight:600">⚠️ En algún mes el saldo proyectado queda en negativo. Revisá los pagos de ese período.</div>`:''}`
     : `<div class="empty" style="padding:18px">Cargá cheques con fecha de vencimiento para ver la proyección.</div>`}
+  </div>
+
+  <div class="section-title">Cheques endosados <span class="badge b-mut" style="vertical-align:middle">${endosados.length}</span></div>
+  <div class="card">
+    <div class="hint">Registro de cheques a cobrar que pasaste a un tercero (a quién y cuándo). Para endosar uno, cambiale el estado a <b>Endosado</b> desde la lista de Cheques.</div>
+    ${endosados.length ? `<div class="tblwrap"><table>
+      <thead><tr><th>Endosado a</th><th>Cheque</th><th>Empresa</th><th>Fecha endoso</th><th>Vence</th><th class="right">Importe</th></tr></thead>
+      <tbody>${endosados.map(c=>`<tr data-edit="${c.id}" style="cursor:pointer">
+        <td><b>${esc(c.endosado_a||'—')}</b></td>
+        <td>${esc(c.contraparte||c.librador||'—')}<div class="mut3" style="font-size:11.5px">${esc(c.banco||'—')} · N° ${esc(c.numero||'—')}</div></td>
+        <td>${esc(razonNombre(c.razon_social_id))}</td>
+        <td>${c.endosado_fecha?fmtFecha(c.endosado_fecha):'—'}</td>
+        <td>${fmtFecha(c.fecha_pago)}</td>
+        <td class="right num">${pesos(c.importe)}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--line)"><td colspan="5" style="padding:11px 12px;font-weight:800">Total endosado</td><td class="right num" style="font-weight:800">${pesos(suma(endosados))}</td></tr></tfoot>
+    </table></div>` : `<div class="empty" style="padding:18px">Todavía no endosaste ningún cheque.</div>`}
   </div>
 
   <div class="section-title">Detalle</div>
@@ -1275,7 +1320,7 @@ function histHTML(d){
   const accLabel={creado:'Cargado',importado:'Importado',estado:'Cambió estado',editado:'Editado'};
   const el=v=>{ try{ return estadoInfo(d.tipo,v).l; }catch(e){ return v||'—'; } };
   const items=h.map(e=>{
-    const det = e.accion==='estado' ? ` · ${el(e.de)} → <b style="color:var(--ink2)">${el(e.a)}</b>` : '';
+    const det = e.accion==='estado' ? ` · ${el(e.de)} → <b style="color:var(--ink2)">${el(e.a)}</b>${e.endosado_a?` (a ${esc(e.endosado_a)})`:''}` : '';
     return `<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:12.5px">
       <span><b style="color:var(--ink2)">${accLabel[e.accion]||e.accion}</b>${det}<br><span class="mut3">${esc(e.por||'—')}</span></span>
       <span class="mut3" style="white-space:nowrap">${fmtHist(e.ts)}</span></div>`;
@@ -1321,6 +1366,10 @@ function renderChequeForm(d, editing){
         <div class="field"><label>Formato</label><select data-d="formato"><option value="fisico" ${d.formato==='fisico'?'selected':''}>Físico</option><option value="echeq" ${d.formato==='echeq'?'selected':''}>E-cheq</option></select></div>
         <div class="field"><label>Estado</label><select data-d="estado">${estOpts}</select></div>
       </div>
+      ${d.tipo==='recibido'?`<div class="frow">
+        <div class="field"><label>Endosado a <span class="mut3">(si lo pasaste a un tercero)</span></label><input data-d="endosado_a" value="${esc(d.endosado_a)}" placeholder="Nombre / empresa" list="endosList" autocomplete="off"></div>
+        <div class="field"><label>Fecha del endoso <span class="mut3">(opcional)</span></label><input type="date" data-d="endosado_fecha" value="${d.endosado_fecha||''}"></div>
+      </div>`:''}
       <div class="frow">
         <div class="field"><label>CUIT del librador <span class="mut3">(opcional)</span></label><input data-d="cuit_librador" value="${esc(d.cuit_librador)}" placeholder="30-00000000-0"></div>
         <div class="field"><label>Concepto <span class="mut3">(opcional)</span></label><input data-d="concepto" value="${esc(d.concepto)}" placeholder="Ej: Factura 0001-00012"></div>
@@ -1336,7 +1385,8 @@ function renderChequeForm(d, editing){
       <button class="btn" data-save-cheque style="flex:1;justify-content:center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 13l4 4L19 7"/></svg>${editing?'Guardar cambios':'Agregar cheque'}</button>`}
     </div>
   </div>
-  <datalist id="bancosList">${[...new Set([...state.cheques.map(c=>c.banco).filter(Boolean), ...BANCOS_AR])].map(b=>`<option value="${esc(b)}">`).join('')}</datalist>`);
+  <datalist id="bancosList">${[...new Set([...state.cheques.map(c=>c.banco).filter(Boolean), ...BANCOS_AR])].map(b=>`<option value="${esc(b)}">`).join('')}</datalist>
+  <datalist id="endosList">${[...new Set(state.cheques.map(c=>c.endosado_a).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join('')}</datalist>`);
 }
 
 function modalRazon(id){
@@ -1371,7 +1421,7 @@ function modalBanco(id){
    EVENTOS
    ══════════════════════════════════════════════════════════════════════════ */
 document.addEventListener('click', e=>{
-  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-confirm-cheque],[data-volver-form],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
+  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-confirm-cheque],[data-volver-form],[data-confirm-endoso],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
   if(!t) return;
 
   // Cambio rápido de estado desde la lista
@@ -1461,6 +1511,7 @@ document.addEventListener('click', e=>{
   // guardar/eliminar cheque
   if(t.hasAttribute('data-save-cheque')){ saveCheque(); return; }
   if(t.hasAttribute('data-confirm-cheque')){ commitCheque(); return; }
+  if(t.dataset.confirmEndoso){ confirmarEndoso(t.dataset.confirmEndoso); return; }
   if(t.hasAttribute('data-volver-form')){ renderChequeForm(window._draft, !!window._draft.id); return; }
   if(t.hasAttribute('data-del-cheque')){ if(confirm('¿Eliminar este cheque?')){ const id=window._draft.id; state.cheques=state.cheques.filter(c=>c.id!==id); save(); closeModal(); render(); toast('Cheque eliminado'); cloudDelete('cheques',id); } return; }
 
@@ -1565,7 +1616,7 @@ function saveBanco(id){
 
 /* ── Export CSV / JSON / Imagen ─────────────────────────────────────────── */
 function exportCSV(){
-  const cols=[['Tipo',c=>TIPOS[c.tipo].label],['Razón social',c=>razonNombre(c.razon_social_id)],['Contraparte',c=>c.contraparte||c.librador||''],['Banco',c=>c.banco||''],['N°',c=>c.numero||''],['Formato',c=>FORMATOS[c.formato]||''],['Importe',c=>c.importe||0],['Emisión',c=>c.fecha_emision||''],['Pago',c=>c.fecha_pago||''],['Estado',c=>estadoInfo(c.tipo,c.estado).l],['Concepto',c=>c.concepto||''],['Observaciones',c=>c.observaciones||'']];
+  const cols=[['Tipo',c=>TIPOS[c.tipo].label],['Razón social',c=>razonNombre(c.razon_social_id)],['Contraparte',c=>c.contraparte||c.librador||''],['Banco',c=>c.banco||''],['N°',c=>c.numero||''],['Formato',c=>FORMATOS[c.formato]||''],['Importe',c=>c.importe||0],['Emisión',c=>c.fecha_emision||''],['Pago',c=>c.fecha_pago||''],['Estado',c=>estadoInfo(c.tipo,c.estado).l],['Endosado a',c=>c.endosado_a||''],['Fecha endoso',c=>c.endosado_fecha||''],['Concepto',c=>c.concepto||''],['Observaciones',c=>c.observaciones||'']];
   const esc2=v=>{const s=String(v==null?'':v);return /[",;\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
   const rows=chequesFiltrados();
   const csv='﻿'+cols.map(c=>c[0]).join(';')+'\r\n'+rows.map(r=>cols.map(c=>esc2(c[1](r))).join(';')).join('\r\n');
@@ -1578,18 +1629,19 @@ async function exportXLSX(){
   }catch(e){ toast('No se pudo cargar el generador de Excel'); return; }
   const rows=chequesFiltrados().slice().sort((a,b)=>((a.fecha_pago||'9999')<(b.fecha_pago||'9999')?-1:1));
   if(!rows.length){ toast('No hay cheques para exportar'); return; }
-  const H=['Tipo','Razón social','Contraparte / Librador','Banco','N°','Formato','Importe','Emisión','Vencimiento','Estado','Concepto','Observaciones','Cargado por'];
+  const H=['Tipo','Razón social','Contraparte / Librador','Banco','N°','Formato','Importe','Emisión','Vencimiento','Estado','Endosado a','Fecha endoso','Concepto','Observaciones','Cargado por'];
   const aoa=[H];
   rows.forEach(c=>aoa.push([
     TIPOS[c.tipo].label, razonNombre(c.razon_social_id), c.contraparte||c.librador||'',
     c.banco||'', c.numero||'', FORMATOS[c.formato]||'Físico', Number(c.importe)||0,
     c.fecha_emision||'', c.fecha_pago||'', estadoInfo(c.tipo,c.estado).l,
+    c.endosado_a||'', c.endosado_fecha||'',
     c.concepto||'', c.observaciones||'', c.creado_por||'' ]));
   // Fila de total
-  aoa.push([]); aoa.push(['','','','','','','TOTAL','','','','','','']);
+  aoa.push([]); aoa.push(['','','','','','','TOTAL','','','','','','','','']);
   aoa[aoa.length-1][6]=suma(rows);
   const ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols']=[{wch:10},{wch:24},{wch:24},{wch:20},{wch:12},{wch:9},{wch:14},{wch:12},{wch:12},{wch:14},{wch:20},{wch:24},{wch:22}];
+  ws['!cols']=[{wch:10},{wch:24},{wch:24},{wch:20},{wch:12},{wch:9},{wch:14},{wch:12},{wch:12},{wch:14},{wch:22},{wch:12},{wch:20},{wch:24},{wch:22}];
   // Formato de moneda para la columna Importe (G) y freeze de encabezado
   for(let r=1;r<aoa.length;r++){ const cell=ws['G'+(r+1)]; if(cell&&typeof cell.v==='number'){ cell.z='#,##0.00'; } }
   ws['!freeze']={xSplit:0,ySplit:1};

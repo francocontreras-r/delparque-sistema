@@ -263,7 +263,7 @@ body.locked{padding-bottom:0}
 /* ── INFORME PDF (documento dedicado, solo impresión) ──────────────────── */
 .print-only{display:none}
 @media print{
-  @page{ margin:11mm 10mm 15mm; }
+  @page{ margin:12mm 10mm; }
   html,body{background:#fff!important}
   body{padding:0!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .appbar,.bottomnav,.fab,.noprint,#app{display:none!important}
@@ -278,25 +278,26 @@ body.locked{padding-bottom:0}
   .print-meta{margin-left:auto;text-align:right;font-size:10.5px;color:#5B6472;line-height:1.7}
   .print-meta b{color:#0f1b2b}
   .print-meta .chip{display:inline-block;background:#f6f8fb;border:1px solid #e3e7ee;border-radius:6px;padding:1px 8px;font-weight:700;color:#063F6D}
-  /* Pie confidencial en cada página */
-  .print-footer{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:1px solid #d6dae2;font-size:8.5px;color:#8a929e}
-  .print-footer .conf{font-weight:800;color:#5B6472;letter-spacing:.03em}
-  /* KPI cards */
-  .pr-kpis{display:flex;gap:9px;margin-bottom:11px}
-  .pr-kpi{flex:1;border-radius:11px;padding:11px 12px;color:#fff;position:relative;overflow:hidden}
+  /* Pie confidencial (estático, imprime confiable en iPhone) */
+  .print-footer{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:20px;padding-top:9px;border-top:1.5px solid #063F6D;font-size:9px;color:#8a929e;break-inside:avoid}
+  .print-footer .conf{font-weight:800;color:#063F6D;letter-spacing:.02em}
+  /* KPI cards (números centrados) */
+  .pr-kpis{display:flex;gap:9px;margin-bottom:11px;break-inside:avoid;page-break-inside:avoid}
+  .pr-kpi{flex:1;border-radius:11px;padding:12px 12px 13px;color:#fff;position:relative;overflow:hidden;text-align:center}
   .pr-kpi .l{font-size:8px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;opacity:.92}
-  .pr-kpi .v{font-size:16px;font-weight:800;letter-spacing:-.02em;margin-top:5px;font-variant-numeric:tabular-nums}
-  .pr-kpi .s{font-size:8px;opacity:.9;margin-top:2px}
+  .pr-kpi .v{font-size:16.5px;font-weight:800;letter-spacing:-.02em;margin-top:6px;font-variant-numeric:tabular-nums}
+  .pr-kpi .s{font-size:8px;opacity:.9;margin-top:3px}
   .pr-kpi.tl{background:#0B7D70}.pr-kpi.nv{background:#063F6D}.pr-kpi.rd{background:#b71d2b}.pr-kpi.gr{background:#137a41}
-  .pr-kpi svg{position:absolute;right:7px;bottom:6px;width:25px;height:25px;opacity:.20}
+  .pr-kpi svg{position:absolute;right:7px;top:8px;width:20px;height:20px;opacity:.16}
   /* Resumen ejecutivo */
   .pr-exec{font-size:10px;color:#3a4759;line-height:1.55;background:#f6f8fb;border:1px solid #e3e7ee;border-left:3px solid #063F6D;border-radius:7px;padding:9px 12px;margin-bottom:2px}
+  .pr-exec{break-inside:avoid;page-break-inside:avoid}
   .pr-exec b{color:#0f1b2b}
   /* Cuerpo del informe */
-  .pr-sec{font-size:12px;font-weight:800;color:#0f1b2b;margin:15px 0 6px;padding-bottom:4px;border-bottom:2px solid #063F6D;display:flex;justify-content:space-between;align-items:baseline}
+  .pr-sec{font-size:12px;font-weight:800;color:#0f1b2b;margin:20px 0 7px;padding-bottom:4px;border-bottom:2px solid #063F6D;display:flex;justify-content:space-between;align-items:baseline;break-after:avoid;page-break-after:avoid}
   .pr-sec .dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px;vertical-align:middle;background:#063F6D}
   .pr-sec .sub{font-weight:700;color:#5B6472;font-size:10px}
-  .pr-chartbox{border:1px solid #e3e7ee;border-radius:10px;padding:10px 12px 6px;background:#f6f8fb}
+  .pr-chartbox{border:1px solid #e3e7ee;border-radius:10px;padding:10px 12px 6px;background:#f6f8fb;break-inside:avoid;page-break-inside:avoid}
   .pr-legend{display:flex;gap:16px;font-size:9px;color:#5B6472;font-weight:700;margin-top:2px}
   .pr-legend b{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:middle;margin-right:4px}
   table.pr{width:100%;border-collapse:collapse;font-size:9.3px}

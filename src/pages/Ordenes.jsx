@@ -440,10 +440,9 @@ export default function Ordenes() {
   }
 
   // IMPULSIVOS orderables = catálogo maestro (tabla impulsivos) UNIDO a los que
-  // estén en cámara. Antes solo se listaban los de stock_camaras, por eso los
-  // "mini" (almendrado, barra tricolor, etc.) que viven en la tabla impulsivos
-  // pero no están cargados en cámara no se podían pedir en una orden. Dedup por
-  // nombre normalizado, priorizando el registro de cámara si existe.
+  // estén en cámara. Antes solo se listaban los de stock_camaras, así que un
+  // impulsivo del catálogo que no estuviera cargado en cámara no se podía pedir.
+  // Dedup por nombre normalizado; el catálogo define el id que se guarda.
   const impulsivosOpts = (() => {
     const porNombre = new Map()
     // El catálogo (tabla impulsivos) manda: define el id que se guarda en la
@@ -460,11 +459,32 @@ export default function Ordenes() {
     return [...porNombre.values()].sort((a, b) => a.nombre.localeCompare(b.nombre))
   })()
 
+  // POSTRES orderables = catálogo (lib/postres.js) UNIDO a los que estén en
+  // cámara. El catálogo (con receta) manda y sus claves coinciden con las de la
+  // proyección (postre-<idx>). Los "mini" (barra almendrado, barra tricolor,
+  // pionono) son postres del catálogo que pueden no estar cargados en cámara:
+  // antes no aparecían en el selector y no se podían pedir. Si el postre también
+  // está en cámara, conservamos su id para la orden.
+  const postresOpts = (() => {
+    const camPostres = new Map()
+    saboresCamara.filter(s => s.tipo_producto === 'postre').forEach(p => camPostres.set(normalizarNombre(p.nombre), p))
+    const porNombre = new Map()
+    POSTRES.forEach((p, idx) => {
+      const k = normalizarNombre(p.nombre)
+      const cam = camPostres.get(k)
+      porNombre.set(k, { ...p, id: cam?.id ?? null, _key: `postre-${idx}`, _tipo: 'postre', _grupo: 'POSTRES', nombre: (p.nombre || '').toUpperCase() })
+    })
+    camPostres.forEach((p, k) => {
+      if (!porNombre.has(k)) porNombre.set(k, { ...p, _key: `postre-cam-${p.id}`, _tipo: 'postre', _grupo: 'POSTRES', nombre: (p.nombre || '').toUpperCase() })
+    })
+    return [...porNombre.values()].sort((a, b) => a.nombre.localeCompare(b.nombre))
+  })()
+
   const opcionesActivas = [
     ...bases.map(b => ({ ...b, _key: `base-${b.id}`, _tipo: 'base', _grupo: 'BASES', nombre: (b.nombre || '').toUpperCase() })),
     ...sabores.map(s => ({ ...s, _key: `sabor-${s.id}`, _tipo: 'sabor', _grupo: 'SABORES', nombre: (s.nombre || '').toUpperCase() })),
     ...impulsivosOpts,
-    ...saboresCamara.filter(s => s.tipo_producto === 'postre').map(p => ({ ...p, _key: `postre-${p.id}`, _tipo: 'postre', _grupo: 'POSTRES', nombre: (p.nombre || '').toUpperCase() })),
+    ...postresOpts,
   ]
   const opcionesDelTab = opcionesActivas.filter(p => p._grupo === tabProducto)
   const productoSel = opcionesActivas.find(p => p._key === lineaSel)

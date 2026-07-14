@@ -218,7 +218,7 @@ body.locked{padding-bottom:0}
 .login-alt a,.login .mut3 a{color:var(--brand);font-weight:700;cursor:pointer}
 .login-msg{background:#FDECEC;color:#B71D2B;border-radius:10px;padding:9px 12px;font-size:13px;font-weight:600;margin-bottom:12px;text-align:center}
 .login-msg.ok{background:#E3F6EC;color:#137a41}
-.cloudbar{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);background:#EAF2FA;border:1px solid #D4E5F4;border-radius:10px;padding:8px 12px;margin-bottom:14px}
+.cloudbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);background:#EAF2FA;border:1px solid #D4E5F4;border-radius:10px;padding:10px 12px;margin-bottom:14px}
 .cloudbar .dot{width:8px;height:8px}
 .hidden{display:none!important}
 @media(min-width:768px){ .bottomnav,.fab{display:none} body{padding-bottom:24px} }
@@ -1125,24 +1125,23 @@ function barList(pairs,color){
 function usuariosCard(){
   if(!esAdmin() || !cloudOn()) return '';
   if(usuariosCache === null){ cargarUsuarios(); return `<div class="card" style="margin-bottom:16px"><h2>Usuarios y permisos</h2><div class="empty" style="padding:18px">Cargando usuarios…</div></div>`; }
-  const rows = usuariosCache.map(u=>`<tr>
-    <td><b>${esc(u.email||'—')}</b>${u.id===sbUser?.id?' <span class="mut3">(vos)</span>':''}
-      <div style="margin-top:4px;display:flex;gap:10px">
-        <button class="linkbtn" style="padding:2px 4px;font-size:12px" data-reset-user="${u.id}" data-email="${esc(u.email||'')}">Cambiar clave</button>
-        ${u.id!==sbUser?.id?`<button class="linkbtn" style="padding:2px 4px;font-size:12px;color:var(--red)" data-del-user="${u.id}" data-email="${esc(u.email||'')}">Eliminar</button>`:''}
-      </div>
-    </td>
-    <td class="right" style="vertical-align:top"><select class="f" data-rol-user="${u.id}" style="min-width:148px">
+  const rows = usuariosCache.map(u=>`<div style="padding:13px 0;border-bottom:1px solid var(--line)">
+    <div style="font-weight:700;color:var(--ink);word-break:break-all">${esc(u.email||'—')}${u.id===sbUser?.id?' <span class="mut3" style="font-weight:400">(vos)</span>':''}</div>
+    <select class="f" data-rol-user="${u.id}" style="width:100%;margin-top:9px">
       ${Object.entries(ROLES).map(([v,l])=>`<option value="${v}" ${u.rol===v?'selected':''}>${l}</option>`).join('')}
-    </select></td>
-  </tr>`).join('');
+    </select>
+    <div style="margin-top:9px;display:flex;gap:16px">
+      <button class="linkbtn" style="font-size:12.5px" data-reset-user="${u.id}" data-email="${esc(u.email||'')}">Cambiar clave</button>
+      ${u.id!==sbUser?.id?`<button class="linkbtn" style="font-size:12.5px;color:var(--red)" data-del-user="${u.id}" data-email="${esc(u.email||'')}">Eliminar</button>`:''}
+    </div>
+  </div>`).join('');
   return `<div class="card" style="margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <h2>Usuarios y permisos</h2>
       <button class="btn sm" data-nuevo-user><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Agregar</button>
     </div>
     <div class="hint"><b>Administrador</b>: todo + usuarios · <b>Cargador</b>: ve y carga · <b>Solo lectura</b>: solo mira. Podés crear personas nuevas con "Agregar" (email + contraseña).</div>
-    <div class="tblwrap"><table><tbody>${rows||'<tr><td class="mut3">Sin usuarios</td></tr>'}</tbody></table></div>
+    <div>${rows||'<div class="mut3" style="padding:8px 0">Sin usuarios</div>'}</div>
   </div>`;
 }
 
@@ -1154,7 +1153,7 @@ function viewConfig(){
   <div class="card" style="margin-bottom:16px">
     <h2>Sincronización en la nube</h2>
     <div class="cloudbar"><span class="dot" style="background:var(--green)"></span>
-      Conectado como <b style="color:var(--ink)">${esc(sbUser?.email||'')}</b> ${rolBadge}${state._queue.length?` · <span style="color:var(--amber)">${state._queue.length} sin subir</span>`:''}
+      <span>Conectado como <b style="color:var(--ink);word-break:break-all">${esc(sbUser?.email||'')}</b></span> ${rolBadge}${state._queue.length?`<span style="color:var(--amber)">· ${state._queue.length} sin subir</span>`:''}
     </div>
     <div class="hint">Tus cheques se guardan en la nube y aparecen en todos tus dispositivos. Funciona también sin conexión: se sincroniza cuando volvés a tener internet.</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">

@@ -42,6 +42,8 @@ function toDataURL(url) {
 
 const LITROS_BATCH = 120
 const BATCH_OPTIONS = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5]
+// Las BASES pueden producirse en tandas más grandes: hasta 10 batches por orden.
+const BATCH_OPTIONS_BASE = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 9, 10]
 const POR_PAGINA = 20
 
 const GRUPOS_PRODUCTO = ['BASES', 'SABORES', 'IMPULSIVOS', 'POSTRES']
@@ -1763,7 +1765,7 @@ export default function Ordenes() {
                   <div className="w-28">
                     {productoSelEsHelado ? (
                       <Select label="Batches" value={lineaCantidad} onChange={e => setLineaCantidad(e.target.value)}>
-                        {BATCH_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
+                        {(productoSel?._tipo === 'base' ? BATCH_OPTIONS_BASE : BATCH_OPTIONS).map(b => <option key={b} value={b}>{b}</option>)}
                       </Select>
                     ) : (
                       <Input label="Unidades" type="number" min="1" value={lineaCantidad}

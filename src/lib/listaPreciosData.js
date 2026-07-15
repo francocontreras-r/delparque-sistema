@@ -104,6 +104,43 @@ export const SEED_LISTA_PRECIOS = {
       { producto: 'Cucuruchos por 3 unidades', precio: 2500, precio2: 3000 },
     ],
   },
+
+  // Insumos de REVENTA: packaging que la fábrica le vende a la franquicia. Cada
+  // uno tiene DOS valores: el costo (automático = precio de Depósito ÷ unidades
+  // por paquete) y el precio de franquicia/reventa (editable, lo que le cobrás).
+  // `nombre` debe coincidir con el insumo en Depósito para tomar su costo en vivo.
+  reventa: [
+    { nombre: 'cono 00', unidadesPorPaquete: 190, precioFranquicia: 0 },
+    { nombre: 'servilletas', unidadesPorPaquete: 100, precioFranquicia: 0 },
+    { nombre: 'cucharas', unidadesPorPaquete: 100, precioFranquicia: 0 },
+    { nombre: 'barquillón', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'copa', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'pote térmico 1/4', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'pote térmico 1/2', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'pote térmico 3/4', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'pote térmico 1kg', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'pote térmico 2,5kg', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'pote térmico 4kg', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'bolsa', unidadesPorPaquete: 1, precioFranquicia: 0 },
+  ],
+
+  // Recetas de FORMATO de venta al público: kg de helado + packaging que usa.
+  // `producto` coincide con un ítem de publico.HELADOS para tomar su precio.
+  // `packaging[].nombre` referencia un insumo de `reventa`. Valores PROPUESTOS:
+  // ajustá kg y cantidades a tu realidad.
+  formatos: [
+    { producto: '1 sabor', kg: 0.12, packaging: [{ nombre: 'cono 00', cantidad: 1 }, { nombre: 'servilletas', cantidad: 1 }, { nombre: 'cucharas', cantidad: 1 }] },
+    { producto: '2 sabores', kg: 0.22, packaging: [{ nombre: 'cono 00', cantidad: 1 }, { nombre: 'servilletas', cantidad: 2 }, { nombre: 'cucharas', cantidad: 1 }] },
+    { producto: '3 sabores', kg: 0.30, packaging: [{ nombre: 'cono 00', cantidad: 1 }, { nombre: 'servilletas', cantidad: 2 }, { nombre: 'cucharas', cantidad: 1 }] },
+    { producto: 'Barquillón grande', kg: 0.25, packaging: [{ nombre: 'barquillón', cantidad: 1 }, { nombre: 'servilletas', cantidad: 2 }] },
+    { producto: 'Copa', kg: 0.20, packaging: [{ nombre: 'copa', cantidad: 1 }, { nombre: 'cucharas', cantidad: 1 }, { nombre: 'servilletas', cantidad: 1 }] },
+    { producto: '1/4 kg', kg: 0.25, packaging: [{ nombre: 'pote térmico 1/4', cantidad: 1 }, { nombre: 'bolsa', cantidad: 1 }] },
+    { producto: '1/2 kg', kg: 0.50, packaging: [{ nombre: 'pote térmico 1/2', cantidad: 1 }, { nombre: 'bolsa', cantidad: 1 }] },
+    { producto: '3/4 kg', kg: 0.75, packaging: [{ nombre: 'pote térmico 3/4', cantidad: 1 }, { nombre: 'bolsa', cantidad: 1 }] },
+    { producto: '1 kg', kg: 1.00, packaging: [{ nombre: 'pote térmico 1kg', cantidad: 1 }, { nombre: 'bolsa', cantidad: 1 }] },
+    { producto: '2,5 kg', kg: 2.50, packaging: [{ nombre: 'pote térmico 2,5kg', cantidad: 1 }, { nombre: 'bolsa', cantidad: 1 }] },
+    { producto: '4 kg', kg: 4.00, packaging: [{ nombre: 'pote térmico 4kg', cantidad: 1 }, { nombre: 'bolsa', cantidad: 1 }] },
+  ],
 }
 
 // Copia profunda de la semilla (para no mutar la constante al editar en memoria).

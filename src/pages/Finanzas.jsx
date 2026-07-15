@@ -219,7 +219,15 @@ export default function Finanzas() {
     // o vacía), queda la semilla de listaPreciosData.js (modo lectura).
     try {
       const { data: pl } = await supabase.from('precios_lista').select('data').eq('id', 1).maybeSingle()
-      if (pl?.data) setPrecioLista(pl.data)
+      if (pl?.data) {
+        // Merge con la semilla para que filas guardadas antes de reventa/formatos
+        // no rompan (quedan con los valores propuestos hasta que se editen).
+        const seed = clonarSemilla()
+        const merged = { ...seed, ...pl.data }
+        if (!merged.reventa) merged.reventa = seed.reventa
+        if (!merged.formatos) merged.formatos = seed.formatos
+        setPrecioLista(merged)
+      }
     } catch { /* tabla ausente → semilla */ }
     setLoading(false)
   }
@@ -501,31 +509,18 @@ export default function Finanzas() {
   // El precio de franquicia sale del tier del sabor (Agua/Lisa/Con Agregado/…),
   // el costo unitario ya lo calcula Finanzas. Así el margen sale sin cargar precio
   // sabor por sabor. Ordena de mayor a menor margen.
-  // Precio público de referencia por kg (el "1 kg" de la lista pública). Sirve
-  // para estimar el margen del FRANQUICIADO: lo que gana al revender por kg.
-  const publicoRefKg = useMemo(() => {
-    const h = (precioLista?.publico?.HELADOS || []).find(r => /^\s*1\s*kg\s*$/i.test(r.producto || ''))
-    return Number(h?.precio) || 0
-  }, [precioLista])
-
+  // Margen de FÁBRICA por sabor: precio de franquicia (por tier) vs. costo unit.
   const margenesFranquicia = useMemo(() => {
     const tp = preciosPorTier(precioLista)
     return (secciones.Sabores || []).map(s => {
       const tier = tierDeSabor(s.nombre)
       const precio = tier ? (Number(tp[tier]) || 0) : 0
       const costo = Number(s.costo_unit) || 0
-      return {
-        nombre: s.nombre, tier, precio, costo,
-        ganancia: precio - costo,
-        margen: margenPct(costo, precio),            // margen FÁBRICA (franquicia vs costo)
-        margenFranq: margenPct(precio, publicoRefKg), // margen FRANQUICIADO (público vs franquicia)
-      }
+      return { nombre: s.nombre, tier, precio, costo, ganancia: precio - costo, margen: margenPct(costo, precio) }
     }).sort((a, b) => b.margen - a.margen)
-  }, [secciones.Sabores, precioLista, publicoRefKg]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [secciones.Sabores, precioLista]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cadena de valor por tier: costo fábrica → precio franquicia (margen fábrica) →
-  // precio público (margen franquiciado). El costo por tier es el promedio de los
-  // sabores de ese tier.
+  // Cadena de valor por tier (lado FÁBRICA): costo promedio → precio franquicia.
   const cadenaTiers = useMemo(() => {
     const tp = preciosPorTier(precioLista)
     const g = {}
@@ -537,22 +532,116 @@ export default function Finanzas() {
     return TIER_ORDEN.filter(t => g[t]).map(t => {
       const c = g[t].costos
       const costoProm = c.length ? c.reduce((a, x) => a + x, 0) / c.length : 0
-      return {
-        tier: t, costoProm, precio: g[t].precio, publico: publicoRefKg,
-        margenFabrica: margenPct(costoProm, g[t].precio),
-        margenFranq: margenPct(g[t].precio, publicoRefKg),
-      }
+      return { tier: t, costoProm, precio: g[t].precio, margenFabrica: margenPct(costoProm, g[t].precio) }
     })
-  }, [margenesFranquicia, precioLista, publicoRefKg])
+  }, [margenesFranquicia, precioLista])
 
   const resumenFranquicia = useMemo(() => {
     const conPrecio = margenesFranquicia.filter(m => m.precio > 0)
     const prom = conPrecio.length ? conPrecio.reduce((a, m) => a + m.margen, 0) / conPrecio.length : 0
-    const promFranq = conPrecio.length ? conPrecio.reduce((a, m) => a + m.margenFranq, 0) / conPrecio.length : 0
     const mejor = conPrecio.length ? Math.max(...conPrecio.map(m => m.margen)) : 0
     const vigilar = conPrecio.filter(m => m.margen < 30).length
-    return { prom, promFranq, mejor, vigilar, total: margenesFranquicia.length, sinPrecio: margenesFranquicia.length - conPrecio.length }
+    return { prom, mejor, vigilar, total: margenesFranquicia.length, sinPrecio: margenesFranquicia.length - conPrecio.length }
   }, [margenesFranquicia])
+
+  // Precio de fábrica PROMEDIO por kg (promedio de la franquicia sobre todos los
+  // sabores con precio). Es el costo del helado por kg para el franquiciado.
+  const avgFranquiciaKg = useMemo(() => {
+    const con = margenesFranquicia.filter(m => m.precio > 0)
+    return con.length ? con.reduce((a, m) => a + m.precio, 0) / con.length : 0
+  }, [margenesFranquicia])
+
+  // Costo por unidad de cada insumo de reventa (Depósito ÷ unidades por paquete).
+  const reventaCostos = useMemo(() => {
+    const m = {}
+    ;(precioLista.reventa || []).forEach(r => {
+      const rinde = Number(r.unidadesPorPaquete) || 1
+      const costoDep = costeador.costoDe(r.nombre) || 0
+      m[normalizarNombre(r.nombre)] = { costoU: rinde > 0 ? costoDep / rinde : costoDep, reventaU: Number(r.precioFranquicia) || 0, costoDep }
+    })
+    return m
+  }, [precioLista.reventa, costeador])
+
+  // Margen del FRANQUICIADO por formato de venta: (público − costo) / público,
+  // donde costo = helado (kg × precio fábrica promedio) + packaging (a precio de
+  // reventa, lo que el franquiciado te paga). También el margen que TE deja a vos
+  // el packaging (reventa − costo).
+  const margenPorFormato = useMemo(() => {
+    const pub = {}
+    ;(precioLista.publico?.HELADOS || []).forEach(r => { pub[r.producto] = Number(r.precio) || 0 })
+    return (precioLista.formatos || []).map(f => {
+      const publico = pub[f.producto] || 0
+      const kg = Number(f.kg) || 0
+      const costoHelado = kg * avgFranquiciaKg
+      let costoPack = 0, gananciaPackFabrica = 0, sinVincular = false
+      ;(f.packaging || []).forEach(p => {
+        const info = reventaCostos[normalizarNombre(p.nombre)]
+        const cant = Number(p.cantidad) || 0
+        if (!info) { sinVincular = true; return }
+        costoPack += cant * info.reventaU
+        gananciaPackFabrica += cant * (info.reventaU - info.costoU)
+      })
+      const costoFranq = costoHelado + costoPack
+      return {
+        producto: f.producto, kg, publico, costoHelado, costoPack, costoFranq,
+        margen: margenPct(costoFranq, publico), gananciaPackFabrica, sinVincular,
+      }
+    })
+  }, [precioLista, avgFranquiciaKg, reventaCostos])
+
+  const resumenFormato = useMemo(() => {
+    const con = margenPorFormato.filter(f => f.publico > 0)
+    const prom = con.length ? con.reduce((a, f) => a + f.margen, 0) / con.length : 0
+    return { prom, total: con.length }
+  }, [margenPorFormato])
+
+  // Handlers de edición de reventa (packaging) y formatos.
+  function editarReventa(idx, campo, valor) {
+    setPrecioLista(prev => {
+      const next = JSON.parse(JSON.stringify(prev))
+      const fila = (next.reventa || [])[idx]
+      if (fila) fila[campo] = campo === 'nombre' ? valor : (valor === '' ? 0 : Number(valor))
+      return next
+    })
+  }
+  function agregarReventa() {
+    setPrecioLista(prev => ({ ...prev, reventa: [...(prev.reventa || []), { nombre: 'nuevo insumo', unidadesPorPaquete: 1, precioFranquicia: 0 }] }))
+  }
+  function quitarReventa(idx) {
+    setPrecioLista(prev => ({ ...prev, reventa: (prev.reventa || []).filter((_, i) => i !== idx) }))
+  }
+  function editarFormatoKg(idx, valor) {
+    setPrecioLista(prev => {
+      const next = JSON.parse(JSON.stringify(prev))
+      const f = (next.formatos || [])[idx]
+      if (f) f.kg = valor === '' ? 0 : Number(valor)
+      return next
+    })
+  }
+  function editarFormatoPack(fIdx, pIdx, campo, valor) {
+    setPrecioLista(prev => {
+      const next = JSON.parse(JSON.stringify(prev))
+      const p = next.formatos?.[fIdx]?.packaging?.[pIdx]
+      if (p) p[campo] = campo === 'nombre' ? valor : (valor === '' ? 0 : Number(valor))
+      return next
+    })
+  }
+  function agregarFormatoPack(fIdx) {
+    setPrecioLista(prev => {
+      const next = JSON.parse(JSON.stringify(prev))
+      const f = next.formatos?.[fIdx]
+      if (f) { f.packaging = f.packaging || []; f.packaging.push({ nombre: (next.reventa?.[0]?.nombre) || '', cantidad: 1 }) }
+      return next
+    })
+  }
+  function quitarFormatoPack(fIdx, pIdx) {
+    setPrecioLista(prev => {
+      const next = JSON.parse(JSON.stringify(prev))
+      const f = next.formatos?.[fIdx]
+      if (f?.packaging) f.packaging = f.packaging.filter((_, i) => i !== pIdx)
+      return next
+    })
+  }
 
   // Aumento masivo: multiplica los precios del alcance por (1 + pct/100) y
   // redondea a $50. NO guarda (queda en pantalla para revisar y luego Guardar).
@@ -596,48 +685,50 @@ export default function Finanzas() {
       const gap = 6, cardW = (pw - 28 - 2 * gap) / 3, cardH = 23
       dibujarKpiCard(doc, 14, y, cardW, cardH, 'Sabores', String(resumenFranquicia.total), PDF_NEGRO)
       dibujarKpiCardDestacada(doc, 14 + cardW + gap, y, cardW, cardH, 'Margen fábrica prom.', pct(resumenFranquicia.prom), semaforo(resumenFranquicia.prom))
-      dibujarKpiCardDestacada(doc, 14 + 2 * (cardW + gap), y, cardW, cardH, 'Margen franquiciado prom.', pct(resumenFranquicia.promFranq), semaforo(resumenFranquicia.promFranq))
+      dibujarKpiCardDestacada(doc, 14 + 2 * (cardW + gap), y, cardW, cardH, 'Margen franquiciado prom.', pct(resumenFormato.prom), semaforo(resumenFormato.prom))
       y += cardH + 8
 
       // Narrativa
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...PDF_NEGRO)
       const nar =
-        `Este informe muestra la cadena de valor de la línea de helados por categoría (tier): el costo de producción de la fábrica, el precio de venta a la franquicia y el precio de venta al público. ` +
-        `El "margen fábrica" es la rentabilidad de Helados del Parque al vender a sus franquicias; el "margen franquiciado" es la rentabilidad estimada del franquiciado al revender por kilo (referencia: precio público de 1 kg = ${money(publicoRefKg)}). ` +
+        `Este informe muestra la rentabilidad de la línea de helados en dos planos. El "margen fábrica" es lo que gana Helados del Parque al venderle a sus franquicias: precio de franquicia menos el costo de producción, por categoría (tier). ` +
+        `El "margen franquiciado" es lo que le queda al franquiciado por formato de venta al público: su costo es el helado (kg × precio de fábrica promedio de ${money(avgFranquiciaKg)}/kg) más el packaging que le revende la fábrica, contrastado contra el precio público. ` +
         `Vigencia de precios: ${precioLista.vigencia || '—'}.`
       const ln = doc.splitTextToSize(nar, pw - 28)
       ln.forEach((l, i) => doc.text(l, 14, y + i * 5)); y += ln.length * 5 + 6
 
-      // Cadena de valor por tier
-      y = dibujarSeccion(doc, pw, 'Cadena de valor por categoría (por kg)', y)
+      // Margen del franquiciado por formato
+      y = dibujarSeccion(doc, pw, 'Margen del franquiciado por formato', y)
       autoTable(doc, {
         ...EST, startY: y,
-        head: [['CATEGORÍA', 'COSTO FÁBRICA', 'PRECIO FRANQUICIA', 'MARGEN FÁBRICA', 'PRECIO PÚBLICO', 'MARGEN FRANQUICIADO']],
-        body: cadenaTiers.map(c => [c.tier, money(c.costoProm), money(c.precio), pct(c.margenFabrica), money(c.publico), pct(c.margenFranq)]),
+        head: [['FORMATO', 'KG', 'COSTO HELADO', 'COSTO PACKAGING', 'COSTO TOTAL', 'PRECIO PÚBLICO', 'MARGEN']],
+        body: margenPorFormato.map(f => [f.producto, String(f.kg), money(f.costoHelado), money(f.costoPack), money(f.costoFranq), money(f.publico), pct(f.margen)]),
         columnStyles: { 0: { halign: 'left' } },
-        didParseCell: d => {
-          if (d.section === 'body') {
-            if (d.column.index === 3) d.cell.styles.textColor = semaforo(cadenaTiers[d.row.index]?.margenFabrica ?? 0)
-            if (d.column.index === 5) d.cell.styles.textColor = semaforo(cadenaTiers[d.row.index]?.margenFranq ?? 0)
-          }
-        },
+        didParseCell: d => { if (d.section === 'body' && d.column.index === 6) d.cell.styles.textColor = semaforo(margenPorFormato[d.row.index]?.margen ?? 0) },
       })
       y = doc.lastAutoTable.finalY + 8
 
-      // Márgenes por sabor
+      // Cadena de valor por categoría (lado fábrica)
       if (y > ph - 40) { doc.addPage(); dibujarEncabezado(doc, pw, 'FINANZAS', 'INFORME DE MÁRGENES', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber); y = PDF_CONTENT_Y }
-      y = dibujarSeccion(doc, pw, 'Detalle por sabor', y)
+      y = dibujarSeccion(doc, pw, 'Margen de fábrica por categoría (por kg)', y)
+      autoTable(doc, {
+        ...EST, startY: y,
+        head: [['CATEGORÍA', 'COSTO FÁBRICA', 'PRECIO FRANQUICIA', 'MARGEN FÁBRICA']],
+        body: cadenaTiers.map(c => [c.tier, money(c.costoProm), money(c.precio), pct(c.margenFabrica)]),
+        columnStyles: { 0: { halign: 'left' } },
+        didParseCell: d => { if (d.section === 'body' && d.column.index === 3) d.cell.styles.textColor = semaforo(cadenaTiers[d.row.index]?.margenFabrica ?? 0) },
+      })
+      y = doc.lastAutoTable.finalY + 8
+
+      // Márgenes de fábrica por sabor
+      if (y > ph - 40) { doc.addPage(); dibujarEncabezado(doc, pw, 'FINANZAS', 'INFORME DE MÁRGENES', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber); y = PDF_CONTENT_Y }
+      y = dibujarSeccion(doc, pw, 'Margen de fábrica por sabor', y)
       autoTable(doc, {
         ...EST, startY: y, margin: { top: PDF_CONTENT_Y, left: 14, right: 14 },
-        head: [['SABOR', 'TIER', 'COSTO/KG', 'FRANQUICIA/KG', 'MARGEN FÁBRICA', 'MARGEN FRANQUICIADO']],
-        body: margenesFranquicia.map(m => [m.nombre, m.tier || '—', money(m.costo), money(m.precio), pct(m.margen), pct(m.margenFranq)]),
+        head: [['SABOR', 'TIER', 'COSTO/KG', 'FRANQUICIA/KG', 'MARGEN FÁBRICA']],
+        body: margenesFranquicia.map(m => [m.nombre, m.tier || '—', money(m.costo), money(m.precio), pct(m.margen)]),
         columnStyles: { 0: { halign: 'left' } },
-        didParseCell: d => {
-          if (d.section === 'body') {
-            if (d.column.index === 4) d.cell.styles.textColor = semaforo(margenesFranquicia[d.row.index]?.margen ?? 0)
-            if (d.column.index === 5) d.cell.styles.textColor = semaforo(margenesFranquicia[d.row.index]?.margenFranq ?? 0)
-          }
-        },
+        didParseCell: d => { if (d.section === 'body' && d.column.index === 4) d.cell.styles.textColor = semaforo(margenesFranquicia[d.row.index]?.margen ?? 0) },
         didDrawPage: () => { dibujarEncabezado(doc, pw, 'FINANZAS', 'INFORME DE MÁRGENES', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber) },
       })
 
@@ -1569,7 +1660,7 @@ export default function Finanzas() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
                   { l: 'Margen fábrica prom.', v: `${resumenFranquicia.prom.toFixed(1)}%`, c: nivelMargen(resumenFranquicia.prom).barColor },
-                  { l: 'Margen franquiciado prom.', v: `${resumenFranquicia.promFranq.toFixed(1)}%`, c: nivelMargen(resumenFranquicia.promFranq).barColor },
+                  { l: 'Margen franquiciado prom.', v: `${resumenFormato.prom.toFixed(1)}%`, c: nivelMargen(resumenFormato.prom).barColor },
                   { l: 'Sabores', v: String(resumenFranquicia.total), c: colors.textPrimary },
                   { l: 'A vigilar (<30%)', v: String(resumenFranquicia.vigilar), c: '#f59e0b' },
                 ].map(k => (
@@ -1580,32 +1671,33 @@ export default function Finanzas() {
                 ))}
               </div>
 
-              {/* Cadena de valor por categoría: fábrica y franquiciado */}
+              {/* Margen del FRANQUICIADO por formato (helado promedio + packaging) */}
               <div className="overflow-hidden" style={SURFACE}>
                 <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-1" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Cadena de valor por categoría — por kg</span>
-                  <span className="text-[11px]" style={{ color: colors.textMuted }}>Público ref.: 1 kg = ${pesos(publicoRefKg)}</span>
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Margen del franquiciado por formato</span>
+                  <span className="text-[11px]" style={{ color: colors.textMuted }}>Fábrica prom.: ${pesos(avgFranquiciaKg)}/kg</span>
                 </div>
                 <div className="overflow-x-auto">
-                  <Table className="min-w-[760px]">
+                  <Table className="min-w-[820px]">
                     <Thead>
                       <Tr>
-                        <Th>Categoría</Th><Th>Costo fábrica</Th><Th>Precio franquicia</Th><Th>Margen fábrica</Th><Th>Precio público</Th><Th>Margen franquiciado</Th>
+                        <Th>Formato</Th><Th>Kg</Th><Th>Costo helado</Th><Th>Costo packaging</Th><Th>Costo total</Th><Th>Precio público</Th><Th>Margen franquiciado</Th>
                       </Tr>
                     </Thead>
                     <Tbody>
-                      {cadenaTiers.map(c => {
-                        const nf = nivelMargen(c.margenFabrica), nfr = nivelMargen(c.margenFranq)
+                      {margenPorFormato.map(f => {
+                        const nv = nivelMargen(f.margen)
                         return (
-                          <Tr key={c.tier}>
-                            <Td className="font-medium">{c.tier}</Td>
-                            <Td style={{ color: colors.textMuted }}>${pesos(c.costoProm)}</Td>
-                            <Td className="font-semibold">${pesos(c.precio)}</Td>
-                            <Td><Badge variant={nf.badgeVariant}>{nf.emoji} {c.margenFabrica.toFixed(1)}%</Badge></Td>
-                            <Td style={{ color: colors.textMuted }}>${pesos(c.publico)}</Td>
-                            <Td>{c.publico > 0
-                              ? <Badge variant={nfr.badgeVariant}>{nfr.emoji} {c.margenFranq.toFixed(1)}%</Badge>
-                              : <span className="text-xs" style={{ color: colors.textMuted }}>—</span>}</Td>
+                          <Tr key={f.producto}>
+                            <Td className="font-medium">{f.producto}{f.sinVincular && <span title="Algún packaging no matchea un insumo cargado" className="ml-1 text-xs" style={{ color: '#f59e0b' }}>⚠</span>}</Td>
+                            <Td style={{ color: colors.textMuted }}>{f.kg}</Td>
+                            <Td style={{ color: colors.textMuted }}>${pesos(f.costoHelado)}</Td>
+                            <Td style={{ color: colors.textMuted }}>${pesos(f.costoPack)}</Td>
+                            <Td className="font-semibold">${pesos(f.costoFranq)}</Td>
+                            <Td>${pesos(f.publico)}</Td>
+                            <Td>{f.publico > 0
+                              ? <Badge variant={nv.badgeVariant}>{nv.emoji} {f.margen.toFixed(1)}%</Badge>
+                              : <span className="text-xs" style={{ color: colors.textMuted }}>sin precio</span>}</Td>
                           </Tr>
                         )
                       })}
@@ -1614,21 +1706,46 @@ export default function Finanzas() {
                 </div>
               </div>
 
-              {/* Márgenes por sabor */}
+              {/* Margen de FÁBRICA por categoría (tier) */}
               <div className="overflow-hidden" style={SURFACE}>
                 <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Márgenes por sabor</span>
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Margen de fábrica por categoría — por kg</span>
                 </div>
                 <div className="overflow-x-auto">
-                  <Table className="min-w-[820px]">
+                  <Table className="min-w-[600px]">
                     <Thead>
-                      <Tr>
-                        <Th>Sabor</Th><Th>Tier</Th><Th>Costo /kg</Th><Th>Franquicia /kg</Th><Th>Margen fábrica</Th><Th>Margen franquiciado</Th>
-                      </Tr>
+                      <Tr><Th>Categoría</Th><Th>Costo fábrica</Th><Th>Precio franquicia</Th><Th>Margen fábrica</Th></Tr>
+                    </Thead>
+                    <Tbody>
+                      {cadenaTiers.map(c => {
+                        const nf = nivelMargen(c.margenFabrica)
+                        return (
+                          <Tr key={c.tier}>
+                            <Td className="font-medium">{c.tier}</Td>
+                            <Td style={{ color: colors.textMuted }}>${pesos(c.costoProm)}</Td>
+                            <Td className="font-semibold">${pesos(c.precio)}</Td>
+                            <Td><Badge variant={nf.badgeVariant}>{nf.emoji} {c.margenFabrica.toFixed(1)}%</Badge></Td>
+                          </Tr>
+                        )
+                      })}
+                    </Tbody>
+                  </Table>
+                </div>
+              </div>
+
+              {/* Márgenes de fábrica por sabor */}
+              <div className="overflow-hidden" style={SURFACE}>
+                <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Márgenes de fábrica por sabor</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[680px]">
+                    <Thead>
+                      <Tr><Th>Sabor</Th><Th>Tier</Th><Th>Costo /kg</Th><Th>Franquicia /kg</Th><Th>Margen fábrica</Th></Tr>
                     </Thead>
                     <Tbody>
                       {margenesFranquicia.map(m => {
-                        const nv = nivelMargen(m.margen), nvf = nivelMargen(m.margenFranq)
+                        const nv = nivelMargen(m.margen)
                         return (
                           <Tr key={m.nombre}>
                             <Td className="font-medium">{m.nombre}</Td>
@@ -1638,9 +1755,6 @@ export default function Finanzas() {
                             <Td>{m.precio > 0
                               ? <Badge variant={nv.badgeVariant}>{nv.emoji} {m.margen.toFixed(1)}%</Badge>
                               : <span className="text-xs" style={{ color: colors.textMuted }}>sin precio</span>}</Td>
-                            <Td>{m.precio > 0 && publicoRefKg > 0
-                              ? <Badge variant={nvf.badgeVariant}>{nvf.emoji} {m.margenFranq.toFixed(1)}%</Badge>
-                              : <span className="text-xs" style={{ color: colors.textMuted }}>—</span>}</Td>
                           </Tr>
                         )
                       })}
@@ -1706,6 +1820,79 @@ export default function Finanzas() {
                 <p className="text-[11px]" style={{ color: colors.textMuted }}>
                   Los precios de FRANQUICIA · HELADOS son por tier (categoría): se aplican a todos los sabores de esa categoría y con eso se calcula el margen de cada uno.
                 </p>
+              </div>
+
+              {/* Editor: packaging de reventa (costo desde Depósito + reventa editable) */}
+              <div className="p-4 space-y-3" style={SURFACE}>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Packaging de reventa</span>
+                  <Button variant="secondary" size="sm" onClick={agregarReventa}>+ Agregar insumo</Button>
+                </div>
+                <p className="text-[11px]" style={{ color: colors.textMuted }}>
+                  El <b>costo/unidad</b> sale de Depósito (precio ÷ unidades por paquete), en vivo. La <b>reventa/unidad</b> la ponés vos: es lo que le cobrás al franquiciado. El nombre debe coincidir con el insumo en Depósito.
+                </p>
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[640px]">
+                    <Thead>
+                      <Tr><Th>Insumo (Depósito)</Th><Th>Unid./paquete</Th><Th>Costo/unidad</Th><Th>Reventa/unidad</Th><Th></Th></Tr>
+                    </Thead>
+                    <Tbody>
+                      {(precioLista.reventa || []).map((r, idx) => {
+                        const info = reventaCostos[normalizarNombre(r.nombre)] || { costoU: 0, costoDep: 0 }
+                        const sinDep = !(info.costoDep > 0)
+                        return (
+                          <Tr key={idx}>
+                            <Td>
+                              <input value={r.nombre} onChange={e => editarReventa(idx, 'nombre', e.target.value)}
+                                className="px-2 py-1 rounded-md text-sm w-44" style={{ backgroundColor: colors.bg, border: `1px solid ${sinDep ? '#f59e0b55' : colors.border}`, color: colors.textPrimary }} />
+                            </Td>
+                            <Td><input type="number" value={r.unidadesPorPaquete ?? ''} onChange={e => editarReventa(idx, 'unidadesPorPaquete', e.target.value)}
+                              className="px-2 py-1 rounded-md text-sm w-20 text-right" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textPrimary }} /></Td>
+                            <Td style={{ color: sinDep ? '#f59e0b' : colors.textMuted }}>{sinDep ? 'sin vincular' : `$${pesos(info.costoU)}`}</Td>
+                            <Td><input type="number" value={r.precioFranquicia ?? ''} onChange={e => editarReventa(idx, 'precioFranquicia', e.target.value)}
+                              className="px-2 py-1 rounded-md text-sm w-24 text-right" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textPrimary }} /></Td>
+                            <Td><button onClick={() => quitarReventa(idx)} className="text-xs hover:opacity-70" style={{ color: colors.danger }}>Quitar</button></Td>
+                          </Tr>
+                        )
+                      })}
+                    </Tbody>
+                  </Table>
+                </div>
+              </div>
+
+              {/* Editor: recetas de formato (kg de helado + packaging que usa) */}
+              <div className="p-4 space-y-3" style={SURFACE}>
+                <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Recetas de formato</span>
+                <p className="text-[11px]" style={{ color: colors.textMuted }}>Cada formato de venta: kg de helado + qué packaging usa (elegido del listado de arriba). Con esto se calcula el margen del franquiciado.</p>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  {(precioLista.formatos || []).map((f, fIdx) => (
+                    <div key={f.producto} className="p-3 rounded-lg space-y-2" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold" style={{ color: colors.textPrimary }}>{f.producto}</span>
+                        <div className="flex items-center gap-1.5">
+                          <input type="number" step="0.01" value={f.kg ?? ''} onChange={e => editarFormatoKg(fIdx, e.target.value)}
+                            className="px-2 py-1 rounded-md text-sm w-20 text-right" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                          <span className="text-xs" style={{ color: colors.textMuted }}>kg</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        {(f.packaging || []).map((p, pIdx) => (
+                          <div key={pIdx} className="flex items-center gap-1.5">
+                            <select value={p.nombre} onChange={e => editarFormatoPack(fIdx, pIdx, 'nombre', e.target.value)}
+                              className="px-2 py-1 rounded-md text-xs flex-1" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.textPrimary }}>
+                              {(precioLista.reventa || []).map((r, i) => <option key={i} value={r.nombre}>{r.nombre}</option>)}
+                            </select>
+                            <span className="text-xs" style={{ color: colors.textMuted }}>×</span>
+                            <input type="number" value={p.cantidad ?? ''} onChange={e => editarFormatoPack(fIdx, pIdx, 'cantidad', e.target.value)}
+                              className="px-2 py-1 rounded-md text-xs w-14 text-right" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                            <button onClick={() => quitarFormatoPack(fIdx, pIdx)} className="text-xs hover:opacity-70" style={{ color: colors.danger }}>✕</button>
+                          </div>
+                        ))}
+                        <button onClick={() => agregarFormatoPack(fIdx)} className="text-xs hover:opacity-70" style={{ color: colors.brand }}>+ packaging</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}

@@ -1851,10 +1851,13 @@ function chartInformeMeses(chs){
   const grid=[0,.5,1].map(g=>{ const y=H-padB-g*plotH; return `<line x1="${padL}" x2="${W-padR}" y1="${y.toFixed(0)}" y2="${y.toFixed(0)}" stroke="#e3e7ee"${g?' stroke-dasharray="3 4"':''}/><text x="${padL-8}" y="${(y+3).toFixed(0)}" font-size="10" fill="#8a929e" text-anchor="end">${pesosK(g*max).replace('$ ','')}</text>`; }).join('');
   let bars='';
   keys.forEach((k,i)=>{ const cx=padL+step*i+step/2, bw=Math.min(24,step*0.28), gap=bw*0.62;
+    // Si el mes tiene una sola serie, la barra va centrada bajo su etiqueta;
+    // si tiene las dos (a cobrar y a pagar), se separan a los costados.
+    const both=m[k].cob>0 && m[k].pag>0;
     const draw=(v,dx,fill)=>{ if(v<=0) return ''; const h=Math.max(2,v/max*plotH), x=cx+dx-bw/2, y=H-padB-h;
       return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${fill}"/>`+
         `<text x="${(x+bw/2).toFixed(0)}" y="${(y-4).toFixed(0)}" font-size="8.5" font-weight="800" fill="${fill}" text-anchor="middle">${pesosK(v).replace('$ ','')}</text>`; };
-    bars+=draw(m[k].cob,-gap,'#0B7D70')+draw(m[k].pag,gap,'#063F6D');
+    bars+=draw(m[k].cob, both?-gap:0, '#0B7D70')+draw(m[k].pag, both?gap:0, '#063F6D');
     bars+=`<text x="${cx.toFixed(0)}" y="${H-padB+16}" font-size="10.5" fill="#5B6472" text-anchor="middle" font-weight="700">${fmtMes(k).split(' ')[0]}</text>`;
   });
   return `<div class="pr-sec"><span><span class="dot"></span>Vencimientos por mes</span><span class="sub">a cobrar vs a pagar</span></div>

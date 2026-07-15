@@ -29,7 +29,9 @@ alter table public.cheques
   add column if not exists endosado_a         text,
   add column if not exists endosado_fecha     date,
   add column if not exists comprobante_path   text,
-  add column if not exists comprobante_nombre text;
+  add column if not exists comprobante_nombre text,
+  add column if not exists rechazo_motivo     text,
+  add column if not exists rechazo_fecha      date;
 
 -- Razones sociales
 alter table public.razones_sociales

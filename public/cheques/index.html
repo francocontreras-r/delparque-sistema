@@ -483,9 +483,9 @@ const REMOTE = { razones:'razones_sociales', bancos:'bancos', cheques:'cheques' 
 const COLS = {
   razones:['id','nombre','cuit','activo'],
   bancos :['id','razon_social_id','entidad','saldo','acuerdo'],
-  cheques:['id','razon_social_id','tipo','formato','banco','numero','importe','fecha_emision','fecha_pago','fecha_acreditacion','estado','librador','cuit_librador','contraparte','concepto','observaciones','creado_por','historial','endosado_a','endosado_fecha','comprobante_path','comprobante_nombre'],
+  cheques:['id','razon_social_id','tipo','formato','banco','numero','importe','fecha_emision','fecha_pago','fecha_acreditacion','estado','librador','cuit_librador','contraparte','concepto','observaciones','creado_por','historial','endosado_a','endosado_fecha','comprobante_path','comprobante_nombre','rechazo_motivo','rechazo_fecha'],
 };
-const DATE_COLS = new Set(['fecha_emision','fecha_pago','fecha_acreditacion','endosado_fecha']);
+const DATE_COLS = new Set(['fecha_emision','fecha_pago','fecha_acreditacion','endosado_fecha','rechazo_fecha']);
 const NUM_COLS  = new Set(['importe','saldo','acuerdo']);
 function toRemote(tabla,row){
   const o={};
@@ -1028,6 +1028,7 @@ function chequeCard(ch){
       </div>
       ${ch.estado==='endosado'&&ch.endosado_a?`<div style="margin-top:6px;font-size:12px;color:#6b4b8a">↪ Endosado a <b>${esc(ch.endosado_a)}</b>${ch.endosado_fecha?` · ${fmtFecha(ch.endosado_fecha)}`:''}</div>`:''}
       ${(ch.estado==='cobrado'||ch.estado==='pagado')&&ch.fecha_acreditacion?`<div style="margin-top:6px;font-size:12px;color:var(--green,#137a41)">✓ ${ch.estado==='cobrado'?'Acreditado':'Pagado'} el <b>${fmtFecha(ch.fecha_acreditacion)}</b></div>`:''}
+      ${ch.estado==='rechazado'?`<div style="margin-top:6px;font-size:12px;color:var(--red,#c0392b)">✗ Rechazado${ch.rechazo_motivo?`: <b>${esc(ch.rechazo_motivo)}</b>`:''}${ch.rechazo_fecha?` · ${fmtFecha(ch.rechazo_fecha)}`:''}${ch.tipo==='recibido'&&(ch.contraparte||ch.librador)?` · reclamar a <b>${esc(ch.contraparte||ch.librador)}</b>`:''}</div>`:''}
     </div>
   </div>`;
 }
@@ -1050,6 +1051,8 @@ function aplicarEstado(id, estado){
   if(estado==='endosado' && ch.tipo==='recibido'){ pedirEndoso(id); return; }
   // Al cobrar/pagar, pedimos la fecha REAL en que entró/salió la plata (conciliación).
   if((estado==='cobrado' && ch.tipo==='recibido') || (estado==='pagado' && ch.tipo==='emitido')){ pedirConciliacion(id, estado); return; }
+  // Al rechazar, pedimos el motivo y la fecha (para reclamar / re-gestionar).
+  if(estado==='rechazado'){ pedirRechazo(id); return; }
   if(ch.estado!==estado) logHist(ch,'estado',{de:ch.estado,a:estado});
   ch.estado = estado; save(); closeModal(); render();
   toast('Estado: ' + estadoInfo(ch.tipo, estado).l);
@@ -1079,6 +1082,32 @@ function confirmarConciliacion(idEstado){
   if(ch.estado!==estado) logHist(ch,'estado',{de:ch.estado,a:estado,fecha_acreditacion:f});
   ch.estado=estado; save(); closeModal(); render();
   toast((estado==='cobrado'?'Cobrado':'Pagado')+' el '+fmtFecha(f)+' ✓'); cloudPush('cheques',{...ch});
+}
+// Motivos frecuentes de rechazo de un cheque en Argentina.
+const MOTIVOS_RECHAZO = ['Sin fondos suficientes','Sin fondos','Firma no coincide','Defecto formal','Cuenta cerrada','Orden de no pagar','Denunciado / extraviado','Fecha o monto mal','Otro'];
+// Modal para registrar el rechazo: motivo, fecha y a quién reclamarle.
+function pedirRechazo(id){
+  const ch = state.cheques.find(c=>c.id===id); if(!ch) return;
+  const aQuien = ch.contraparte || ch.librador || '';
+  openModal(`<div class="modal" style="max-width:440px">
+    <div class="modal-h"><h3>Registrar rechazo</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-b">
+      <div class="hint" style="padding:2px 2px 12px"><b style="color:var(--ink)">${esc(aQuien||'—')}</b> · ${pesos(ch.importe)} · N° ${esc(ch.numero||'—')} · ${razonNombre(ch.razon_social_id)}</div>
+      <div class="field"><label>Motivo del rechazo</label><input id="rechM" value="${esc(ch.rechazo_motivo)}" placeholder="Ej: Sin fondos" list="rechList" autocomplete="off"></div>
+      <div class="field"><label>Fecha del rechazo</label><input id="rechF" type="date" value="${ch.rechazo_fecha||hoyISO()}"></div>
+      ${ch.tipo==='recibido'&&aQuien?`<div class="hint" style="padding:0">Se lo tenés que reclamar a <b>${esc(aQuien)}</b>. Queda listado en Análisis → Cheques rechazados.</div>`:'<div class="hint" style="padding:0">Queda registrado en el historial y en Análisis → Cheques rechazados.</div>'}
+    </div>
+    <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn danger" data-confirm-rechazo="${id}" style="flex:1;justify-content:center">Marcar rechazado</button></div>
+  </div>
+  <datalist id="rechList">${MOTIVOS_RECHAZO.map(x=>`<option value="${esc(x)}">`).join('')}</datalist>`);
+}
+function confirmarRechazo(id){
+  const ch = state.cheques.find(c=>c.id===id); if(!ch) return;
+  const m=($('#rechM').value||'').trim(); if(!m){ toast('Poné el motivo del rechazo'); return; }
+  ch.rechazo_motivo=m; ch.rechazo_fecha=$('#rechF').value||hoyISO();
+  logHist(ch,'estado',{de:ch.estado,a:'rechazado',rechazo_motivo:m});
+  ch.estado='rechazado'; save(); closeModal(); render();
+  toast('Marcado rechazado ✗'); cloudPush('cheques',{...ch});
 }
 // Modal para registrar el endoso: a quién y en qué fecha.
 function pedirEndoso(id){
@@ -1207,6 +1236,7 @@ function viewAnalisis(){
   const porRazon  = agrupar(abiertos, c=>razonNombre(c.razon_social_id));
   const echeq = suma(abiertos.filter(c=>c.formato==='echeq')), fisico=suma(abiertos.filter(c=>c.formato!=='echeq'));
   const endosados = chs.filter(c=>c.estado==='endosado').slice().sort((a,b)=>((a.endosado_fecha||'')<(b.endosado_fecha||'')?1:-1));
+  const rechazadosList = chs.filter(c=>c.estado==='rechazado').slice().sort((a,b)=>((a.rechazo_fecha||'')<(b.rechazo_fecha||'')?1:-1));
 
   return `${filtrosBar()}
   <div class="grid g4" style="margin-bottom:8px">
@@ -1248,6 +1278,23 @@ function viewAnalisis(){
       </tr>`).join('')}</tbody>
       <tfoot><tr style="border-top:2px solid var(--line)"><td colspan="5" style="padding:11px 12px;font-weight:800">Total endosado</td><td class="right num" style="font-weight:800">${pesos(suma(endosados))}</td></tr></tfoot>
     </table></div>` : `<div class="empty" style="padding:18px">Todavía no endosaste ningún cheque.</div>`}
+  </div>
+
+  <div class="section-title">Cheques rechazados <span class="badge b-danger" style="vertical-align:middle">${rechazadosList.length}</span></div>
+  <div class="card">
+    <div class="hint">Cheques que rebotaron, con el motivo y a quién reclamarle. Para registrar uno, cambiale el estado a <b>Rechazado</b> desde la lista de Cheques. Para re-gestionarlo (volver a depositar), cambiale el estado de nuevo.</div>
+    ${rechazadosList.length ? `<div class="tblwrap"><table>
+      <thead><tr><th>Reclamar a</th><th>Motivo</th><th>Cheque</th><th>Empresa</th><th>Rechazo</th><th class="right">Importe</th></tr></thead>
+      <tbody>${rechazadosList.map(c=>`<tr data-edit="${c.id}" style="cursor:pointer">
+        <td><b>${esc(c.contraparte||c.librador||'—')}</b></td>
+        <td>${esc(c.rechazo_motivo||'—')}</td>
+        <td>${esc(c.banco||'—')} · N° ${esc(c.numero||'—')}</td>
+        <td>${esc(razonNombre(c.razon_social_id))}</td>
+        <td>${c.rechazo_fecha?fmtFecha(c.rechazo_fecha):'—'}</td>
+        <td class="right num">${pesos(c.importe)}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--line)"><td colspan="5" style="padding:11px 12px;font-weight:800">Total rechazado</td><td class="right num" style="font-weight:800">${pesos(suma(rechazadosList))}</td></tr></tfoot>
+    </table></div>` : `<div class="empty" style="padding:18px">No tenés cheques rechazados. 🎉</div>`}
   </div>
 
   <div class="section-title">Detalle</div>
@@ -1521,6 +1568,10 @@ function renderChequeForm(d, editing){
         <div class="field"><label>Fecha del endoso <span class="mut3">(opcional)</span></label><input type="date" data-d="endosado_fecha" value="${d.endosado_fecha||''}"></div>
       </div>`:''}
       ${(d.estado==='cobrado'||d.estado==='pagado')?`<div class="field"><label>${d.estado==='cobrado'?'Fecha de acreditación':'Fecha en que se pagó'} <span class="mut3">(cuándo entró/salió la plata)</span></label><input type="date" data-d="fecha_acreditacion" value="${d.fecha_acreditacion||''}"></div>`:''}
+      ${d.estado==='rechazado'?`<div class="frow">
+        <div class="field"><label>Motivo del rechazo</label><input data-d="rechazo_motivo" value="${esc(d.rechazo_motivo)}" placeholder="Ej: Sin fondos" list="rechList" autocomplete="off"></div>
+        <div class="field"><label>Fecha del rechazo</label><input type="date" data-d="rechazo_fecha" value="${d.rechazo_fecha||''}"></div>
+      </div>`:''}
       <div class="frow">
         <div class="field"><label>CUIT del librador <span class="mut3">(opcional)</span></label><input data-d="cuit_librador" value="${esc(d.cuit_librador)}" placeholder="30-00000000-0"></div>
         <div class="field"><label>Concepto <span class="mut3">(opcional)</span></label><input data-d="concepto" value="${esc(d.concepto)}" placeholder="Ej: Factura 0001-00012"></div>
@@ -1547,7 +1598,8 @@ function renderChequeForm(d, editing){
     </div>
   </div>
   <datalist id="bancosList">${[...new Set([...state.cheques.map(c=>c.banco).filter(Boolean), ...BANCOS_AR])].map(b=>`<option value="${esc(b)}">`).join('')}</datalist>
-  <datalist id="endosList">${[...new Set(state.cheques.map(c=>c.endosado_a).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join('')}</datalist>`);
+  <datalist id="endosList">${[...new Set(state.cheques.map(c=>c.endosado_a).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join('')}</datalist>
+  <datalist id="rechList">${MOTIVOS_RECHAZO.map(x=>`<option value="${esc(x)}">`).join('')}</datalist>`);
 }
 
 function modalRazon(id){
@@ -1582,7 +1634,7 @@ function modalBanco(id){
    EVENTOS
    ══════════════════════════════════════════════════════════════════════════ */
 document.addEventListener('click', e=>{
-  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-periodo],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-confirm-cheque],[data-volver-form],[data-confirm-endoso],[data-confirm-concil],[data-informe-per],[data-ver-comprob],[data-quitar-comprob],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
+  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-periodo],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-confirm-cheque],[data-volver-form],[data-confirm-endoso],[data-confirm-concil],[data-confirm-rechazo],[data-informe-per],[data-ver-comprob],[data-quitar-comprob],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
   if(!t) return;
 
   // Cambio rápido de estado desde la lista
@@ -1684,6 +1736,7 @@ document.addEventListener('click', e=>{
   if(t.hasAttribute('data-confirm-cheque')){ commitCheque(); return; }
   if(t.dataset.confirmEndoso){ confirmarEndoso(t.dataset.confirmEndoso); return; }
   if(t.dataset.confirmConcil){ confirmarConciliacion(t.dataset.confirmConcil); return; }
+  if(t.dataset.confirmRechazo){ confirmarRechazo(t.dataset.confirmRechazo); return; }
   if(t.hasAttribute('data-volver-form')){ renderChequeForm(window._draft, !!window._draft.id); return; }
   if(t.dataset.verComprob){ verComprobante(t.dataset.verComprob); return; }
   if(t.hasAttribute('data-quitar-comprob')){ quitarComprobante(); return; }
@@ -1794,7 +1847,7 @@ function saveBanco(id){
 
 /* ── Export CSV / JSON / Imagen ─────────────────────────────────────────── */
 function exportCSV(){
-  const cols=[['Tipo',c=>TIPOS[c.tipo].label],['Razón social',c=>razonNombre(c.razon_social_id)],['Contraparte',c=>c.contraparte||c.librador||''],['Banco',c=>c.banco||''],['N°',c=>c.numero||''],['Formato',c=>FORMATOS[c.formato]||''],['Importe',c=>c.importe||0],['Emisión',c=>c.fecha_emision||''],['Pago',c=>c.fecha_pago||''],['Acreditación',c=>c.fecha_acreditacion||''],['Estado',c=>estadoInfo(c.tipo,c.estado).l],['Endosado a',c=>c.endosado_a||''],['Fecha endoso',c=>c.endosado_fecha||''],['Concepto',c=>c.concepto||''],['Observaciones',c=>c.observaciones||'']];
+  const cols=[['Tipo',c=>TIPOS[c.tipo].label],['Razón social',c=>razonNombre(c.razon_social_id)],['Contraparte',c=>c.contraparte||c.librador||''],['Banco',c=>c.banco||''],['N°',c=>c.numero||''],['Formato',c=>FORMATOS[c.formato]||''],['Importe',c=>c.importe||0],['Emisión',c=>c.fecha_emision||''],['Pago',c=>c.fecha_pago||''],['Acreditación',c=>c.fecha_acreditacion||''],['Estado',c=>estadoInfo(c.tipo,c.estado).l],['Endosado a',c=>c.endosado_a||''],['Fecha endoso',c=>c.endosado_fecha||''],['Motivo rechazo',c=>c.rechazo_motivo||''],['Fecha rechazo',c=>c.rechazo_fecha||''],['Concepto',c=>c.concepto||''],['Observaciones',c=>c.observaciones||'']];
   const esc2=v=>{const s=String(v==null?'':v);return /[",;\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
   const rows=chequesFiltrados();
   const csv='﻿'+cols.map(c=>c[0]).join(';')+'\r\n'+rows.map(r=>cols.map(c=>esc2(c[1](r))).join(';')).join('\r\n');

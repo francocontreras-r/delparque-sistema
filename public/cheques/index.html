@@ -675,15 +675,18 @@ async function cloudDelete(tabla,id){
   catch(e){ queueOp({t:'del',tabla,id}); }
   finally{ pushLock--; }
 }
+let ultimoErrorSync = '';
 async function cloudFlush(){
   if(!cloudOn() || !state._queue.length) return;
   const q=state._queue.slice(); state._queue=[]; save();
+  let err='';
   for(const op of q){
     try{
       if(op.t==='up'){ const {error}=await sb.from(REMOTE[op.tabla]).upsert(toRemote(op.tabla,op.row)); if(error) throw error; }
       else { const {error}=await sb.from(REMOTE[op.tabla]).delete().eq('id',op.id); if(error) throw error; }
-    }catch(e){ state._queue.push(op); }
+    }catch(e){ state._queue.push(op); err = e?.message || String(e); }
   }
+  ultimoErrorSync = err;
   save();
 }
 // Primer volcado: sube lo que haya local cuando la nube está vacía. Arregla ids
@@ -1657,7 +1660,7 @@ document.addEventListener('click', e=>{
     else if(m==='print'){ view='dashboard'; render(); prepararImpresion(); setTimeout(()=>window.print(),150); }
     else if(m==='backup'){ view='config'; render(); setTimeout(()=>window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'}),60); }
     return; }
-  if(act==='sync-now'){ toast('Sincronizando…'); cloudFlush().then(()=>cargarPerfil()).then(cloudPull).then(()=>{ usuariosCache=null; render(); toast('Sincronizado ✓'); }); return; }
+  if(act==='sync-now'){ toast('Sincronizando…'); cloudFlush().then(()=>cargarPerfil()).then(cloudPull).then(()=>{ usuariosCache=null; render(); if(state._queue.length){ toast(ultimoErrorSync ? ('No se pudo subir: '+ultimoErrorSync) : ('Quedan '+state._queue.length+' sin subir')); } else toast('Sincronizado ✓'); }); return; }
   if(act==='guardar-nombre'){ guardarNombre(); return; }
   if(act==='asignar-orph'){
     const nombre=$('#orphRazon').value.trim(); if(!nombre){ toast('Escribí una empresa'); return; }

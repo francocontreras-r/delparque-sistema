@@ -110,6 +110,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
   const [vinculandoKey, setVinculandoKey] = useState(null)
   const [deletedIds, setDeletedIds] = useState([])
   const [mano, setMano]     = useState(receta.manoDeObra || 0)
+  const [pesoKg, setPesoKg] = useState(receta.peso_kg ?? '') // solo bases: kg reales por tanda
   const [saving, setSaving] = useState(false)
   const [busq, setBusq]     = useState('')
 
@@ -253,6 +254,9 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
       mano_de_obra: Number(mano) || 0,
       costo_total: costoFinal,
     }
+    // Bases: guardar el rinde real en kg (para el $/kg de sus sabores). Si la
+    // columna no existe todavía, reintentamos sin ella (degradación segura).
+    if (tipo === 'Bases') updatePadre.peso_kg = (pesoKg === '' || pesoKg == null) ? null : Number(pesoKg)
     if (tipo === 'Sabores') {
       // La base del sabor se toma del ingrediente que ES una base (mismo criterio
       // que el costeo). Así, al agregar la base como ingrediente, queda vinculada
@@ -263,7 +267,12 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
       const baseIng = ings.find(i => baseNames.has(normalizarNombre(i.nombre || '')))
       if (baseIng) updatePadre.base_nombre = baseIng.nombre
     }
-    const { error: errP } = await supabase.from(tablaP).update(updatePadre).eq('id', receta.id)
+    let { error: errP } = await supabase.from(tablaP).update(updatePadre).eq('id', receta.id)
+    if (errP && errP.code === '42703' && 'peso_kg' in updatePadre) {
+      // La columna peso_kg todavía no existe → guardamos el resto igual.
+      const { peso_kg, ...sinPeso } = updatePadre // eslint-disable-line no-unused-vars
+      ;({ error: errP } = await supabase.from(tablaP).update(sinPeso).eq('id', receta.id))
+    }
     if (errP) {
       setSaving(false)
       showToast(`Error al actualizar costo: ${errP.message}`, 'error')
@@ -406,6 +415,22 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
             className="w-36 text-right rounded-md border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-orange-300"
             style={{ borderColor: colors.border }} />
         </div>
+
+        {/* Rinde real en kg (solo bases): la base es más densa que el agua, así que
+            120 L pesan más de 120 kg. Con esto el $/kg de sus sabores sale real. */}
+        {tipo === 'Bases' && (
+          <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+            <div className="flex-1">
+              <label className="text-sm font-medium" style={{ color: colors.textSecondary }}>Rinde real (kg por tanda)</label>
+              <p className="text-[11px]" style={{ color: colors.textMuted }}>Cuánto pesa la tanda al salir de la máquina (pesa más que los litros). Vacío = usa los litros.</p>
+            </div>
+            <input type="number" min="0" step="0.1" value={pesoKg}
+              onChange={e => setPesoKg(e.target.value)}
+              placeholder={`${receta.litros_batch || 120}`}
+              className="w-36 text-right rounded-md border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-orange-300"
+              style={{ borderColor: colors.border }} />
+          </div>
+        )}
 
         {/* Resumen de costos */}
         <div className="rounded-xl p-4 space-y-2" style={{ backgroundColor: '#fff7ed', border: '1px solid #fed7aa' }}>
@@ -566,6 +591,7 @@ export default function Recetas() {
         return {
           id: b.id, nombre: (b.nombre || '').toUpperCase(), tipo: 'Base',
           litros_batch: b.litros_batch || 0,
+          peso_kg: b.peso_kg ?? null,
           manoDeObra: b.mano_de_obra || 0,
           costoTotal: b.costo_total || 0,
           costoUnit, unidadUnit: 'L',

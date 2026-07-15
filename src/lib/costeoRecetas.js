@@ -24,6 +24,12 @@ export function crearCosteador({ insumos = [], bases = [], baseIngredientes = []
   // que tengan "agua" en el nombre (ej. "Base Neutra Agua"), que SÍ tienen costo
   // propio. Sin esto, cualquier producto con "agua" en el nombre costaba $0.
   const esAguaLibre = n => esAgua(n) && !esBase(n) && !esSabor(n)
+  // Densidad de una base = kg reales por tanda / litros de la tanda. Convierte los
+  // litros de base a los KG reales que rinde el helado. Si no hay peso_kg, vale 1.
+  const densBase = nombre => {
+    const b = basePorNombre[norm(nombre || '')]
+    return (b && Number(b.peso_kg) > 0 && Number(b.litros_batch) > 0) ? Number(b.peso_kg) / Number(b.litros_batch) : 1
+  }
 
   // Costo por L de una base = Σ(materia prima del batch) / litros_batch
   function costoBaseL(base, visit) {
@@ -49,13 +55,25 @@ export function crearCosteador({ insumos = [], bases = [], baseIngredientes = []
     visit.add(k)
     const ings = saborIngredientes.filter(i => i.sabor_id === sabor.id)
     // ¿La base está cargada como ingrediente? (ej. "Neutra Leche" 120 L)
-    let litrosBase = 0, baseEnIngs = false
-    ings.forEach(i => { if (esBase(i.insumo_nombre)) { baseEnIngs = true; litrosBase += Number(i.cantidad) || 0 } })
-    if (!baseEnIngs) litrosBase = Number(sabor.litros_base) || LITROS_BATCH
+    // litrosBase = litros de base (para el COSTO); kgBase = kg reales que rinde
+    // esa base (litros × densidad), para el RINDE en kg.
+    let litrosBase = 0, kgBase = 0, baseEnIngs = false
+    ings.forEach(i => {
+      if (esBase(i.insumo_nombre)) {
+        baseEnIngs = true
+        const lit = Number(i.cantidad) || 0
+        litrosBase += lit
+        kgBase += lit * densBase(i.insumo_nombre)
+      }
+    })
+    if (!baseEnIngs) {
+      litrosBase = Number(sabor.litros_base) || LITROS_BATCH
+      kgBase = litrosBase * densBase(sabor.base_nombre)
+    }
     const extraKg = ings
       .filter(i => (i.unidad || '').toLowerCase() === 'kg' && !esAgua(i.insumo_nombre) && !esBase(i.insumo_nombre) && !esSabor(i.insumo_nombre))
       .reduce((a, i) => a + (Number(i.cantidad) || 0), 0)
-    const rinde = litrosBase + extraKg
+    const rinde = kgBase + extraKg
     let total = 0
     ings.forEach(i => { if (!esAguaLibre(i.insumo_nombre)) total += (Number(i.cantidad) || 0) * costoDe(i.insumo_nombre, visit) })
     // Si la base no estaba como ingrediente, se suma vía base_nombre

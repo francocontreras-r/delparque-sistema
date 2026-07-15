@@ -25,6 +25,15 @@ export function crearCostoUnitario(ctx = {}) {
 
   const saborPorNombre = {}; sabores.forEach(s => { saborPorNombre[norm(s.nombre)] = s })
   const impPorNombre = {}; impulsivos.forEach(i => { impPorNombre[norm(i.nombre)] = i })
+  const basePorNombre = {}; bases.forEach(b => { basePorNombre[norm(b.nombre)] = b })
+  // Densidad de una base = kg reales por tanda / litros de la tanda. Sirve para
+  // convertir los litros de base a los KG reales que rinde el helado (la base es
+  // más densa que el agua: 120 L pesan más de 120 kg). Si no se cargó peso_kg,
+  // vale 1 (comportamiento anterior: litros = kg).
+  const densBase = nombre => {
+    const b = basePorNombre[norm(nombre || '')]
+    return (b && Number(b.peso_kg) > 0 && Number(b.litros_batch) > 0) ? Number(b.peso_kg) / Number(b.litros_batch) : 1
+  }
   const tipoProd = nombre => tiposMap[(nombre || '').toUpperCase()] || tiposMap[norm(nombre)] || null
 
   // rinde/peso a partir de los kg de la receta
@@ -39,7 +48,9 @@ export function crearCostoUnitario(ctx = {}) {
   function infoDe(nombre) {
     const s = saborPorNombre[norm(nombre)]
     if (s) {
-      const rinde = (Number(s.litros_base) || LITROS_BATCH) + (extraKg[s.id] || 0)
+      // Rinde en KG: litros de base × densidad de la base + kg de agregados.
+      const litrosBase = Number(s.litros_base) || LITROS_BATCH
+      const rinde = litrosBase * densBase(s.base_nombre) + (extraKg[s.id] || 0)
       const total = matSabor(s) + (Number(s.mano_de_obra) || 0)
       return { costo: rinde > 0 ? total / rinde : total, unidad: 'kg', tipo: 'sabor' }
     }

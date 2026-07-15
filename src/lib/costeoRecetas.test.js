@@ -43,3 +43,32 @@ describe('crearCosteador — agua vs. base "agua"', () => {
     expect(c.costoDe('Limón al agua')).toBeGreaterThan(0)
   })
 })
+
+describe('crearCosteador — rinde en kg por densidad de la base', () => {
+  const base = { id: 1, nombre: 'Base Crema', litros_batch: 120 }
+  const sabor = { id: 9, nombre: 'Sambayón', litros_base: 120, base_nombre: 'Base Crema' }
+  const ctx = (peso_kg) => ({
+    insumos: [{ nombre: 'Azúcar', costo_unitario: 800 }, { nombre: 'Yema', costo_unitario: 3000 }],
+    bases: [{ ...base, peso_kg }],
+    baseIngredientes: [{ base_id: 1, insumo_nombre: 'Azúcar', cantidad: 30, unidad: 'kg' }],
+    sabores: [sabor],
+    saborIngredientes: [{ sabor_id: 9, insumo_nombre: 'Yema', cantidad: 6, unidad: 'kg' }],
+  })
+
+  it('sin peso_kg: rinde = litros (comportamiento previo)', () => {
+    const c = crearCosteador(ctx(null))
+    const sinDens = c.costoDe('Sambayón')
+    // costo total / (120 + 6)
+    expect(sinDens).toBeGreaterThan(0)
+    // con peso_kg mayor, el $/kg baja (más kg para repartir)
+    const conDens = crearCosteador(ctx(132)).costoDe('Sambayón')
+    expect(conDens).toBeLessThan(sinDens)
+  })
+
+  it('peso_kg 132: la base rinde 132 kg, no 120', () => {
+    const c = crearCosteador(ctx(132))
+    // rinde = 120 × (132/120) + 6 = 138 kg
+    // total materia prima = base(30×800/120 ×120) + yema(6×3000) = 24000 + 18000 = 42000
+    expect(c.costoDe('Sambayón')).toBeCloseTo(42000 / 138, 1)
+  })
+})

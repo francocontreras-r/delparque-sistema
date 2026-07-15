@@ -510,7 +510,7 @@ const RO          = () => !puedeEditar();   // read-only
 async function cargarPerfil(){
   if(!cloudOn()){ perfil = null; return; }
   try{
-    let { data } = await sb.from('perfiles').select('rol,email').eq('id', sbUser.id).maybeSingle();
+    let { data } = await sb.from('perfiles').select('rol,email,nombre').eq('id', sbUser.id).maybeSingle();
     if(!data){ // fallback si el trigger no lo creó: arranco como lectura
       await sb.from('perfiles').insert({ id: sbUser.id, email: sbUser.email, rol: 'lectura' });
       data = { rol: 'lectura', email: sbUser.email };
@@ -526,6 +526,16 @@ async function cargarUsuarios(){
     usuariosCache = data || [];
   }catch(e){ usuariosCache = []; toast('No se pudo leer usuarios'); }
   if(view==='config') render();
+}
+async function guardarNombre(){
+  if(!cloudOn()){ toast('Iniciá sesión para guardar tu nombre'); return; }
+  const nombre = ($('#miNombre')?.value||'').trim();
+  try{
+    const { error } = await sb.from('perfiles').update({ nombre }).eq('id', sbUser.id);
+    if(error) throw error;
+    perfil = { ...(perfil||{}), nombre };
+    toast(nombre ? 'Nombre guardado ✓' : 'Nombre borrado');
+  }catch(e){ toast('No se pudo guardar: '+e.message); }
 }
 async function cambiarRol(id, rol){
   try{
@@ -727,7 +737,7 @@ function fmtFecha(f){ if(!f) return '—'; const [y,m,d]=String(f).slice(0,10).s
 function hoyISO(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
 function nowISO(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); } // 'YYYY-MM-DDTHH:MM'
 // Quién está operando: en la nube, el email logueado; en modo local, "Local".
-function usuarioActual(){ return (cloudOn() && sbUser?.email) ? sbUser.email : 'Local'; }
+function usuarioActual(){ return cloudOn() ? ((perfil?.nombre||'').trim() || sbUser?.email || 'Local') : 'Local'; }
 // Agrega una entrada al historial (auditoría) del cheque.
 function logHist(ch, accion, extra){ (ch.historial ||= []).push({ts:nowISO(), por:usuarioActual(), accion, ...(extra||{})}); }
 function fmtHist(ts){ if(!ts) return ''; const s=String(ts).replace('T',' '); const [f,h]=s.split(' '); const [y,m,d]=(f||'').split('-'); return d&&m&&y?`${d}/${m}/${y}${h?' '+h:''}`:s; }
@@ -1294,6 +1304,12 @@ function viewConfig(){
     <div class="cloudbar"><span class="dot" style="background:var(--green)"></span>
       <span>Conectado como <b style="color:var(--ink);word-break:break-all">${esc(sbUser?.email||'')}</b></span> ${rolBadge}${state._queue.length?`<span style="color:var(--amber)">· ${state._queue.length} sin subir</span>`:''}
     </div>
+    <div class="field" style="margin-top:12px"><label>Tu nombre <span class="mut3">(aparece en el pie del informe: "Preparado por…")</span></label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input id="miNombre" value="${esc(perfil?.nombre||'')}" placeholder="Ej: Franco Contreras" autocomplete="off" style="flex:1;min-width:180px">
+        <button class="btn sm" data-act="guardar-nombre" style="flex:0 0 auto">Guardar</button>
+      </div>
+    </div>
     <div class="hint">Tus cheques se guardan en la nube y aparecen en todos tus dispositivos. Funciona también sin conexión: se sincroniza cuando volvés a tener internet.</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="btn sm" data-act="sync-now">Sincronizar ahora</button>
@@ -1642,6 +1658,7 @@ document.addEventListener('click', e=>{
     else if(m==='backup'){ view='config'; render(); setTimeout(()=>window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'}),60); }
     return; }
   if(act==='sync-now'){ toast('Sincronizando…'); cloudFlush().then(()=>cargarPerfil()).then(cloudPull).then(()=>{ usuariosCache=null; render(); toast('Sincronizado ✓'); }); return; }
+  if(act==='guardar-nombre'){ guardarNombre(); return; }
   if(act==='asignar-orph'){
     const nombre=$('#orphRazon').value.trim(); if(!nombre){ toast('Escribí una empresa'); return; }
     let r=state.razones.find(x=>_norm(x.nombre)===_norm(nombre));

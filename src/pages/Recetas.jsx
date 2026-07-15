@@ -953,6 +953,10 @@ export default function Recetas() {
             const ings = r.ingredientes
             const costoUnit = r.costoUnit || 0          // $/kg (sabor/postre), $/L (base), $/u (impulsivo)
             const unidadUnit = r.unidadUnit || 'u'
+            // Postre: lo relevante es cuánto cuesta HACER UNO (helado de la receta +
+            // envase + mano de obra). El $/kg queda como dato secundario.
+            const esPostre = r.tipo === 'Postre'
+            const costoPorUnidad = (r.subtotalMP || 0) + (r.manoDeObra || 0)
             const partes = []
             if (r.litros_batch > 0) partes.push(`${r.litros_batch} L/batch`)
             if (r.baseNombre) partes.push(`Base: ${r.baseNombre}`)
@@ -979,11 +983,21 @@ export default function Recetas() {
                       {partes.length > 0 && (
                         <p className="text-xs" style={{ color: colors.textMuted }}>{partes.join(' · ')}</p>
                       )}
-                      {costoUnit > 0 && (
-                        <p className="text-xs font-bold" style={{ color: colors.brand }}>
-                          ${pesos(costoUnit)}/{unidadUnit}
-                          <span className="font-normal" style={{ color: colors.textMuted }}> · costo por {unidadUnit === 'kg' ? 'kg' : unidadUnit === 'L' ? 'litro' : 'unidad'}</span>
-                        </p>
+                      {esPostre ? (
+                        costoPorUnidad > 0 && (
+                          <p className="text-xs font-bold" style={{ color: colors.brand }}>
+                            ${pesos(costoPorUnidad)}
+                            <span className="font-normal" style={{ color: colors.textMuted }}> · costo por unidad (hacer una)</span>
+                            {costoUnit > 0 && <span className="font-normal" style={{ color: colors.textMuted }}> · ${pesos(costoUnit)}/kg</span>}
+                          </p>
+                        )
+                      ) : (
+                        costoUnit > 0 && (
+                          <p className="text-xs font-bold" style={{ color: colors.brand }}>
+                            ${pesos(costoUnit)}/{unidadUnit}
+                            <span className="font-normal" style={{ color: colors.textMuted }}> · costo por {unidadUnit === 'kg' ? 'kg' : unidadUnit === 'L' ? 'litro' : 'unidad'}</span>
+                          </p>
+                        )
                       )}
                     </div>
                   </div>

@@ -1580,7 +1580,7 @@ function modalBanco(id){
    EVENTOS
    ══════════════════════════════════════════════════════════════════════════ */
 document.addEventListener('click', e=>{
-  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-periodo],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-confirm-cheque],[data-volver-form],[data-confirm-endoso],[data-confirm-concil],[data-ver-comprob],[data-quitar-comprob],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
+  const t = e.target.closest('[data-view],[data-act],[data-more],[data-imp],[data-periodo],[data-estado-quick],[data-set-estado],[data-nuevo-user],[data-reset-user],[data-del-user],[data-close],[data-overlay],[data-edit],[data-stat],[data-goto],[data-tipo],[data-save-cheque],[data-confirm-cheque],[data-volver-form],[data-confirm-endoso],[data-confirm-concil],[data-informe-per],[data-ver-comprob],[data-quitar-comprob],[data-del-cheque],[data-edit-razon],[data-del-razon],[data-save-razon],[data-edit-banco],[data-del-banco],[data-save-banco]');
   if(!t) return;
 
   // Cambio rápido de estado desde la lista
@@ -1658,8 +1658,10 @@ document.addEventListener('click', e=>{
   if(t.dataset.more){ const m=t.dataset.more; closeModal();
     if(m==='img'){ descargarImagen(); }
     else if(m==='print'){ view='dashboard'; render(); prepararImpresion(); setTimeout(()=>window.print(),150); }
+    else if(m==='periodo'){ abrirInformePeriodo(); }
     else if(m==='backup'){ view='config'; render(); setTimeout(()=>window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'}),60); }
     return; }
+  if(t.dataset.informePer!==undefined){ generarInformePeriodo(t.dataset.informePer); return; }
   if(act==='sync-now'){ toast('Sincronizando…'); cloudFlush().then(()=>cargarPerfil()).then(cloudPull).then(()=>{ usuariosCache=null; render(); if(state._queue.length){ toast(ultimoErrorSync ? ('No se pudo subir: '+ultimoErrorSync) : ('Quedan '+state._queue.length+' sin subir')); } else toast('Sincronizado ✓'); }); return; }
   if(act==='guardar-nombre'){ guardarNombre(); return; }
   if(act==='asignar-orph'){
@@ -1995,8 +1997,33 @@ function abrirMenuMas(){
     <div class="modal-b" style="padding:10px">
       <button class="sheet-btn" data-more="img"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg></span><span>Descargar imagen<small>Captura del panel en PNG</small></span></button>
       <button class="sheet-btn" data-more="print"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></span><span>PDF / Imprimir<small>Guardar o imprimir el informe</small></span></button>
+      <button class="sheet-btn" data-more="periodo"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span><span>Informe por período<small>PDF de un mes, trimestre, año o rango</small></span></button>
       <button class="sheet-btn" data-more="backup"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></span><span>Copia de datos<small>Respaldar o restaurar</small></span></button>
     </div></div>`);
+}
+// Informe por período "a un toque": elegís el rango y sale el PDF al instante.
+function abrirInformePeriodo(){
+  if(!state.cheques.length){ toast('Cargá cheques primero'); return; }
+  const rangoTxt=k=>{ const r=rangoPreset(k); return r.desde?`${fmtFecha(r.desde)} → ${fmtFecha(r.hasta)}`:''; };
+  const presets=[['mes','Este mes'],['30d','Próximos 30 días'],['trim','Este trimestre'],['anio',String(new Date().getFullYear())]];
+  const btns=presets.map(([k,l])=>`<button class="sheet-btn" data-informe-per="${k}"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span><span>${l}<small>${rangoTxt(k)}</small></span></button>`).join('');
+  openModal(`<div class="modal" style="max-width:440px">
+    <div class="modal-h"><h3>Informe por período</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-b" style="padding:10px">
+      <div class="hint" style="padding:2px 6px 10px">Elegí el período y te genero el PDF al toque.${filtros.razon?` Va filtrado por <b>${esc(razonNombre(filtros.razon))}</b>.`:''}</div>
+      ${btns}
+      <button class="sheet-btn" data-informe-per=""><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg></span><span>Todos<small>Toda la cartera, sin límite de fecha</small></span></button>
+      <div class="field" style="margin-top:12px"><label>O un rango exacto</label>
+        <div class="frow"><input type="date" id="ipDesde" value="${filtros.desde||''}"><input type="date" id="ipHasta" value="${filtros.hasta||''}"></div>
+      </div>
+      <button class="btn" style="width:100%;justify-content:center;margin-top:8px" data-informe-per="custom">Generar PDF del rango</button>
+    </div></div>`);
+}
+function generarInformePeriodo(k){
+  if(k==='custom'){ filtros.periodo='custom'; filtros.desde=($('#ipDesde')?.value)||''; filtros.hasta=($('#ipHasta')?.value)||''; }
+  else if(k===''){ filtros.periodo=''; filtros.desde=''; filtros.hasta=''; }
+  else { filtros.periodo=k; const r=rangoPreset(k); filtros.desde=r.desde; filtros.hasta=r.hasta; }
+  closeModal(); view='dashboard'; render(); prepararImpresion(); setTimeout(()=>window.print(),150);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

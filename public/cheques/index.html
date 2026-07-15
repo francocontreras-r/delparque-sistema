@@ -485,7 +485,7 @@ const COLS = {
   bancos :['id','razon_social_id','entidad','saldo','acuerdo'],
   cheques:['id','razon_social_id','tipo','formato','banco','numero','importe','fecha_emision','fecha_pago','fecha_acreditacion','estado','librador','cuit_librador','contraparte','concepto','observaciones','creado_por','historial','endosado_a','endosado_fecha','comprobante_path','comprobante_nombre'],
 };
-const DATE_COLS = new Set(['fecha_emision','fecha_pago','fecha_acreditacion']);
+const DATE_COLS = new Set(['fecha_emision','fecha_pago','fecha_acreditacion','endosado_fecha']);
 const NUM_COLS  = new Set(['importe','saldo','acuerdo']);
 function toRemote(tabla,row){
   const o={};

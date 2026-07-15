@@ -1791,12 +1791,14 @@ function download(name,blob){ const u=URL.createObjectURL(blob); const a=documen
 
 // Arma el informe PDF completo (encabezado, resumen, detalle de cheques y bancos).
 function prepararImpresion(){
-  const rz = filtros.razon ? razonNombre(filtros.razon) : 'Todas las razones';
+  const rObj = filtros.razon ? state.razones.find(r=>r.id===filtros.razon) : null;
+  const rz = rObj ? rObj.nombre : 'Todas las razones';
+  const cuit = rObj && rObj.cuit ? `<br>CUIT: <b>${esc(rObj.cuit)}</b>` : '';
   const m = $('#printMeta');
   const per = (filtros.desde||filtros.hasta) ? `<br>Período: <span class="chip">${esc(periodoLabel())}</span>` : '';
-  if(m) m.innerHTML = `Empresa: <b>${esc(rz)}</b>${per}<br>Emitido: <b>${fmtFecha(hoyISO())}</b>`;
+  if(m) m.innerHTML = `Empresa: <b>${esc(rz)}</b>${cuit}${per}<br>Emitido: <b>${fmtFecha(hoyISO())}</b>`;
   const f = $('#printFoot');
-  if(f) f.textContent = 'Generado el ' + fmtFecha(hoyISO());
+  if(f) f.textContent = 'Preparado por ' + usuarioActual() + ' · ' + fmtHist(nowISO());
   const r = $('#printReport');
   if(r) r.innerHTML = construirInforme();
 }
@@ -1815,11 +1817,13 @@ function chartInformeMeses(chs){
   const keys=Object.keys(m).sort().slice(0,8);
   if(!keys.length) return '';
   const max=Math.max(1,...keys.map(k=>Math.max(m[k].cob,m[k].pag)));
-  const W=760,H=190,padL=58,padR=12,padT=16,padB=34,plotH=H-padT-padB,plotW=W-padL-padR,step=plotW/keys.length;
+  const W=760,H=200,padL=58,padR=12,padT=26,padB=34,plotH=H-padT-padB,plotW=W-padL-padR,step=plotW/keys.length;
   const grid=[0,.5,1].map(g=>{ const y=H-padB-g*plotH; return `<line x1="${padL}" x2="${W-padR}" y1="${y.toFixed(0)}" y2="${y.toFixed(0)}" stroke="#e3e7ee"${g?' stroke-dasharray="3 4"':''}/><text x="${padL-8}" y="${(y+3).toFixed(0)}" font-size="10" fill="#8a929e" text-anchor="end">${pesosK(g*max).replace('$ ','')}</text>`; }).join('');
   let bars='';
   keys.forEach((k,i)=>{ const cx=padL+step*i+step/2, bw=Math.min(24,step*0.28), gap=bw*0.62;
-    const draw=(v,dx,fill)=>{ if(v<=0) return ''; const h=Math.max(2,v/max*plotH), x=cx+dx-bw/2, y=H-padB-h; return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${fill}"/>`; };
+    const draw=(v,dx,fill)=>{ if(v<=0) return ''; const h=Math.max(2,v/max*plotH), x=cx+dx-bw/2, y=H-padB-h;
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${fill}"/>`+
+        `<text x="${(x+bw/2).toFixed(0)}" y="${(y-4).toFixed(0)}" font-size="8.5" font-weight="800" fill="${fill}" text-anchor="middle">${pesosK(v).replace('$ ','')}</text>`; };
     bars+=draw(m[k].cob,-gap,'#0B7D70')+draw(m[k].pag,gap,'#063F6D');
     bars+=`<text x="${cx.toFixed(0)}" y="${H-padB+16}" font-size="10.5" fill="#5B6472" text-anchor="middle" font-weight="700">${fmtMes(k).split(' ')[0]}</text>`;
   });

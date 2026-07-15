@@ -145,7 +145,14 @@ function computeMateriasPrimas(item, ctx) {
   let factor = 0
 
   if (item.tipo_producto === 'helado') {
-    const receta = resolverRecetaCtx(item.sabor_nombre, ctx)
+    // ¿La orden es de una BASE o de un sabor homónimo? Lo sabemos por receta_tipo
+    // (órdenes nuevas) o lo inferimos: el sabor_id guardado corresponde a una
+    // base con ese nombre. Sin esto, una orden de la base "Flan" resolvía la
+    // receta del sabor "Flan" y pedía 120 L de la base a sí misma.
+    const nomProd = normalizarNombre(item.sabor_nombre)
+    const preferir = item.receta_tipo
+      || ((ctx.bases || []).some(b => b.id === item.sabor_id && normalizarNombre(b.nombre) === nomProd) ? 'base' : null)
+    const receta = resolverRecetaCtx(item.sabor_nombre, ctx, preferir)
     if (!receta) return []
     ingredientes = receta.ingredientes
     factor = item.batches || 0
@@ -520,6 +527,15 @@ export default function Ordenes() {
     return resolverRecetaCtx(nombre, { sabores, bases, saborIngredientes, baseIngredientes }, preferirTipo)
   }
 
+  // Para una orden ya guardada: ¿su receta es de una base o de un sabor homónimo?
+  // Usa receta_tipo si está; si no, lo infiere porque el sabor_id apunta a una
+  // base con ese nombre (las órdenes de base guardan producto_id = base.id).
+  function tipoRecetaDeOrden(item) {
+    if (item?.receta_tipo) return item.receta_tipo
+    const nom = normalizarNombre(item?.sabor_nombre)
+    return bases.some(b => b.id === item?.sabor_id && normalizarNombre(b.nombre) === nom) ? 'base' : null
+  }
+
   // ¿La orden es un sabor que necesita una base, y hay stock de esa base?
   // Devuelve null para bases/impulsivos/postres (no aplica el control).
   function baseDeSabor(orden) {
@@ -838,7 +854,7 @@ export default function Ordenes() {
         .filter(m => m.estado !== 'sinlimite')
         .map(m => ({ insumo_nombre: m.nombre, cantidad: m.cantidadPorBatch, unidad: m.unidad, factor: m.batches }))
     } else {
-      const receta = resolverReceta(item.sabor_nombre)
+      const receta = resolverReceta(item.sabor_nombre, tipoRecetaDeOrden(item))
       if (receta) {
         ings = receta.ingredientes.map(i => ({ ...i, factor: item.batches || 1 }))
       }
@@ -917,7 +933,7 @@ export default function Ordenes() {
   }
 
   async function manejarCompletadaBase(item) {
-    const receta = resolverReceta(item.sabor_nombre)
+    const receta = resolverReceta(item.sabor_nombre, tipoRecetaDeOrden(item))
     if (receta?.tipo !== 'base') return false
     // Anti-duplicado: si esta orden ya cargó ESTA base, no volver a insertarla
     // (evita bases duplicadas si se "completa" dos veces).

@@ -20,7 +20,7 @@ const NAV_GRUPOS = [
     items: [
       { to: '/',           label: 'Inicio',      Icon: LayoutDashboard, modulo: 'dashboard'  },
       { to: '/produccion', label: 'Producción',  Icon: Factory,         modulo: 'produccion' },
-      { to: '/ordenes',    label: 'Órdenes',     Icon: ClipboardList,   modulo: 'ordenes'    },
+      { to: '/ordenes',    label: 'Órdenes',     Icon: ClipboardList,   modulo: 'ordenes', oModulo: 'vincularBases' },
     ],
   },
   {
@@ -348,7 +348,7 @@ export default function Layout() {
     return () => clearInterval(id)
   }, [])
 
-  const navItems = NAV.filter(n => tienePermiso(n.modulo))
+  const navItems = NAV.filter(n => tienePermiso(n.modulo) || (n.oModulo && tienePermiso(n.oModulo)))
   // Ubicación actual (grupo + página) para el breadcrumb del header. La barra
   // superior muestra "dónde estás"; el título grande vive en cada página.
   const navMatch = (() => {

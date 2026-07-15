@@ -318,6 +318,10 @@ export default function Ordenes() {
   // quien tenga el permiso 'vincularBases' (supervisores por defecto). Borrar un
   // lote de base sigue siendo solo admin.
   const puedeVincular = isAdmin || tienePermiso('vincularBases')
+  // Gestionar órdenes (crear, cambiar estado, reconciliar) requiere el módulo
+  // 'ordenes'. Quien entra solo por 'vincularBases' (cámara) ve el stock de
+  // bases y el botón Vincular, pero NO puede crear ni modificar órdenes.
+  const puedeGestionar = isAdmin || tienePermiso('ordenes')
 
   // Al abrir el modal de finalización de un sabor sin base en stock, prellenar
   // el alta de base con lo que la receta dice que se necesitó.
@@ -1424,12 +1428,16 @@ export default function Ordenes() {
               <BarChart2 size={15} /> ¿Qué puedo producir?
             </Button>
           )}
-          <Button variant="secondary" onClick={() => setReconcOpen(true)}>
-            <BarChart2 size={15} /> Reconciliar bases
-          </Button>
+          {puedeGestionar && (
+            <Button variant="secondary" onClick={() => setReconcOpen(true)}>
+              <BarChart2 size={15} /> Reconciliar bases
+            </Button>
+          )}
+          {puedeGestionar && (
           <Button variant="primary" onClick={() => setModal(true)}>
             <Plus size={15} /> Nueva orden
           </Button>
+          )}
         </>}
       />
 
@@ -1735,21 +1743,23 @@ export default function Ordenes() {
                           )}
                         </div>
                       )}
-                      <div className="flex gap-2 flex-wrap items-center mt-2">
-                        {ESTADOS.filter(es => es.key !== item.estado && es.key !== 'cancelada').map(es => (
-                          <Button key={es.key} variant="ghost" size="sm" onClick={() => intentarCambiarEstado(item, es.key)}
-                            loading={checkingId === item.id} disabled={checkingId !== null && checkingId !== item.id}
-                            className="!border" style={{ borderColor: es.color, color: es.color }}>
-                            → {es.label}
-                          </Button>
-                        ))}
-                        {item.estado !== 'cancelada' && (
-                          <Button variant="ghost" size="sm" onClick={() => cambiarEstado(item, 'cancelada')}
-                            className="!border" style={{ borderColor: colors.border, color: colors.textMuted }}>
-                            Cancelar
-                          </Button>
-                        )}
-                      </div>
+                      {puedeGestionar && (
+                        <div className="flex gap-2 flex-wrap items-center mt-2">
+                          {ESTADOS.filter(es => es.key !== item.estado && es.key !== 'cancelada').map(es => (
+                            <Button key={es.key} variant="ghost" size="sm" onClick={() => intentarCambiarEstado(item, es.key)}
+                              loading={checkingId === item.id} disabled={checkingId !== null && checkingId !== item.id}
+                              className="!border" style={{ borderColor: es.color, color: es.color }}>
+                              → {es.label}
+                            </Button>
+                          ))}
+                          {item.estado !== 'cancelada' && (
+                            <Button variant="ghost" size="sm" onClick={() => cambiarEstado(item, 'cancelada')}
+                              className="!border" style={{ borderColor: colors.border, color: colors.textMuted }}>
+                              Cancelar
+                            </Button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )
                 })}
@@ -2186,9 +2196,11 @@ export default function Ordenes() {
         footer={ordenDetalle && (
           <>
             <Button variant="secondary" onClick={() => setOrdenDetalle(null)} className="flex-1">Cerrar</Button>
-            <Button variant="primary" onClick={finalizarManual} loading={finalizando} className="flex-1">
-              Finalizar orden manualmente
-            </Button>
+            {puedeGestionar && (
+              <Button variant="primary" onClick={finalizarManual} loading={finalizando} className="flex-1">
+                Finalizar orden manualmente
+              </Button>
+            )}
           </>
         )}
       >

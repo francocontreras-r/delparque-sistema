@@ -64,10 +64,13 @@ function AdminRoute({ children }) {
 
 // Guarda genérica por módulo: cierra el acceso por URL a quien no tiene el
 // permiso (el menú ya los oculta, pero la ruta quedaba abierta).
-function ModuloRoute({ modulo, children }) {
+function ModuloRoute({ modulo, oModulo, children }) {
   const { tienePermiso, loading } = useUser()
   if (loading) return <PageSpinner />
-  return tienePermiso(modulo) ? children : <Navigate to="/produccion" replace />
+  // oModulo: permiso alternativo que también habilita la ruta (ej. quien puede
+  // 'vincularBases' entra a Órdenes aunque no tenga el módulo 'ordenes' completo).
+  const ok = tienePermiso(modulo) || (oModulo && tienePermiso(oModulo))
+  return ok ? children : <Navigate to="/produccion" replace />
 }
 
 function InformesRoute({ children }) {
@@ -95,7 +98,7 @@ function AppRoutes() {
           <Route path="camaras"      element={<ModuloRoute modulo="camaras"><Suspense fallback={<PageSpinner />}><Camaras /></Suspense></ModuloRoute>} />
           <Route path="deposito"     element={<ModuloRoute modulo="deposito"><Suspense fallback={<PageSpinner />}><Deposito /></Suspense></ModuloRoute>} />
           <Route path="mermas"       element={<ModuloRoute modulo="mermas"><Suspense fallback={<PageSpinner />}><Mermas /></Suspense></ModuloRoute>} />
-          <Route path="ordenes"      element={<ModuloRoute modulo="ordenes"><Suspense fallback={<PageSpinner />}><Ordenes /></Suspense></ModuloRoute>} />
+          <Route path="ordenes"      element={<ModuloRoute modulo="ordenes" oModulo="vincularBases"><Suspense fallback={<PageSpinner />}><Ordenes /></Suspense></ModuloRoute>} />
           <Route path="recetas"      element={<ModuloRoute modulo="recetas"><Suspense fallback={<PageSpinner />}><Recetas /></Suspense></ModuloRoute>} />
           <Route path="finanzas"     element={<AdminRoute><Suspense fallback={<PageSpinner />}><Finanzas /></Suspense></AdminRoute>} />
           <Route path="informes"     element={<InformesRoute><Suspense fallback={<PageSpinner />}><Informes /></Suspense></InformesRoute>} />

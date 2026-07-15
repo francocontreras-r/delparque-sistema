@@ -103,11 +103,17 @@ function TiempoTranscurrido({ fechaInicio }) {
   return <>{formatDuracion(horas)}</>
 }
 
-// Busca la receta de un sabor o, si no existe, de una base, por nombre.
-function resolverRecetaCtx(nombre, ctx) {
+// Busca la receta por nombre. `preferirTipo` decide a quién darle prioridad
+// cuando un mismo nombre existe como sabor Y como base (ej. sabor "Flan" que usa
+// la base "Flan"): al PRODUCIR la base hay que resolver la receta de la BASE
+// (sus materias primas), no la del sabor (que pide 120 L de base). Sin esto,
+// hacer la base "Flan" mostraba los ingredientes del sabor y pedía la base a sí
+// misma.
+function resolverRecetaCtx(nombre, ctx, preferirTipo = null) {
   const n = normalizarNombre(nombre) // match tolerante a acentos/mayúsculas/espacios
-  const sabor = ctx.sabores.find(s => normalizarNombre(s.nombre) === n)
-  if (sabor) {
+  const buscarSabor = () => {
+    const sabor = ctx.sabores.find(s => normalizarNombre(s.nombre) === n)
+    if (!sabor) return null
     return {
       tipo: 'sabor',
       id: sabor.id,
@@ -115,16 +121,22 @@ function resolverRecetaCtx(nombre, ctx) {
       ingredientes: ctx.saborIngredientes.filter(i => i.sabor_id === sabor.id),
     }
   }
-  const base = ctx.bases.find(b => normalizarNombre(b.nombre) === n)
-  if (base) {
+  const buscarBase = () => {
+    const base = ctx.bases.find(b => normalizarNombre(b.nombre) === n)
+    if (!base) return null
     return {
       tipo: 'base',
       id: base.id,
       litrosBase: base.litros_batch || LITROS_BATCH,
-      ingredientes: ctx.baseIngredientes.filter(i => i.base_id === base.id),
+      // Una base NUNCA se consume a sí misma: si la receta trae un ingrediente
+      // con el mismo nombre que la base (rinde anotado como insumo o dato mal
+      // cargado), lo excluimos para no pedir "120 L de Flan" al hacer la base Flan.
+      ingredientes: ctx.baseIngredientes.filter(i => i.base_id === base.id && normalizarNombre(i.insumo_nombre) !== n),
     }
   }
-  return null
+  return preferirTipo === 'base'
+    ? (buscarBase() || buscarSabor())
+    : (buscarSabor() || buscarBase())
 }
 
 function computeMateriasPrimas(item, ctx) {
@@ -504,8 +516,8 @@ export default function Ordenes() {
     setKgBaseAUsar('')
   }
 
-  function resolverReceta(nombre) {
-    return resolverRecetaCtx(nombre, { sabores, bases, saborIngredientes, baseIngredientes })
+  function resolverReceta(nombre, preferirTipo = null) {
+    return resolverRecetaCtx(nombre, { sabores, bases, saborIngredientes, baseIngredientes }, preferirTipo)
   }
 
   // ¿La orden es un sabor que necesita una base, y hay stock de esa base?
@@ -524,8 +536,8 @@ export default function Ordenes() {
     return { baseNombre: sabor.base_nombre, litrosBase, necesaria, disponible, falta: disponible + 0.5 < (necesaria || 0.01) }
   }
 
-  function calcularKgObjetivo(nombreProducto, batches) {
-    const receta = resolverReceta(nombreProducto)
+  function calcularKgObjetivo(nombreProducto, batches, preferirTipo = null) {
+    const receta = resolverReceta(nombreProducto, preferirTipo)
     if (!receta) return { kgObjetivo: batches * LITROS_BATCH, litrosBase: LITROS_BATCH, extraKg: 0 }
     if (receta.tipo === 'base') {
       const kgObjetivo = batches * receta.litrosBase
@@ -543,9 +555,10 @@ export default function Ordenes() {
     if (productoSelEsHelado) {
       const cantidad = parseFloat(lineaCantidad || '1')
       if (!(cantidad > 0)) { toast2('La cantidad debe ser mayor a 0', 'error'); return }
-      const { kgObjetivo, litrosBase, extraKg } = calcularKgObjetivo(productoSel.nombre, cantidad)
+      const { kgObjetivo, litrosBase, extraKg } = calcularKgObjetivo(productoSel.nombre, cantidad, productoSel._tipo)
       const linea = {
         tipo: 'helado', producto_id: productoSel.id, producto_nombre: productoSel.nombre,
+        receta_tipo: productoSel._tipo, // 'base' o 'sabor': para resolver la receta correcta
         cantidad, litros: cantidad * LITROS_BATCH,
         kg_objetivo: kgObjetivo, litros_base: litrosBase, extra_kg: extraKg,
         horas_estimadas: horasEstimadas,
@@ -589,11 +602,13 @@ export default function Ordenes() {
   function requerimientosDeLineas(lineasHelado) {
     const map = {}
     lineasHelado.forEach(l => {
-      const receta = resolverReceta(l.producto_nombre)
+      const receta = resolverReceta(l.producto_nombre, l.receta_tipo)
       if (!receta) return
       receta.ingredientes.forEach(ing => {
         const key = normalizarNombre(ing.insumo_nombre)
         if (!key) return
+        // Nunca pedir el producto como ingrediente de sí mismo (auto-referencia).
+        if (key === normalizarNombre(l.producto_nombre)) return
         if (!map[key]) map[key] = { nombre: ing.insumo_nombre, cantidad: 0, unidad: ing.unidad }
         map[key].cantidad += (ing.cantidad || 0) * l.cantidad
       })

@@ -103,13 +103,15 @@ function dibujarBanner(doc, ctx, vigencia, logo) {
   const bx = ml, by = 14, bw = pw - ml - mr, bh = 42
   doc.setFillColor(...NARANJA); doc.roundedRect(bx, by, bw, bh, 6, 6, 'F')
   const cx = pw / 2
-  if (logo) {
-    try { doc.addImage(logo, 'PNG', cx - 26, by + 6, 52, 9, undefined, 'FAST') }
-    catch { /* si el logo no carga, seguimos con texto */ doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(255, 255, 255); doc.text('Del Parque', cx, by + 12, { align: 'center' }) }
-  } else {
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(255, 255, 255)
-    doc.text('Del Parque', cx, by + 12, { align: 'center' })
-  }
+  // logo: dataURL (string) o { data, ratio }. Si falla, cae a texto "Del Parque".
+  const logoData = typeof logo === 'string' ? logo : logo?.data
+  const ratio = (logo && logo.ratio) || 5.5
+  const textoLogo = () => { doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(255, 255, 255); doc.text('Del Parque', cx, by + 13, { align: 'center' }) }
+  if (logoData) {
+    const w = 46, h = w / (ratio || 5.5)
+    try { doc.addImage(logoData, 'PNG', cx - w / 2, by + 11 - h / 2, w, h, undefined, 'FAST') }
+    catch { textoLogo() }
+  } else { textoLogo() }
   doc.setTextColor(255, 255, 255)
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
   doc.text('#ESTÁBUENÍSIMO'.split('').join(' '), cx, by + 19, { align: 'center' })

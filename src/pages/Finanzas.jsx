@@ -21,6 +21,8 @@ import { crearCosteador } from '../lib/costeoRecetas'
 import { normalizarNombre } from '../lib/texto'
 import { cargarHistorialCostos } from '../lib/historialCostos'
 import { construirPrecioMapCamara, valorTotalCamara } from '../lib/valorCamara'
+import { generarPdfListaPrecios } from '../lib/pdfListaPrecios'
+import { clonarSemilla, preciosPorTier } from '../lib/listaPreciosData'
 import { useSearchParams } from 'react-router-dom'
 import {
   DollarSign, RefreshCw, Warehouse, Thermometer, Percent,
@@ -32,7 +34,7 @@ import {
 } from 'recharts'
 
 // ── Constantes ─────────────────────────────────────────────────────────────────
-const TABS = ['Costos', 'CIF', 'Márgenes', 'Historial', 'Resumen Ejecutivo']
+const TABS = ['Costos', 'CIF', 'Márgenes', 'Lista de precios', 'Historial', 'Resumen Ejecutivo']
 
 const CIF_PREDEFINIDOS = [
   { concepto: 'Alquiler del local',        categoria: 'fijo',     monto_mensual: 0 },
@@ -150,6 +152,9 @@ export default function Finanzas() {
   const [aplicandoTier, setAplicandoTier] = useState('')
   const [historial, setHistorial]   = useState({ disponible: true, rows: [] })
   const [histLoading, setHistLoading] = useState(false)
+  const [precioLista, setPrecioLista] = useState(clonarSemilla()) // lista de precios (franquicia+público)
+  const [guardandoPrecios, setGuardandoPrecios] = useState(false)
+  const [emitiendoPdf, setEmitiendoPdf] = useState(false)
 
   useEffect(() => { cargar() }, [])
 
@@ -207,6 +212,12 @@ export default function Finanzas() {
       setCifConfig(cif || [])
     }
     setLitrosMes((prods || []).reduce((a, p) => a + (Number(p.peso_kg) || 0), 0))
+    // Lista de precios: si existe la fila guardada la usamos; si no (tabla ausente
+    // o vacía), queda la semilla de listaPreciosData.js (modo lectura).
+    try {
+      const { data: pl } = await supabase.from('precios_lista').select('data').eq('id', 1).maybeSingle()
+      if (pl?.data) setPrecioLista(pl.data)
+    } catch { /* tabla ausente → semilla */ }
     setLoading(false)
   }
 
@@ -482,6 +493,72 @@ export default function Finanzas() {
   const margenesSorted = useMemo(() => (
     [...margenes].sort((a, b) => sortDir === 'desc' ? b.margen - a.margen : a.margen - b.margen)
   ), [margenes, sortDir])
+
+  // ── Lista de precios: margen de cada SABOR contra el precio de FRANQUICIA ─────
+  // El precio de franquicia sale del tier del sabor (Agua/Lisa/Con Agregado/…),
+  // el costo unitario ya lo calcula Finanzas. Así el margen sale sin cargar precio
+  // sabor por sabor. Ordena de mayor a menor margen.
+  const margenesFranquicia = useMemo(() => {
+    const tp = preciosPorTier(precioLista)
+    return (secciones.Sabores || []).map(s => {
+      const tier = tierDeSabor(s.nombre)
+      const precio = tier ? (Number(tp[tier]) || 0) : 0
+      const costo = Number(s.costo_unit) || 0
+      return { nombre: s.nombre, tier, precio, costo, ganancia: precio - costo, margen: margenPct(costo, precio) }
+    }).sort((a, b) => b.margen - a.margen)
+  }, [secciones.Sabores, precioLista]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const resumenFranquicia = useMemo(() => {
+    const conPrecio = margenesFranquicia.filter(m => m.precio > 0)
+    const prom = conPrecio.length ? conPrecio.reduce((a, m) => a + m.margen, 0) / conPrecio.length : 0
+    const mejor = conPrecio.length ? Math.max(...conPrecio.map(m => m.margen)) : 0
+    const vigilar = conPrecio.filter(m => m.margen < 30).length
+    return { prom, mejor, vigilar, total: margenesFranquicia.length, sinPrecio: margenesFranquicia.length - conPrecio.length }
+  }, [margenesFranquicia])
+
+  // Edita un precio de la lista en memoria (no persiste hasta "Guardar precios").
+  function editarPrecio(seccion, cat, idx, campo, valor) {
+    setPrecioLista(prev => {
+      const next = JSON.parse(JSON.stringify(prev))
+      const fila = next?.[seccion]?.[cat]?.[idx]
+      if (fila) fila[campo] = valor === '' ? (campo === 'precio2' ? null : 0) : Number(valor)
+      return next
+    })
+  }
+  function editarVigencia(v) { setPrecioLista(prev => ({ ...prev, vigencia: v })) }
+
+  async function guardarPrecios() {
+    setGuardandoPrecios(true)
+    try {
+      const { error } = await supabase.from('precios_lista').upsert(
+        { id: 1, data: precioLista, vigencia: precioLista.vigencia || null, actualizado: new Date().toISOString() },
+        { onConflict: 'id' })
+      if (error) {
+        if (error.code === '42P01') showToast('Falta crear la tabla precios_lista (corré sql/precios_lista.sql).', 'error')
+        else showToast(error.message, 'error')
+      } else showToast('Lista de precios guardada')
+    } catch (e) { showToast(e.message || 'No se pudo guardar', 'error') }
+    finally { setGuardandoPrecios(false) }
+  }
+
+  async function emitirPdfLista() {
+    setEmitiendoPdf(true)
+    try {
+      // Cargar el logo blanco (para el banner naranja) como dataURL, con su relación
+      // de aspecto real para no deformarlo. Si falla, el PDF usa el texto "Del Parque".
+      let logo = null
+      try {
+        const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = '/logo-wordmark-white-hd.png' })
+        const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight
+        c.getContext('2d').drawImage(img, 0, 0)
+        logo = { data: c.toDataURL('image/png'), ratio: img.naturalWidth / img.naturalHeight }
+      } catch { logo = null }
+      const doc = generarPdfListaPrecios(precioLista, { logo, fecha: new Date().toLocaleDateString('es-AR') })
+      const slug = (precioLista.vigencia || 'lista').toLowerCase().replace(/\s+/g, '-')
+      doc.save(`lista-precios-${slug}.pdf`)
+    } catch (e) { showToast('No se pudo generar el PDF: ' + (e.message || ''), 'error') }
+    finally { setEmitiendoPdf(false) }
+  }
 
   // Resumen del historial de costos: variación acumulada por insumo + inflación
   // promedio del período. Ordena de mayor a menor suba.
@@ -1335,6 +1412,118 @@ export default function Finanzas() {
                   </ResponsiveContainer>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ═══════════════════════ TAB LISTA DE PRECIOS ═══════════════════════ */}
+          {tab === 'Lista de precios' && (
+            <div className="space-y-4">
+              <div className="flex items-start justify-between flex-wrap gap-3">
+                <div>
+                  <h3 className="text-sm font-bold" style={{ color: colors.textPrimary }}>Lista de precios · Franquicias</h3>
+                  <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>
+                    Margen de cada sabor: precio de franquicia (por tier) vs. costo unitario. El PDF se emite limpio, sin costos ni márgenes.
+                  </p>
+                </div>
+                <Button variant="primary" onClick={emitirPdfLista} loading={emitiendoPdf}>
+                  <FileDown size={15} /> Emitir PDF limpio
+                </Button>
+              </div>
+
+              {/* KPIs */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { l: 'Margen promedio', v: `${resumenFranquicia.prom.toFixed(1)}%`, c: nivelMargen(resumenFranquicia.prom).barColor },
+                  { l: 'Sabores', v: String(resumenFranquicia.total), c: colors.textPrimary },
+                  { l: 'Mejor margen', v: `${resumenFranquicia.mejor.toFixed(0)}%`, c: '#16a34a' },
+                  { l: 'A vigilar (<30%)', v: String(resumenFranquicia.vigilar), c: '#f59e0b' },
+                ].map(k => (
+                  <div key={k.l} className="px-3 py-2.5 rounded-xl" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+                    <p className="text-[10px] uppercase tracking-wide" style={{ color: colors.textMuted }}>{k.l}</p>
+                    <p className="text-xl font-bold mt-0.5" style={{ color: k.c }}>{k.v}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Márgenes por sabor */}
+              <div className="overflow-hidden" style={SURFACE}>
+                <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Márgenes por sabor · precio franquicia</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[720px]">
+                    <Thead>
+                      <Tr>
+                        <Th>Sabor</Th><Th>Tier</Th><Th>Precio franq. /kg</Th><Th>Costo /kg</Th><Th>Ganancia /kg</Th><Th>Margen</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {margenesFranquicia.map(m => {
+                        const nv = nivelMargen(m.margen)
+                        return (
+                          <Tr key={m.nombre}>
+                            <Td className="font-medium">{m.nombre}</Td>
+                            <Td><span className="text-xs" style={{ color: colors.textMuted }}>{m.tier || '—'}</span></Td>
+                            <Td>${pesos(m.precio)}</Td>
+                            <Td style={{ color: colors.textMuted }}>${pesos(m.costo)}</Td>
+                            <Td className="font-semibold" style={{ color: m.ganancia >= 0 ? '#16a34a' : '#ef4444' }}>${pesos(m.ganancia)}</Td>
+                            <Td>{m.precio > 0
+                              ? <Badge variant={nv.badgeVariant}>{nv.emoji} {m.margen.toFixed(1)}%</Badge>
+                              : <span className="text-xs" style={{ color: colors.textMuted }}>sin precio</span>}</Td>
+                          </Tr>
+                        )
+                      })}
+                    </Tbody>
+                  </Table>
+                </div>
+              </div>
+
+              {/* Editor de precios */}
+              <div className="p-4 space-y-4" style={SURFACE}>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Precios (editables)</span>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs" style={{ color: colors.textMuted }}>Vigencia</label>
+                    <input value={precioLista.vigencia || ''} onChange={e => editarVigencia(e.target.value)}
+                      className="px-2 py-1 rounded-md text-sm w-32" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                    <Button variant="primary" onClick={guardarPrecios} loading={guardandoPrecios}>Guardar precios</Button>
+                  </div>
+                </div>
+
+                {[
+                  { seccion: 'franquicia', titulo: 'PRECIOS FRANQUICIA', cats: ['HELADOS', 'UNITARIOS', 'TORTAS'], dos: false },
+                  { seccion: 'publico', titulo: 'PRECIOS AL PÚBLICO', cats: ['HELADOS', 'UNITARIOS', 'TORTAS', 'BEBIDAS', 'OTROS'], dos: true },
+                ].map(sec => (
+                  <div key={sec.seccion} className="space-y-3">
+                    <p className="text-xs font-bold" style={{ color: colors.brand }}>{sec.titulo}</p>
+                    {sec.cats.map(cat => {
+                      const filas = precioLista?.[sec.seccion]?.[cat] || []
+                      if (!filas.length) return null
+                      return (
+                        <div key={cat}>
+                          <p className="text-[11px] font-semibold uppercase mb-1" style={{ color: colors.textMuted }}>{cat}</p>
+                          <div className="space-y-1">
+                            {filas.map((f, idx) => (
+                              <div key={f.producto} className="flex items-center gap-2">
+                                <span className="text-sm flex-1 truncate" style={{ color: colors.textPrimary }}>{f.producto}</span>
+                                <input type="number" value={f.precio ?? ''} onChange={e => editarPrecio(sec.seccion, cat, idx, 'precio', e.target.value)}
+                                  className="px-2 py-1 rounded-md text-sm w-24 text-right" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                                {sec.dos && (
+                                  <input type="number" value={f.precio2 ?? ''} placeholder="P. Ya" onChange={e => editarPrecio(sec.seccion, cat, idx, 'precio2', e.target.value)}
+                                    className="px-2 py-1 rounded-md text-sm w-24 text-right" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textMuted }} />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+                <p className="text-[11px]" style={{ color: colors.textMuted }}>
+                  Los precios de FRANQUICIA · HELADOS son por tier (categoría): se aplican a todos los sabores de esa categoría y con eso se calcula el margen de cada uno.
+                </p>
+              </div>
             </div>
           )}
 

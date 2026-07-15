@@ -1397,9 +1397,11 @@ function viewConfig(){
     <div class="hint" style="margin-top:10px">💡 Para que el aviso llegue al celular con la app <b>cerrada</b>, iniciá sesión en la nube (arriba, botón de cuenta).</div>`}
     <hr style="border:none;border-top:1px solid var(--line);margin:18px 0">
     <h2 style="font-size:15px">Copia de seguridad</h2>
-    <div class="hint">Guardá un archivo con todos tus datos y restauralo en otro dispositivo (compu ⇄ celular).</div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button class="btn ghost sm" data-act="export-json">Descargar copia</button>
+    <div class="hint">Guardá un archivo con todos tus datos en tu Google Drive (o en el teléfono) y restauralo cuando quieras.</div>
+    ${backupEstado()}
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn sm" data-act="drive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>Guardar copia en Drive</button>
+      <button class="btn ghost sm" data-act="export-json">Descargar al teléfono</button>
       <button class="btn ghost sm" data-act="import-json">Restaurar copia</button>
       ${cloudOn()?'':'<button class="btn danger sm" data-act="wipe">Borrar todo</button>'}
     </div>
@@ -1648,6 +1650,7 @@ document.addEventListener('click', e=>{
   if(act==='push-on'){ (async()=>{ toast('Activando…'); const ok=await activarPushServidor(); if(ok){ toast('Push activado en este dispositivo ✓'); if(view==='config')render(); } })(); return; }
   if(act==='push-off'){ (async()=>{ await desactivarPushServidor(); toast('Push desactivado en este dispositivo'); if(view==='config')render(); })(); return; }
   if(act==='push-test'){ (async()=>{ try{ toast('Enviando push de prueba…'); const j=await apiNotif({action:'test'}); toast(j.enviados?`Push enviado ✓ (mirá tu celular)`:'No hay dispositivos con push'); }catch(e){ toast('Error: '+e.message); } })(); return; }
+  if(act==='drive'){ guardarEnDrive(); return; }
   if(act==='export-json'){ exportJSON(); return; }
   if(act==='import-json'){ importJSON(); return; }
   if(act==='wipe'){ if(confirm('¿Borrar TODOS los datos de este dispositivo? Esta acción no se puede deshacer.')){ state={razones:[],bancos:[],cheques:[],settings:{notif:false,notifDias:7},notifLog:{},_queue:[]}; save(); render(); toast('Datos borrados'); } return; }
@@ -1828,7 +1831,39 @@ async function exportXLSX(){
 }
 function exportJSON(){
   download('cheques-backup-'+hoyISO()+'.json', new Blob([JSON.stringify(state,null,2)],{type:'application/json'}));
-  toast('Copia descargada');
+  marcarBackup(); toast('Copia descargada');
+}
+function marcarBackup(){ state.settings.ultimoBackup = nowISO(); save(); }
+// Días desde el último respaldo (null si nunca).
+function diasDesdeBackup(){
+  const ub = state.settings.ultimoBackup; if(!ub) return null;
+  return Math.floor((Date.now() - new Date(ub).getTime()) / 86400000);
+}
+// Línea de estado del respaldo (verde/ámbar según antigüedad).
+function backupEstado(){
+  const d = diasDesdeBackup();
+  let ico, col, txt;
+  if(d===null){ ico='⚠️'; col='var(--amber)'; txt='Todavía no guardaste ninguna copia.'; }
+  else if(d<=0){ ico='✓'; col='var(--green)'; txt='Última copia: hoy.'; }
+  else if(d>7){ ico='⚠️'; col='var(--amber)'; txt=`Última copia: hace ${d} día${d===1?'':'s'}. Conviene actualizarla.`; }
+  else { ico='✓'; col='var(--green)'; txt=`Última copia: hace ${d} día${d===1?'':'s'}.`; }
+  return `<div style="margin-top:10px;font-size:13px;font-weight:600;color:${col}">${ico} ${txt}</div>`;
+}
+// Guardar copia en Drive: abre la hoja de compartir del teléfono (→ "Guardar en Drive").
+async function guardarEnDrive(){
+  const nombre = 'cheques-backup-'+hoyISO()+'.json';
+  const blob = new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+  try{
+    const file = new File([blob], nombre, {type:'application/json'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({ files:[file], title:'Backup Cheques CIAF', text:'Copia de seguridad de cheques · '+fmtFecha(hoyISO()) });
+      marcarBackup(); render(); toast('Copia lista ✓ — elegí "Guardar en Drive"');
+      return;
+    }
+  }catch(e){ if(e && e.name==='AbortError') return; }
+  // Respaldo si el teléfono no permite compartir archivos: descarga normal.
+  download(nombre, blob); marcarBackup(); render();
+  toast('Copia descargada — subila a tu Drive');
 }
 function importJSON(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='.json,application/json';
@@ -2325,6 +2360,21 @@ function boot2(){
   document.body.classList.remove('locked');
   render();
   chequearVencimientos(false);
+  recordarBackup();
+}
+// Aviso suave (una vez por sesión) si hace mucho que no se guarda una copia.
+// Es un toast que se va solo: nunca un cartel fijo.
+function recordarBackup(){
+  try{
+    if(sessionStorage.getItem('chq-backup-avisado')) return;
+    if(!state.cheques.length) return;
+    const d = diasDesdeBackup();
+    if(d!==null && d<=14) return;
+    sessionStorage.setItem('chq-backup-avisado','1');
+    setTimeout(()=>toast(d===null
+      ? '💾 Tip: guardá una copia en Drive (Config → Copia de seguridad)'
+      : `💾 Hace ${d} días que no guardás copia. Config → Copia de seguridad`), 1800);
+  }catch(e){}
 }
 async function afterLogin(){
   toast('Conectado ✓');

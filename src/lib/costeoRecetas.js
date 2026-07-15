@@ -20,6 +20,10 @@ export function crearCosteador({ insumos = [], bases = [], baseIngredientes = []
 
   const esBase = n => !!basePorNombre[norm(n)]
   const esSabor = n => !!saborPorNombre[norm(n)]
+  // "Agua libre" = agua de red (gratis, no se almacena). Excluye bases/sabores
+  // que tengan "agua" en el nombre (ej. "Base Neutra Agua"), que SÍ tienen costo
+  // propio. Sin esto, cualquier producto con "agua" en el nombre costaba $0.
+  const esAguaLibre = n => esAgua(n) && !esBase(n) && !esSabor(n)
 
   // Costo por L de una base = Σ(materia prima del batch) / litros_batch
   function costoBaseL(base, visit) {
@@ -30,7 +34,7 @@ export function crearCosteador({ insumos = [], bases = [], baseIngredientes = []
     const ings = baseIngredientes.filter(i => i.base_id === base.id)
     const litros = Number(base.litros_batch) || LITROS_BATCH
     let total = 0
-    ings.forEach(i => { if (!esAgua(i.insumo_nombre)) total += (Number(i.cantidad) || 0) * costoDe(i.insumo_nombre, visit) })
+    ings.forEach(i => { if (!esAguaLibre(i.insumo_nombre)) total += (Number(i.cantidad) || 0) * costoDe(i.insumo_nombre, visit) })
     visit.delete(k)
     const r = litros > 0 ? total / litros : 0
     cache[k] = r
@@ -53,7 +57,7 @@ export function crearCosteador({ insumos = [], bases = [], baseIngredientes = []
       .reduce((a, i) => a + (Number(i.cantidad) || 0), 0)
     const rinde = litrosBase + extraKg
     let total = 0
-    ings.forEach(i => { if (!esAgua(i.insumo_nombre)) total += (Number(i.cantidad) || 0) * costoDe(i.insumo_nombre, visit) })
+    ings.forEach(i => { if (!esAguaLibre(i.insumo_nombre)) total += (Number(i.cantidad) || 0) * costoDe(i.insumo_nombre, visit) })
     // Si la base no estaba como ingrediente, se suma vía base_nombre
     if (!baseEnIngs) {
       const b = basePorNombre[norm(sabor.base_nombre || '')]
@@ -65,17 +69,19 @@ export function crearCosteador({ insumos = [], bases = [], baseIngredientes = []
     return r
   }
 
-  // Costo por unidad de cualquier ingrediente (resuelve su tipo)
+  // Costo por unidad de cualquier ingrediente (resuelve su tipo). Primero base/
+  // sabor (una base con "agua" en el nombre tiene su costo), recién después el
+  // agua de red gratis.
   function costoDe(nombre, visit = new Set()) {
-    if (esAgua(nombre)) return 0
     const b = basePorNombre[norm(nombre)]; if (b) return costoBaseL(b, visit)
     const s = saborPorNombre[norm(nombre)]; if (s) return costoSaborKg(s, visit)
+    if (esAgua(nombre)) return 0
     return costoInsumo[norm(nombre)] || 0
   }
 
   function tipoDe(nombre) {
-    if (esAgua(nombre)) return 'agua'
     if (esBase(nombre) || esSabor(nombre)) return 'intermedio'
+    if (esAgua(nombre)) return 'agua'
     return 'insumo'
   }
 

@@ -1829,8 +1829,11 @@ async function exportXLSX(){
   download('cheques-'+hoyISO()+'.xlsx', new Blob([wbout],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
   toast('Excel descargado ✓');
 }
+// El backup se guarda como .txt (mismo contenido) para que Drive/Archivos lo
+// puedan abrir y previsualizar. El extractor de restauración acepta .txt y .json.
+function nombreBackup(){ return 'cheques-backup-'+hoyISO()+'.txt'; }
 function exportJSON(){
-  download('cheques-backup-'+hoyISO()+'.json', new Blob([JSON.stringify(state,null,2)],{type:'application/json'}));
+  download(nombreBackup(), new Blob([JSON.stringify(state,null,2)],{type:'text/plain'}));
   marcarBackup(); toast('Copia descargada');
 }
 function marcarBackup(){ state.settings.ultimoBackup = nowISO(); save(); }
@@ -1851,10 +1854,10 @@ function backupEstado(){
 }
 // Guardar copia en Drive: abre la hoja de compartir del teléfono (→ "Guardar en Drive").
 async function guardarEnDrive(){
-  const nombre = 'cheques-backup-'+hoyISO()+'.json';
-  const blob = new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+  const nombre = nombreBackup();
+  const blob = new Blob([JSON.stringify(state,null,2)],{type:'text/plain'});
   try{
-    const file = new File([blob], nombre, {type:'application/json'});
+    const file = new File([blob], nombre, {type:'text/plain'});
     if(navigator.canShare && navigator.canShare({files:[file]})){
       await navigator.share({ files:[file], title:'Backup Cheques CIAF', text:'Copia de seguridad de cheques · '+fmtFecha(hoyISO()) });
       marcarBackup(); render(); toast('Copia lista ✓ — elegí "Guardar en Drive"');
@@ -1866,7 +1869,7 @@ async function guardarEnDrive(){
   toast('Copia descargada — subila a tu Drive');
 }
 function importJSON(){
-  const inp=document.createElement('input'); inp.type='file'; inp.accept='.json,application/json';
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.txt,.json,text/plain,application/json';
   inp.onchange=()=>{ const f=inp.files[0]; if(!f)return; const r=new FileReader();
     r.onload=()=>{ try{ const data=JSON.parse(r.result); if(!data.cheques) throw 0;
       if(confirm('Esto reemplazará los datos actuales de este dispositivo por los del archivo. ¿Continuar?')){ state=migrate(data); save(); render(); toast('Copia restaurada'); if(cloudOn()) cloudPushAll(); }

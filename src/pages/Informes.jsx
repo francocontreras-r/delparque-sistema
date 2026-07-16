@@ -706,7 +706,7 @@ export default function Informes() {
           ],
           didDrawPage: didDP,
         })
-        y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
+        y = saltarSiNecesario(doc.lastAutoTable.finalY + 10)
 
         y = dibujarSeccion(doc, pw, 'Producción por producto', y)
         const anteriorMapProd = {}
@@ -730,7 +730,7 @@ export default function Informes() {
           }),
           didDrawPage: didDP,
         })
-        y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
+        y = saltarSiNecesario(doc.lastAutoTable.finalY + 10)
 
         // ── Destacados del período (impacto visual para la dirección) ──────────
         const rankOp = actual.porOperario.map(o => ({
@@ -762,7 +762,7 @@ export default function Informes() {
           const gapd = 6, wd = (pw - 28 - gapd) / 2
           if (topKg && topKg.kg > 0) cardDestacado(14, wd, 'Líder en producción (peso)', topKg.nombre, `${fmtNum(topKg.kg, 1)} kg  ·  ${totKgOps > 0 ? Math.round((topKg.kg / totKgOps) * 100) : 0}% del total`, [30, 110, 200])
           if (topU && topU.u > 0) cardDestacado(14 + wd + gapd, wd, 'Líder en impulsivos', topU.nombre, `${fmtNum(topU.u, 0)} unidades`, [234, 88, 12])
-          y += 20 + 8
+          y += 20 + 12
         }
 
         // ── Detalle por operario: perfil + qué produce, sin columnas muertas ───
@@ -798,10 +798,10 @@ export default function Informes() {
           didParseCell: d => { if (d.section === 'body' && d.row.index === 0) d.cell.styles.fontStyle = 'bold' },
           didDrawPage: didDP,
         })
-        y = saltarSiNecesario(doc.lastAutoTable.finalY + 3)
+        y = saltarSiNecesario(doc.lastAutoTable.finalY + 6)
         doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(110, 110, 110)
         doc.splitTextToSize('«Perfil» resume la actividad principal de cada operario. Un guion (—) indica que no elaboró ese tipo de producto. Los impulsivos se miden en unidades y el resto de la producción en kilogramos.', pw - 28)
-          .forEach((l, i) => doc.text(l, 14, y + i * 4)); y += 12
+          .forEach((l, i) => doc.text(l, 14, y + i * 4)); y += 18
 
         // ── Análisis de producción (reseña profesional) ────────────────────────
         y = saltarSiNecesario(y)
@@ -823,7 +823,7 @@ export default function Informes() {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...PDF_NEGRO)
         const lineasR = doc.splitTextToSize(reseña, pw - 28)
         lineasR.forEach((l, i) => doc.text(l, 14, y + i * 5))
-        y += lineasR.length * 5 + 5
+        y += lineasR.length * 5 + 10
 
         // Consumo de bases / materia prima (de los vínculos base→producto en Órdenes).
         if (consumoInforme.filas.length) {

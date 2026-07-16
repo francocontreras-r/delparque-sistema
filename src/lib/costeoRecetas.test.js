@@ -30,6 +30,15 @@ describe('crearCosteador — agua vs. base "agua"', () => {
     expect(c.tipoDe('Agua')).toBe('agua')
   })
 
+  it('un insumo con "agua" al final del nombre NO es agua de red (packaging con costo)', () => {
+    const c = crearCosteador({
+      ...ctx,
+      insumos: [...ctx.insumos, { nombre: 'Papel puntos amarillos limón agua', costo_unitario: 450 }],
+    })
+    expect(c.tipoDe('Papel puntos amarillos limón agua')).toBe('insumo')
+    expect(c.costoDe('Papel puntos amarillos limón agua')).toBe(450)
+  })
+
   it('un sabor que usa la base "agua" cuenta su costo', () => {
     const c = crearCosteador({
       ...ctx,

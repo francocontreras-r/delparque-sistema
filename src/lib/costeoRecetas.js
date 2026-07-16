@@ -10,7 +10,14 @@
 import { normalizarNombre as norm } from './texto'
 
 const LITROS_BATCH = 120
-const esAgua = n => norm(n || '').includes('agua')
+// Agua de red (gratis). SOLO el agua de verdad: nombre exacto "agua" o que EMPIECE
+// con "agua " (ej. "agua potable"). Antes usaba includes('agua'), lo que tomaba como
+// agua a cualquier insumo con esa palabra al final del nombre (ej. "Papel puntos
+// amarillos limón agua", "Frutilla al agua") y los dejaba en $0 / "no se almacena".
+const esAgua = n => {
+  const x = norm(n || '')
+  return x === 'agua' || x.startsWith('agua ')
+}
 
 export function crearCosteador({ insumos = [], bases = [], baseIngredientes = [], sabores = [], saborIngredientes = [] } = {}) {
   const costoInsumo = {}; insumos.forEach(i => { costoInsumo[norm(i.nombre)] = Number(i.costo_unitario) || 0 })

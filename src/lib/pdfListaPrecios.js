@@ -61,6 +61,8 @@ function iconoDe(nombre, cat) {
   const n = (nombre || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
   const has = s => n.includes(s)
   const esKg = () => /\bkg\b/.test(n) || has('1/4') || has('1/2') || has('3/4') || has('2,5') || has(' kg')
+  // El envase manda sobre el sabor: un "pote ... dos sabores" es un pote, no un cono.
+  if (has('pote')) return 'pote'
   // Formato de helado (aplica en cualquier categoría)
   if (has('1 sabor') || has('un sabor')) return 'cono'
   if (has('2 sabor') || has('dos sabor')) return 'cono2'

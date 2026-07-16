@@ -10,6 +10,7 @@
 import { jsPDF } from 'jspdf'
 import { RALEWAY_REGULAR, RALEWAY_SEMIBOLD, RALEWAY_BOLD, RALEWAY_BLACK } from './ralewayFonts'
 import { ICONOS } from './iconosLista'
+import { resolverIcono } from './iconosMapa'
 
 // ── Paleta de marca ──────────────────────────────────────────────────────────
 const ORANGE   = [255, 71, 19]      // #FF4713
@@ -54,43 +55,7 @@ function drawIcon(doc, key, x, y, size) {
   const url = _iconURL[key] || (_iconURL[key] = 'data:image/png;base64,' + b64)
   try { doc.addImage(url, 'PNG', x, y, size, size, key, 'FAST') } catch { /* noop */ }
 }
-// Mapea un nombre de producto a un ícono de marca. Primero por FORMATO (cómo se
-// sirve), que es lo que ilustra el ícono; los sabores de HELADOS (agua, crema,
-// rocher, pistacho…) van todos con cono y no se desvían por su nombre.
-function iconoDe(nombre, cat) {
-  const n = (nombre || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-  const has = s => n.includes(s)
-  const esKg = () => /\bkg\b/.test(n) || has('1/4') || has('1/2') || has('3/4') || has('2,5') || has(' kg')
-  // El envase manda sobre el sabor: un "pote ... dos sabores" es un pote, no un cono.
-  if (has('pote')) return 'pote'
-  // Formato de helado (aplica en cualquier categoría)
-  if (has('1 sabor') || has('un sabor')) return 'cono'
-  if (has('2 sabor') || has('dos sabor')) return 'cono2'
-  if (has('3 sabor') || has('tres sabor')) return 'cono3'
-  if (has('barquillon')) return 'barquillon'
-  if (has('cucurucho')) return 'cono'
-  if (has('copa')) return 'copa'
-  if (esKg()) return 'pote'
-  // HELADOS = sabores/tiers por kg → siempre cono (no interpretar el nombre del sabor)
-  if (cat === 'HELADOS') return 'cono'
-  // Productos con forma propia (unitarios, tortas, bebidas, otros)
-  if (has('cubanito')) return 'cubanito'
-  if (has('bocadito')) return 'bocaditos'
-  if (has('escoces')) return 'escoces'
-  if (has('suizo')) return 'suizo'
-  if (has('pionono')) return 'porcion'
-  if (has('tricolor')) return 'tricolor'
-  if (has('almendrad')) return 'almendrado'
-  if (has('torta')) return 'torta'
-  if (has('alfajor')) return 'alfajor'
-  if (has('palito') || has('paleta')) return 'paleta'
-  if (has('vegano') || has('light') || has('pote')) return 'pote'
-  if (has('bano') || has('chocolate')) return 'chocolate'
-  if (has('batido') || has('malteada')) return 'batido'
-  if (has('bebida')) return 'bebida'
-  const fb = { UNITARIOS: 'paleta', TORTAS: 'torta', BEBIDAS: 'batido', OTROS: 'chocolate' }
-  return fb[cat] || 'cono'
-}
+// El mapeo nombre→ícono (con override manual) vive en iconosMapa.js.
 
 // Watermark del isotipo (naranja, muy tenue), sangrado abajo a la derecha.
 function watermark(doc, ctx) {
@@ -204,7 +169,7 @@ function celda(doc, ctx, f, cat, x, top, cw, cellH, twoCol) {
   const midY = top + cellH / 2
   doc.setDrawColor(...HAIR); doc.setLineWidth(0.3); doc.line(x, top + cellH - 0.4, x + cw, top + cellH - 0.4)
   const isz = 12
-  drawIcon(doc, iconoDe(f.producto, cat), x + 1, midY - isz / 2, isz)
+  drawIcon(doc, resolverIcono(f.producto, cat, ctx.iconos), x + 1, midY - isz / 2, isz)
   const tx = x + 17
   doc.setFont(RS, 'normal'); doc.setFontSize(8.9); doc.setTextColor(...INK)
   const lines = doc.splitTextToSize(String(f.producto), cw - 19).slice(0, 2)
@@ -271,6 +236,7 @@ export function generarPdfListaPrecios(lista, opts = {}) {
     marca: (typeof opts.marca === 'string' ? opts.marca : opts.marca?.data) || null,
     logo: (typeof opts.logo === 'string' ? opts.logo : opts.logo?.data) || null,
     logoRatio: (opts.logo && opts.logo.ratio) || 2.917,
+    iconos: lista.iconos || {},   // override manual de íconos por nombre
   }
   const F = lista.franquicia || {}
   const P = lista.publico || {}

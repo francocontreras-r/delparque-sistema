@@ -238,6 +238,8 @@ export function migrarLista(lista) {
   if (!lista.competencia || !Array.isArray(lista.competencia.filas)) {
     lista.competencia = JSON.parse(JSON.stringify(SEED_LISTA_PRECIOS.competencia))
   }
+  // Overrides de íconos por nombre de producto (para el PDF de lista de precios).
+  if (!lista.iconos || typeof lista.iconos !== 'object') lista.iconos = {}
   return lista
 }
 

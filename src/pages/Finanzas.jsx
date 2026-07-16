@@ -25,6 +25,7 @@ import { construirPrecioMapCamara, valorTotalCamara } from '../lib/valorCamara'
 // generarPdfListaPrecios se importa de forma diferida en emitirPdfLista (trae fuentes
 // e íconos embebidos ~400KB; no debe pesar en la carga de Finanzas).
 import { clonarSemilla, preciosPorTier, TIER_ORDEN, migrarLista } from '../lib/listaPreciosData'
+import { ICON_KEYS, ICONOS_LABELS, iconoDe, normNombre, resolverIcono } from '../lib/iconosMapa'
 import { useSearchParams } from 'react-router-dom'
 import {
   DollarSign, RefreshCw, Warehouse, Thermometer, Percent,
@@ -1027,6 +1028,17 @@ export default function Finanzas() {
     })
   }
   function editarVigencia(v) { setPrecioLista(prev => ({ ...prev, vigencia: v })) }
+  // Override manual del ícono de un producto (para el PDF). '' = volver a Automático.
+  function editarIcono(nombre, key) {
+    setPrecioLista(prev => {
+      const next = JSON.parse(JSON.stringify(prev))
+      next.iconos = next.iconos || {}
+      const k = normNombre(nombre)
+      if (key) next.iconos[k] = key
+      else delete next.iconos[k]
+      return next
+    })
+  }
 
   async function guardarPrecios() {
     setGuardandoPrecios(true)
@@ -2222,7 +2234,16 @@ export default function Finanzas() {
                           <div className="space-y-1">
                             {filas.map((f, idx) => (
                               <div key={f.producto} className="flex items-center gap-2">
+                                <img src={`/iconos/${resolverIcono(f.producto, cat, precioLista.iconos)}.png`} alt="" width="20" height="20"
+                                  title={`Ícono: ${ICONOS_LABELS[resolverIcono(f.producto, cat, precioLista.iconos)]}`}
+                                  style={{ width: 20, height: 20, objectFit: 'contain', flexShrink: 0 }} />
                                 <span className="text-sm flex-1 truncate" style={{ color: colors.textPrimary }}>{f.producto}</span>
+                                <select value={precioLista.iconos?.[normNombre(f.producto)] || ''} onChange={e => editarIcono(f.producto, e.target.value)}
+                                  title="Ícono del producto en el PDF"
+                                  className="px-1.5 py-1 rounded-md text-xs w-32" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textSecondary }}>
+                                  <option value="">Auto · {ICONOS_LABELS[iconoDe(f.producto, cat)]}</option>
+                                  {ICON_KEYS.map(k => <option key={k} value={k}>{ICONOS_LABELS[k]}</option>)}
+                                </select>
                                 <input type="number" value={f.precio ?? ''} onChange={e => editarPrecio(sec.seccion, cat, idx, 'precio', e.target.value)}
                                   className="px-2 py-1 rounded-md text-sm w-24 text-right" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
                                 {sec.dos && (

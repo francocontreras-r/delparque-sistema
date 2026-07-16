@@ -845,9 +845,39 @@ export default function Finanzas() {
       const pw = doc.internal.pageSize.getWidth(), ph = doc.internal.pageSize.getHeight()
       const hoy = new Date().toLocaleString('es-AR')
       const EST = getEstiloInforme()
+      const NARANJA = [220, 69, 26]
       const money = n => `$${Math.round(Number(n) || 0).toLocaleString('es-AR')}`
       const pct = n => `${(Number(n) || 0).toFixed(1)}%`
       const semaforo = m => m < 15 ? PDF_SEM_NEG : m < 30 ? [245, 158, 11] : m <= 50 ? PDF_SEM_OK : PDF_SEM_EXC
+      const neto = n => (Number(n) || 0) / 1.21   // precio de franquicia sin IVA (21%)
+
+      // Estilo de tabla con VALORES CENTRADOS y un poco más de aire (informe con impacto).
+      const ESTC = {
+        ...EST,
+        styles: { ...EST.styles, halign: 'center', valign: 'middle', fontSize: 8, cellPadding: 3, lineColor: [225, 225, 225] },
+        headStyles: { ...EST.headStyles, halign: 'center', fontSize: 8, cellPadding: 3.2, fillColor: [26, 26, 26] },
+        alternateRowStyles: { fillColor: [248, 246, 244] },
+      }
+      // Sección con barra de acento naranja (más impacto que la línea gris sola).
+      const seccion = (titulo, yy) => {
+        doc.setFillColor(...NARANJA); doc.rect(14, yy - 3.7, 2.6, 5.6, 'F')
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 20, 20)
+        doc.text(titulo, 19, yy)
+        doc.setDrawColor(215, 215, 215); doc.setLineWidth(0.2); doc.line(14, yy + 3, pw - 14, yy + 3)
+        return yy + 10
+      }
+
+      // Datos de FÁBRICA netos de IVA (los precios de franquicia se cargan con IVA).
+      const cadenaNeto = cadenaTiers.map(c => {
+        const pn = neto(c.precio)
+        return { ...c, precioNeto: pn, margenNeto: margenPct(c.costoProm, pn), marcNeto: marcacionPct(c.costoProm, pn) }
+      })
+      const margenesNeto = margenesFranquicia.map(m => {
+        const pn = neto(m.precio)
+        return { ...m, precioNeto: pn, margenNeto: margenPct(m.costo, pn), marcNeto: marcacionPct(m.costo, pn) }
+      })
+      const conPrecioNeto = margenesNeto.filter(m => m.precio > 0)
+      const fabPromNeto = conPrecioNeto.length ? conPrecioNeto.reduce((a, m) => a + m.margenNeto, 0) / conPrecioNeto.length : 0
 
       dibujarPortada(doc, pw, ph, 'FINANZAS', 'Informe de Márgenes · Franquicias', precioLista.vigencia || '', hoy)
       doc.addPage()
@@ -857,15 +887,15 @@ export default function Finanzas() {
 
       // KPIs: margen fábrica y franquiciado promedio
       const gap = 6, cardW = (pw - 28 - 2 * gap) / 3, cardH = 23
-      dibujarKpiCard(doc, 14, y, cardW, cardH, 'Sabores', String(resumenFranquicia.total), PDF_NEGRO)
-      dibujarKpiCardDestacada(doc, 14 + cardW + gap, y, cardW, cardH, 'Margen fábrica prom.', pct(resumenFranquicia.prom), semaforo(resumenFranquicia.prom))
+      dibujarKpiCard(doc, 14, y, cardW, cardH, 'Sabores', String(resumenFranquicia.total), NARANJA)
+      dibujarKpiCardDestacada(doc, 14 + cardW + gap, y, cardW, cardH, 'Margen fábrica prom. (sin IVA)', pct(fabPromNeto), semaforo(fabPromNeto))
       dibujarKpiCardDestacada(doc, 14 + 2 * (cardW + gap), y, cardW, cardH, 'Margen franquiciado prom.', pct(resumenFormato.prom), semaforo(resumenFormato.prom))
       y += cardH + 8
 
       // Narrativa
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...PDF_NEGRO)
       const nar =
-        `Este informe muestra la rentabilidad de la línea de helados en dos planos. El MARGEN de FÁBRICA es lo que gana Helados del Parque al venderle a sus franquicias: precio de franquicia menos el costo de producción, por categoría (tier). ` +
+        `Este informe muestra la rentabilidad de la línea de helados en dos planos. El MARGEN de FÁBRICA es lo que gana Helados del Parque al venderle a sus franquicias: precio de franquicia (neto, sin IVA 21%) menos el costo de producción, por categoría (tier). ` +
         `El MARGEN del FRANQUICIADO es lo que le queda al franquiciado por formato de venta al público: su costo es el helado (kg × precio de fábrica promedio de ${money(avgFranquiciaKg)}/kg) más el packaging, contrastado contra el precio público. ` +
         `Cada margen se expresa de dos formas: "s/venta" = ganancia sobre el precio (rentabilidad real), y "marcación s/costo" = cuánto se agrega sobre el costo (para fijar precios). Vigencia: ${precioLista.vigencia || '—'}.`
       const ln = doc.splitTextToSize(nar, pw - 28)
@@ -873,8 +903,7 @@ export default function Finanzas() {
 
       // ── Cómo leer los márgenes (para explicárselo a los dueños) ──────────────
       if (y > ph - 78) { doc.addPage(); dibujarEncabezado(doc, pw, 'FINANZAS', 'INFORME DE MÁRGENES', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber); y = PDF_CONTENT_Y }
-      y = dibujarSeccion(doc, pw, 'Cómo leer los márgenes', y)
-      const NARANJA = [220, 69, 26]
+      y = seccion('Cómo leer los márgenes', y)
       // Ejemplo real: primera presentación con precio y costo válidos.
       const ej = margenPorFormato.find(f => f.publico > 0 && f.costoFranq > 0)
       const eCosto = ej ? ej.costoFranq : 1179
@@ -912,9 +941,9 @@ export default function Finanzas() {
       y = bBottom + 8
 
       // Margen del franquiciado por presentación
-      y = dibujarSeccion(doc, pw, 'Margen del franquiciado por presentación', y)
+      y = seccion('Margen del franquiciado por presentación', y)
       autoTable(doc, {
-        ...EST, startY: y,
+        ...ESTC, startY: y,
         head: [['PRODUCTO', 'PRESENTACIÓN', 'KG', 'C. HELADO', 'C. PACK.', 'C. TOTAL', 'P. VENTA', 'MARGEN s/venta', 'MARC. s/costo']],
         body: margenPorFormato.map((f, i) => {
           const first = i === 0 || margenPorFormato[i - 1].producto !== f.producto
@@ -922,34 +951,34 @@ export default function Finanzas() {
           const rest = [f.presentacion, String(f.kg), money(f.costoHelado), money(f.costoPack), money(f.costoFranq), money(f.publico), pct(f.margen), `${f.marcacion.toFixed(0)}%`]
           // Celda "Producto" unificada (rowSpan); con promedio si tiene más de una presentación.
           const etiqueta = st.count > 1 ? `${f.producto}\n(prom ${st.prom.toFixed(0)}%)` : f.producto
-          return first ? [{ content: etiqueta, rowSpan: st.count || 1, styles: { valign: 'middle' } }, ...rest] : rest
+          return first ? [{ content: etiqueta, rowSpan: st.count || 1, styles: { valign: 'middle', halign: 'left', fontStyle: 'bold' } }, ...rest] : rest
         }),
-        columnStyles: { 0: { halign: 'left' }, 1: { halign: 'left' } },
-        didParseCell: d => { if (d.section === 'body' && d.column.index === 7) d.cell.styles.textColor = semaforo(margenPorFormato[d.row.index]?.margen ?? 0) },
+        columnStyles: { 1: { halign: 'left' } },
+        didParseCell: d => { if (d.section === 'body' && d.column.index === 7) { d.cell.styles.textColor = semaforo(margenPorFormato[d.row.index]?.margen ?? 0); d.cell.styles.fontStyle = 'bold' } },
       })
       y = doc.lastAutoTable.finalY + 8
 
-      // Cadena de valor por categoría (lado fábrica)
+      // Cadena de valor por categoría (lado fábrica, sin IVA)
       if (y > ph - 40) { doc.addPage(); dibujarEncabezado(doc, pw, 'FINANZAS', 'INFORME DE MÁRGENES', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber); y = PDF_CONTENT_Y }
-      y = dibujarSeccion(doc, pw, 'Margen de fábrica por categoría (por kg)', y)
+      y = seccion('Margen de fábrica por categoría — por kg, sin IVA', y)
       autoTable(doc, {
-        ...EST, startY: y,
+        ...ESTC, startY: y,
         head: [['CATEGORÍA', 'COSTO FÁBRICA', 'PRECIO FRANQUICIA', 'MARGEN s/venta', 'MARCACIÓN s/costo']],
-        body: cadenaTiers.map(c => [c.tier, money(c.costoProm), money(c.precio), pct(c.margenFabrica), `${c.marcacionFabrica.toFixed(0)}%`]),
-        columnStyles: { 0: { halign: 'left' } },
-        didParseCell: d => { if (d.section === 'body' && d.column.index === 3) d.cell.styles.textColor = semaforo(cadenaTiers[d.row.index]?.margenFabrica ?? 0) },
+        body: cadenaNeto.map(c => [c.tier, money(c.costoProm), money(c.precioNeto), pct(c.margenNeto), `${c.marcNeto.toFixed(0)}%`]),
+        columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
+        didParseCell: d => { if (d.section === 'body' && d.column.index === 3) { d.cell.styles.textColor = semaforo(cadenaNeto[d.row.index]?.margenNeto ?? 0); d.cell.styles.fontStyle = 'bold' } },
       })
       y = doc.lastAutoTable.finalY + 8
 
-      // Márgenes de fábrica por sabor
+      // Márgenes de fábrica por sabor (sin IVA)
       if (y > ph - 40) { doc.addPage(); dibujarEncabezado(doc, pw, 'FINANZAS', 'INFORME DE MÁRGENES', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber); y = PDF_CONTENT_Y }
-      y = dibujarSeccion(doc, pw, 'Margen de fábrica por sabor', y)
+      y = seccion('Margen de fábrica por sabor — sin IVA', y)
       autoTable(doc, {
-        ...EST, startY: y, margin: { top: PDF_CONTENT_Y, left: 14, right: 14 },
+        ...ESTC, startY: y, margin: { top: PDF_CONTENT_Y, left: 14, right: 14 },
         head: [['SABOR', 'TIER', 'COSTO/KG', 'FRANQUICIA/KG', 'MARGEN s/venta', 'MARCACIÓN s/costo']],
-        body: margenesFranquicia.map(m => [m.nombre, m.tier || '—', money(m.costo), money(m.precio), pct(m.margen), `${m.marcacion.toFixed(0)}%`]),
-        columnStyles: { 0: { halign: 'left' } },
-        didParseCell: d => { if (d.section === 'body' && d.column.index === 4) d.cell.styles.textColor = semaforo(margenesFranquicia[d.row.index]?.margen ?? 0) },
+        body: margenesNeto.map(m => [m.nombre, m.tier || '—', money(m.costo), money(m.precioNeto), pct(m.margenNeto), `${m.marcNeto.toFixed(0)}%`]),
+        columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
+        didParseCell: d => { if (d.section === 'body' && d.column.index === 4) { d.cell.styles.textColor = semaforo(margenesNeto[d.row.index]?.margenNeto ?? 0); d.cell.styles.fontStyle = 'bold' } },
         didDrawPage: () => { dibujarEncabezado(doc, pw, 'FINANZAS', 'INFORME DE MÁRGENES', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber) },
       })
       y = doc.lastAutoTable.finalY + 8
@@ -958,17 +987,26 @@ export default function Finanzas() {
       const comp = precioLista.competencia
       if (comp?.filas?.length) {
         if (y > ph - 50) { doc.addPage(); dibujarEncabezado(doc, pw, 'FINANZAS', 'INFORME DE MÁRGENES', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber); y = PDF_CONTENT_Y }
-        y = dibujarSeccion(doc, pw, 'Comparativa vs. competencia (precio al público)', y)
+        y = seccion('Comparativa vs. competencia — precio al público', y)
         const posTxt = f => {
           const cs = (f.comp || []).map(Number).filter(x => x > 0), pr = Number(f.propio) || 0
           if (!pr || !cs.length) return '—'
           return pr < Math.min(...cs) ? 'Más barato' : pr > Math.max(...cs) ? 'Más caro' : 'En el medio'
         }
+        const filasComp = comp.filas.map(f => ({ f, pos: posTxt(f) }))
         autoTable(doc, {
-          ...EST, startY: y, margin: { top: PDF_CONTENT_Y, left: 14, right: 14 },
+          ...ESTC, startY: y, margin: { top: PDF_CONTENT_Y, left: 14, right: 14 },
           head: [['PRODUCTO', 'DEL PARQUE', ...(comp.competidores || []).map(c => c.toUpperCase()), 'POSICIÓN']],
-          body: comp.filas.map(f => [f.producto, Number(f.propio) > 0 ? money(f.propio) : '—', ...(f.comp || []).map(c => Number(c) > 0 ? money(c) : '—'), posTxt(f)]),
-          columnStyles: { 0: { halign: 'left' } },
+          body: filasComp.map(({ f, pos }) => [f.producto, Number(f.propio) > 0 ? money(f.propio) : '—', ...(f.comp || []).map(c => Number(c) > 0 ? money(c) : '—'), pos]),
+          columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
+          didParseCell: d => {
+            const posCol = 2 + (comp.competidores || []).length
+            if (d.section === 'body' && d.column.index === posCol) {
+              const p = filasComp[d.row.index]?.pos
+              if (p === 'Más barato') { d.cell.styles.textColor = PDF_SEM_OK; d.cell.styles.fontStyle = 'bold' }
+              else if (p === 'Más caro') { d.cell.styles.textColor = PDF_SEM_NEG; d.cell.styles.fontStyle = 'bold' }
+            }
+          },
           didDrawPage: () => { dibujarEncabezado(doc, pw, 'FINANZAS', 'INFORME DE MÁRGENES', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber) },
         })
       }

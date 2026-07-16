@@ -87,9 +87,9 @@ function portada(doc, ctx, vigencia) {
   doc.setFillColor(...ORANGE); doc.rect(0, ph - 5, pw, 5, 'F')
   // isotipo grande y tenue detrás
   if (ctx.marca) conAlpha(doc, 0.05, () => { try { doc.addImage(ctx.marca, 'PNG', cx - 55, ph - 150, 110, 110, 'wmbig', 'FAST') } catch { /* noop */ } })
-  let y = 58
+  let y = 54
   if (ctx.logo) {
-    const w = 92, h = w / (ctx.logoRatio || 2.917)
+    const w = 106, h = w / (ctx.logoRatio || 2.917)
     try { doc.addImage(ctx.logo, 'PNG', cx - w / 2, y, w, h, 'logo', 'FAST'); y += h + 16 }
     catch { doc.setFont(RB, 'normal'); doc.setFontSize(30); doc.setTextColor(...INK); doc.text('DEL PARQUE', cx, y + 12, { align: 'center' }); y += 26 }
   } else { doc.setFont(RB, 'normal'); doc.setFontSize(30); doc.setTextColor(...INK); doc.text('DEL PARQUE', cx, y + 12, { align: 'center' }); y += 26 }
@@ -112,7 +112,7 @@ function encabezadoCont(doc, ctx) {
   doc.setFillColor(...ORANGE); doc.rect(0, 0, pw, 3, 'F')
   let xTxt = ml
   if (ctx.logo) {
-    const h = 7.5, w = h * (ctx.logoRatio || 2.917)
+    const h = 8.5, w = h * (ctx.logoRatio || 2.917)
     try { doc.addImage(ctx.logo, 'PNG', ml, 8.5, w, h, 'logoc', 'FAST'); xTxt = ml + w + 5 }
     catch { doc.setFont(RB, 'normal'); doc.setFontSize(11); doc.setTextColor(...ESPRESSO); doc.text('Del Parque', ml, 14); xTxt = ml + doc.getTextWidth('Del Parque') + 5 }
   } else { doc.setFont(RB, 'normal'); doc.setFontSize(11); doc.setTextColor(...ESPRESSO); doc.text('Del Parque', ml, 14); xTxt = ml + doc.getTextWidth('Del Parque') + 5 }
@@ -190,7 +190,7 @@ function celda(doc, ctx, f, cat, x, top, cw, cellH, twoCol) {
 // ── Grilla de una sección por categorías ─────────────────────────────────────
 function dibujarSecciones(doc, ctx, secciones, twoCol) {
   const { ml, mr, pw } = ctx
-  const gutter = 6
+  const gutter = 16                       // más aire entre columnas (evita que se vean encimadas)
   const cw = (pw - ml - mr - gutter) / 2
   const cellH = 17.5
 

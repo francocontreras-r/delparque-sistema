@@ -259,30 +259,33 @@ export function dibujarSeccion(doc, pw, texto, y) {
 // Dibuja las firmas a continuación del contenido (en `y`). Si no entran antes del
 // pie, recién ahí salta a una página nueva. Evita hojas casi vacías solo de firmas.
 export function dibujarFirmas(doc, pw, ph, y, modulo, hoy, roles) {
-  const ALTO = 35                    // alto aproximado del bloque de firmas
+  const ALTO = 32                    // alto aproximado del bloque de firmas
   const limite = ph - PDF_PIE_H - 8  // no invadir el pie
-  let yy = (typeof y === 'number' && !isNaN(y)) ? y + 10 : PDF_CONTENT_Y
+  let yy = (typeof y === 'number' && !isNaN(y)) ? y + 12 : PDF_CONTENT_Y
+  const dibujarLineas = (yLinea) => {
+    const gap = (pw - 28) / roles.length
+    roles.forEach((rol, i) => {
+      const x = 14 + i * gap
+      doc.setDrawColor(...PDF_NEGRO); doc.setLineWidth(0.3)
+      doc.line(x, yLinea, x + gap - 8, yLinea)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...PDF_GRIS_OSC)
+      doc.text(rol, x, yLinea + 5)
+      doc.setFontSize(6.5)
+      doc.text('Nombre y aclaración:', x, yLinea + 10)
+    })
+  }
   if (yy + ALTO > limite) {
+    // No entran: hoja dedicada. El encabezado ya dice "CONFORMIDAD Y FIRMAS", así que
+    // NO repetimos el título de sección (antes salía duplicado). Firmas centradas.
     doc.addPage()
     dibujarEncabezado(doc, pw, modulo, 'CONFORMIDAD Y FIRMAS', hoy)
     dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber)
-    yy = PDF_CONTENT_Y
+    dibujarLineas(ph / 2 - 4)
+  } else {
+    // Entran a continuación del contenido: sí ponemos el título de sección.
+    yy = dibujarSeccion(doc, pw, 'Conformidad y firmas', yy)
+    dibujarLineas(yy + 16)
   }
-  yy = dibujarSeccion(doc, pw, 'Conformidad y firmas', yy)
-  yy += 16
-  const gap = (pw - 28) / roles.length
-  roles.forEach((rol, i) => {
-    const x = 14 + i * gap
-    doc.setDrawColor(...PDF_NEGRO)
-    doc.setLineWidth(0.3)
-    doc.line(x, yy, x + gap - 8, yy)
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(7.5)
-    doc.setTextColor(...PDF_GRIS_OSC)
-    doc.text(rol, x, yy + 5)
-    doc.setFontSize(6.5)
-    doc.text('Nombre y aclaración:', x, yy + 10)
-  })
 }
 
 // ── Página de firmas estandarizada ────────────────────────────────────────────

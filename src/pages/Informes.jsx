@@ -803,9 +803,7 @@ export default function Informes() {
         doc.splitTextToSize('«Perfil» resume la actividad principal de cada operario. Un guion (—) indica que no elaboró ese tipo de producto. Los impulsivos se miden en unidades y el resto de la producción en kilogramos.', pw - 28)
           .forEach((l, i) => doc.text(l, 14, y + i * 4)); y += 18
 
-        // ── Análisis de producción (reseña profesional) ────────────────────────
-        y = saltarSiNecesario(y)
-        y = dibujarSeccion(doc, pw, 'Análisis de producción', y)
+        // ── Análisis de producción — RECUADRO DESTACADO (para que no se pase por alto) ──
         // Variación en prosa (evita el "variaron Nuevo": lo traduce a lenguaje).
         const varProsa = (a, b) => {
           const p = variacionPct(a, b)
@@ -820,10 +818,21 @@ export default function Informes() {
           (topU && topU.u > 0 ? `En impulsivos, ${topU.nombre} lideró con ${fmtNum(topU.u, 0)} unidades. ` : '') +
           (soloImp.length > 0 ? `${soloImp.length} operario${soloImp.length > 1 ? 's se dedicaron' : ' se dedicó'} exclusivamente a impulsivos, cuya producción se mide en unidades y no en kilos, por lo que no deben leerse como "0 kg". ` : '') +
           `Frente al período anterior, los helados ${varProsa(actual.kgHelados, anterior.kgHelados)}, los postres ${varProsa(actual.kgPostres, anterior.kgPostres)} y los impulsivos ${varProsa(actual.unidadesImpulsivos, anterior.unidadesImpulsivos)}.`
+        const NAR = [255, 71, 19], NAR_D = [193, 45, 12]
+        const padX = 7
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5)
+        const lineasR = doc.splitTextToSize(reseña, pw - 28 - padX * 2)
+        const boxH = lineasR.length * 5 + 16
+        if (y + boxH > ph - 22) { doc.addPage(); didDP(); y = PDF_CONTENT_Y }
+        const bx = 14, bw = pw - 28, bTop = y
+        doc.setFillColor(255, 247, 240); doc.roundedRect(bx, bTop, bw, boxH, 2.5, 2.5, 'F')
+        doc.setDrawColor(250, 205, 170); doc.setLineWidth(0.4); doc.roundedRect(bx, bTop, bw, boxH, 2.5, 2.5, 'S')
+        doc.setFillColor(...NAR); doc.rect(bx, bTop, 2.2, boxH, 'F')
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...NAR_D)
+        doc.text('ANÁLISIS DE PRODUCCIÓN', bx + padX, bTop + 8)
         doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...PDF_NEGRO)
-        const lineasR = doc.splitTextToSize(reseña, pw - 28)
-        lineasR.forEach((l, i) => doc.text(l, 14, y + i * 5))
-        y += lineasR.length * 5 + 10
+        lineasR.forEach((l, i) => doc.text(l, bx + padX, bTop + 14 + i * 5))
+        y = bTop + boxH + 10
 
         // Consumo de bases / materia prima (de los vínculos base→producto en Órdenes).
         if (consumoInforme.filas.length) {
@@ -838,6 +847,7 @@ export default function Informes() {
             ],
             didDrawPage: didDP,
           })
+          y = doc.lastAutoTable.finalY
         }
       }
 
@@ -896,6 +906,7 @@ export default function Informes() {
           body: actual.porCausa.slice(0, 5).map(c => [c.causa, String(c.cnt), `${fmtNum(c.dif)} kg`, `$${pesos(c.costo)}`]),
           didDrawPage: didDP,
         })
+        y = doc.lastAutoTable.finalY
       }
 
       // ── TAB: FINANCIERO ────────────────────────────────────────────────────
@@ -968,16 +979,14 @@ export default function Informes() {
             },
             didDrawPage: didDP,
           })
+          y = doc.lastAutoTable.finalY
         }
       }
 
-      // Firmas (al final del contenido; salta de hoja solo si no entran).
-      // Usamos la posición real más baja: el mayor entre el `y` de texto (reseñas)
-      // y el fin de la última tabla. Antes tomaba solo lastAutoTable.finalY, y cuando
-      // el informe terminaba en texto (ej. Producción sin tabla de consumo) las líneas
-      // de firma se dibujaban ENCIMA del análisis.
-      const yFirmas = Math.max(Number(y) || 0, doc.lastAutoTable?.finalY || 0)
-      dibujarFirmas(doc, pw, ph, yFirmas, MOD, hoy, ['Dirección', 'Responsable de Producción', 'Control de Calidad'])
+      // Firmas al final del contenido. `y` se mantiene actualizado tras cada tabla/
+      // texto, así que refleja la posición real en la página actual (no una coordenada
+      // de una hoja anterior). dibujarFirmas decide si entran o saltan a hoja nueva.
+      dibujarFirmas(doc, pw, ph, y, MOD, hoy, ['Dirección', 'Responsable de Producción', 'Control de Calidad'])
 
       doc.save(`informe_${tab.toLowerCase()}_${hoyISO()}.pdf`)
     } catch (err) {

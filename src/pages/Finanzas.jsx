@@ -165,6 +165,7 @@ export default function Finanzas() {
   const [emitiendoPdf, setEmitiendoPdf] = useState(false)
   const [emitiendoInforme, setEmitiendoInforme] = useState(false)
   const [pctAumento, setPctAumento] = useState('4')
+  const [subLista, setSubLista]     = useState('margenes') // 'margenes' | 'editar'
 
   useEffect(() => { cargar() }, [])
 
@@ -249,6 +250,13 @@ export default function Finanzas() {
     insumos.forEach(i => { m[(i.nombre || '').trim().toLowerCase()] = i })
     return m
   }, [insumos])
+
+  // Nombres de insumos de Depósito, ordenados, para elegir el packaging de reventa
+  // desde un desplegable (así no hay que tipear el nombre exacto ni queda "sin vincular").
+  const insumosNombres = useMemo(
+    () => insumos.map(i => i.nombre).filter(Boolean).sort((a, b) => a.localeCompare(b, 'es')),
+    [insumos]
+  )
 
   // Costeador con rollup: el costo de un sabor incluye su base; el de un
   // impulsivo/postre, los sabores que usa. Resuelve intermedios recursivamente.
@@ -615,7 +623,7 @@ export default function Finanzas() {
     })
   }
   function agregarReventa() {
-    setPrecioLista(prev => ({ ...prev, reventa: [...(prev.reventa || []), { nombre: 'nuevo insumo', unidadesPorPaquete: 1, precioFranquicia: 0 }] }))
+    setPrecioLista(prev => ({ ...prev, reventa: [...(prev.reventa || []), { nombre: '', unidadesPorPaquete: 1, precioFranquicia: 0 }] }))
   }
   function quitarReventa(idx) {
     setPrecioLista(prev => ({ ...prev, reventa: (prev.reventa || []).filter((_, i) => i !== idx) }))
@@ -1653,7 +1661,7 @@ export default function Finanzas() {
                 <div>
                   <h3 className="text-sm font-bold" style={{ color: colors.textPrimary }}>Lista de precios · Franquicias</h3>
                   <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>
-                    Margen de cada sabor: precio de franquicia (por tier) vs. costo unitario. El PDF se emite limpio, sin costos ni márgenes.
+                    <b style={{ color: colors.textSecondary }}>Ver márgenes</b>: cuánto ganás como fábrica y cuánto le queda al franquiciado. <b style={{ color: colors.textSecondary }}>Editar precios</b>: cargás y actualizás. El PDF sale limpio, sin costos ni márgenes.
                   </p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
@@ -1664,6 +1672,33 @@ export default function Finanzas() {
                     <FileDown size={15} /> Emitir PDF limpio
                   </Button>
                 </div>
+              </div>
+
+              {/* Sub-navegación: ver márgenes vs. editar precios */}
+              <div className="flex gap-1.5">
+                {[['margenes', '📊 Ver márgenes'], ['editar', '✏️ Editar precios']].map(([k, label]) => (
+                  <button key={k} onClick={() => setSubLista(k)}
+                    className="px-3.5 py-2 rounded-lg text-xs font-bold transition-all duration-150 border"
+                    style={{
+                      backgroundColor: subLista === k ? colors.brand : 'transparent',
+                      borderColor: subLista === k ? colors.brand : colors.border,
+                      color: subLista === k ? 'white' : colors.textSecondary,
+                    }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {subLista === 'margenes' && (<>
+
+              {/* Cómo se leen los márgenes */}
+              <div className="flex items-start gap-2 px-3.5 py-2.5 rounded-xl text-[11px]" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+                <span className="text-sm leading-none">💡</span>
+                <span style={{ color: colors.textSecondary }}>
+                  <b>Margen de fábrica</b> = lo que ganás vos vendiéndole al franquiciado (precio franquicia − tu costo).{' '}
+                  <b>Margen del franquiciado</b> = lo que le queda a él vendiendo al público (precio público − lo que te compra).
+                  {avgFranquiciaKg === 0 && <span style={{ color: '#f59e0b' }}> · Cargá los precios de franquicia en «Editar precios» para ver estos números.</span>}
+                </span>
               </div>
 
               {/* KPIs */}
@@ -1776,6 +1811,10 @@ export default function Finanzas() {
                 </div>
               </div>
 
+              </>)}
+
+              {subLista === 'editar' && (<>
+
               {/* Editor de precios */}
               <div className="p-4 space-y-4" style={SURFACE}>
                 <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1842,8 +1881,14 @@ export default function Finanzas() {
                   <Button variant="secondary" size="sm" onClick={agregarReventa}>+ Agregar insumo</Button>
                 </div>
                 <p className="text-[11px]" style={{ color: colors.textMuted }}>
-                  El <b>costo/unidad</b> sale de Depósito (precio ÷ unidades por paquete), en vivo. La <b>reventa/unidad</b> la ponés vos: es lo que le cobrás al franquiciado. El nombre debe coincidir con el insumo en Depósito.
+                  Elegí el insumo del <b>desplegable</b> (son los que tenés en Depósito): así el <b>costo/unidad</b> se toma solo, en vivo. La <b>reventa/unidad</b> la ponés vos: es lo que le cobrás al franquiciado por ese envase.
                 </p>
+                {insumosNombres.length === 0 && (
+                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-[11px]" style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
+                    <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                    <span>No hay insumos cargados en Depósito. Cargá ahí los envases/papeles con su precio y después elegilos acá.</span>
+                  </div>
+                )}
                 <div className="overflow-x-auto">
                   <Table className="min-w-[640px]">
                     <Thead>
@@ -1853,11 +1898,16 @@ export default function Finanzas() {
                       {(precioLista.reventa || []).map((r, idx) => {
                         const info = reventaCostos[normalizarNombre(r.nombre)] || { costoU: 0, costoDep: 0 }
                         const sinDep = !(info.costoDep > 0)
+                        const enDeposito = insumosNombres.includes(r.nombre)
                         return (
                           <Tr key={idx}>
                             <Td>
-                              <input value={r.nombre} onChange={e => editarReventa(idx, 'nombre', e.target.value)}
-                                className="px-2 py-1 rounded-md text-sm w-44" style={{ backgroundColor: colors.bg, border: `1px solid ${sinDep ? '#f59e0b55' : colors.border}`, color: colors.textPrimary }} />
+                              <select value={r.nombre || ''} onChange={e => editarReventa(idx, 'nombre', e.target.value)}
+                                className="px-2 py-1 rounded-md text-sm w-52" style={{ backgroundColor: colors.bg, border: `1px solid ${sinDep ? '#f59e0b88' : colors.border}`, color: colors.textPrimary }}>
+                                <option value="">— elegir insumo de Depósito —</option>
+                                {r.nombre && !enDeposito && <option value={r.nombre}>⚠ {r.nombre} (no está en Depósito)</option>}
+                                {insumosNombres.map(n => <option key={n} value={n}>{n}</option>)}
+                              </select>
                             </Td>
                             <Td><input type="number" value={r.unidadesPorPaquete ?? ''} onChange={e => editarReventa(idx, 'unidadesPorPaquete', e.target.value)}
                               className="px-2 py-1 rounded-md text-sm w-20 text-right" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textPrimary }} /></Td>
@@ -1891,9 +1941,11 @@ export default function Finanzas() {
                       <div className="space-y-1">
                         {(f.packaging || []).map((p, pIdx) => (
                           <div key={pIdx} className="flex items-center gap-1.5">
-                            <select value={p.nombre} onChange={e => editarFormatoPack(fIdx, pIdx, 'nombre', e.target.value)}
+                            <select value={p.nombre || ''} onChange={e => editarFormatoPack(fIdx, pIdx, 'nombre', e.target.value)}
                               className="px-2 py-1 rounded-md text-xs flex-1" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.textPrimary }}>
-                              {(precioLista.reventa || []).map((r, i) => <option key={i} value={r.nombre}>{r.nombre}</option>)}
+                              <option value="">— elegir packaging —</option>
+                              {p.nombre && !(precioLista.reventa || []).some(r => r.nombre === p.nombre) && <option value={p.nombre}>⚠ {p.nombre}</option>}
+                              {(precioLista.reventa || []).filter(r => r.nombre).map((r, i) => <option key={i} value={r.nombre}>{r.nombre}</option>)}
                             </select>
                             <span className="text-xs" style={{ color: colors.textMuted }}>×</span>
                             <input type="number" value={p.cantidad ?? ''} onChange={e => editarFormatoPack(fIdx, pIdx, 'cantidad', e.target.value)}
@@ -1907,6 +1959,8 @@ export default function Finanzas() {
                   ))}
                 </div>
               </div>
+
+              </>)}
             </div>
           )}
 

@@ -623,6 +623,13 @@ export default function Finanzas() {
     return { prom, total: con.length }
   }, [margenPorFormato])
 
+  // Cuántas presentaciones tiene cada producto (para unificar la celda "Producto").
+  const formatoGrupoCount = useMemo(() => {
+    const m = {}
+    margenPorFormato.forEach(f => { m[f.producto] = (m[f.producto] || 0) + 1 })
+    return m
+  }, [margenPorFormato])
+
   // Handlers de edición de reventa (packaging) y formatos.
   function editarReventa(idx, campo, valor) {
     setPrecioLista(prev => {
@@ -800,10 +807,13 @@ export default function Finanzas() {
       autoTable(doc, {
         ...EST, startY: y,
         head: [['PRODUCTO', 'PRESENTACIÓN', 'KG', 'C. HELADO', 'C. PACK.', 'C. TOTAL', 'P. VENTA', 'MARGEN s/venta', 'MARC. s/costo']],
-        body: margenPorFormato.map((f, i) => [
-          (i === 0 || margenPorFormato[i - 1].producto !== f.producto) ? f.producto : '',
-          f.presentacion, String(f.kg), money(f.costoHelado), money(f.costoPack), money(f.costoFranq), money(f.publico), pct(f.margen), `${f.marcacion.toFixed(0)}%`,
-        ]),
+        body: margenPorFormato.map((f, i) => {
+          const first = i === 0 || margenPorFormato[i - 1].producto !== f.producto
+          const grupo = margenPorFormato.filter(x => x.producto === f.producto).length
+          const rest = [f.presentacion, String(f.kg), money(f.costoHelado), money(f.costoPack), money(f.costoFranq), money(f.publico), pct(f.margen), `${f.marcacion.toFixed(0)}%`]
+          // Celda "Producto" unificada (rowSpan) en la primera presentación del grupo.
+          return first ? [{ content: f.producto, rowSpan: grupo, styles: { valign: 'middle' } }, ...rest] : rest
+        }),
         columnStyles: { 0: { halign: 'left' }, 1: { halign: 'left' } },
         didParseCell: d => { if (d.section === 'body' && d.column.index === 7) d.cell.styles.textColor = semaforo(margenPorFormato[d.row.index]?.margen ?? 0) },
       })
@@ -1799,6 +1809,24 @@ export default function Finanzas() {
                 ))}
               </div>
 
+              {/* Explicación: margen s/venta vs marcación s/costo */}
+              <div className="rounded-xl p-3.5" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+                <p className="text-xs font-bold mb-2" style={{ color: colors.textPrimary }}>📊 Cómo leer los dos márgenes</p>
+                <div className="grid sm:grid-cols-2 gap-3 text-[12px] leading-relaxed">
+                  <div className="rounded-lg p-2.5" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}` }}>
+                    <p className="font-bold" style={{ color: colors.success }}>Margen s/venta</p>
+                    <p className="text-[11px]" style={{ color: colors.textMuted }}>ganancia ÷ precio de venta</p>
+                    <p className="mt-1" style={{ color: colors.textSecondary }}>Rentabilidad real: de cada $100 que vende, cuánto es ganancia. <b>Nunca pasa de 100%.</b> Para saber si un producto conviene.</p>
+                  </div>
+                  <div className="rounded-lg p-2.5" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}` }}>
+                    <p className="font-bold" style={{ color: colors.brand }}>Marcación s/costo</p>
+                    <p className="text-[11px]" style={{ color: colors.textMuted }}>ganancia ÷ costo</p>
+                    <p className="mt-1" style={{ color: colors.textSecondary }}>Cuánto se agrega sobre el costo. <b>Puede pasar de 100%.</b> Para poner precios.</p>
+                  </div>
+                </div>
+                <p className="text-[11px] mt-2 font-semibold" style={{ color: colors.textSecondary }}>En una frase: s/venta = cuánto ganás; s/costo = cuánto le sumás al costo para fijar el precio.</p>
+              </div>
+
               {/* Margen del FRANQUICIADO por formato (helado promedio + packaging) */}
               <div className="overflow-hidden" style={SURFACE}>
                 <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-1" style={{ borderBottom: `1px solid ${colors.border}` }}>
@@ -1818,7 +1846,9 @@ export default function Finanzas() {
                         const primeraDelGrupo = i === 0 || margenPorFormato[i - 1].producto !== f.producto
                         return (
                           <Tr key={f.key} style={primeraDelGrupo && i > 0 ? { borderTop: `2px solid ${colors.border}` } : undefined}>
-                            <Td className="font-medium" style={!primeraDelGrupo ? { color: colors.textMuted } : undefined}>{primeraDelGrupo ? f.producto : ''}</Td>
+                            {primeraDelGrupo && (
+                              <Td rowSpan={formatoGrupoCount[f.producto]} className="font-medium" style={{ verticalAlign: 'middle', borderRight: `1px solid ${colors.border}`, backgroundColor: colors.bg }}>{f.producto}</Td>
+                            )}
                             <Td style={{ color: colors.textSecondary }}>{f.presentacion}{f.sinVincular && <span title="Algún packaging no está vinculado a un insumo de Depósito" className="ml-1 text-xs" style={{ color: '#f59e0b' }}>⚠</span>}</Td>
                             <Td style={{ color: colors.textMuted }}>{f.kg}</Td>
                             <Td style={{ color: colors.textMuted }}>${pesos(f.costoHelado)}</Td>

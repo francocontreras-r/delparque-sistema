@@ -1069,7 +1069,9 @@ export default function Finanzas() {
         return { data: c.toDataURL('image/png'), ratio: img.naturalWidth / img.naturalHeight }
       }
       let logo = null, marca = null
-      try { logo = await cargarImg('/logo-lista-color.png') } catch { logo = null }
+      // ?v: cache-buster para que el navegador tome el logo actualizado (el
+      // isotipo se rehizo en alta calidad) y no sirva la versión vieja cacheada.
+      try { logo = await cargarImg('/logo-lista-color.png?v=164') } catch { logo = null }
       try { marca = await cargarImg('/isotipo-naranja.png') } catch { marca = null }
       const { generarPdfListaPrecios } = await import('../lib/pdfListaPrecios')
       const doc = generarPdfListaPrecios(precioLista, { logo, marca, fecha: new Date().toLocaleDateString('es-AR') })

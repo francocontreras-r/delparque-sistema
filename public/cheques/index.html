@@ -482,7 +482,7 @@ function save(){ localStorage.setItem(KEY, JSON.stringify(state)); }
 const REMOTE = { razones:'razones_sociales', bancos:'bancos', cheques:'cheques' };
 const COLS = {
   razones:['id','nombre','cuit','activo'],
-  bancos :['id','razon_social_id','entidad','saldo','acuerdo'],
+  bancos :['id','razon_social_id','entidad','saldo','acuerdo','tipo'],
   cheques:['id','razon_social_id','tipo','formato','banco','numero','importe','fecha_emision','fecha_pago','fecha_acreditacion','estado','librador','cuit_librador','contraparte','concepto','observaciones','creado_por','historial','endosado_a','endosado_fecha','comprobante_path','comprobante_nombre','rechazo_motivo','rechazo_fecha'],
 };
 const DATE_COLS = new Set(['fecha_emision','fecha_pago','fecha_acreditacion','endosado_fecha','rechazo_fecha']);
@@ -916,15 +916,15 @@ function viewDashboard(){
   <div class="section-title">Vencimientos por semana</div>
   <div class="card">${chartProximos30(chs)}</div>
 
-  <div class="section-title">Disponibilidad bancaria</div>
+  <div class="section-title">Disponibilidad (bancos y efectivo)</div>
   <div class="card">
-    <div class="hint">Saldo en cuenta + acuerdo (giro en descubierto) = disponible. Cargá tus cuentas en la pestaña Config.</div>
+    <div class="hint">Saldo en cuenta + acuerdo (giro en descubierto) + efectivo en caja = disponible. Cargalos en la pestaña Config.</div>
     ${dispo.rows.length? `<div class="tblwrap"><table>
       <thead><tr><th>Entidad</th><th class="right">Saldo</th><th class="right">Acuerdo</th><th class="right">Disponible</th></tr></thead>
       <tbody>${dispo.rows.map(r=>`<tr>
-        <td><b>${esc(r.entidad)}</b>${r.razon?`<div class="mut3" style="font-size:11.5px">${esc(r.razon)}</div>`:''}</td>
+        <td><b>${r.tipo==='efectivo'?'💵 ':''}${esc(r.entidad)}</b>${r.razon?`<div class="mut3" style="font-size:11.5px">${esc(r.razon)}</div>`:''}</td>
         <td class="right num">${pesos(r.saldo)}</td>
-        <td class="right num mut3">${pesos(r.acuerdo)}</td>
+        <td class="right num mut3">${r.tipo==='efectivo'?'—':pesos(r.acuerdo)}</td>
         <td class="right num" style="color:${r.disp<0?'var(--red)':'var(--green)'}">${pesos(r.disp)}</td>
       </tr>`).join('')}</tbody>
       <tfoot><tr style="border-top:2px solid var(--line)">
@@ -964,7 +964,7 @@ function alertRow(ch,c){
 function disponibilidadBancaria(){
   const rows = state.bancos
     .filter(b=> !filtros.razon || b.razon_social_id===filtros.razon)
-    .map(b=>({entidad:b.entidad, razon: state.razones.length>1?razonNombre(b.razon_social_id):'', saldo:Number(b.saldo)||0, acuerdo:Number(b.acuerdo)||0, disp:(Number(b.saldo)||0)+(Number(b.acuerdo)||0)}));
+    .map(b=>({entidad:b.entidad, tipo:b.tipo||'banco', razon: state.razones.length>1?razonNombre(b.razon_social_id):'', saldo:Number(b.saldo)||0, acuerdo:Number(b.acuerdo)||0, disp:(Number(b.saldo)||0)+(Number(b.acuerdo)||0)}));
   return {rows, saldo:rows.reduce((s,r)=>s+r.saldo,0), acuerdo:rows.reduce((s,r)=>s+r.acuerdo,0), disp:rows.reduce((s,r)=>s+r.disp,0)};
 }
 
@@ -1402,15 +1402,15 @@ function viewConfig(){
 
   <div class="card" style="margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-      <h2>Cuentas bancarias</h2>
+      <h2>Cuentas y efectivo</h2>
       ${puedeE?`<button class="btn sm" data-act="nuevo-banco" ${state.razones.length?'':'disabled style="opacity:.5"'}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Agregar</button>`:''}
     </div>
-    <div class="hint">Saldo y acuerdo (giro en descubierto) de cada cuenta — alimenta la "Disponibilidad bancaria" del panel.</div>
+    <div class="hint">Saldo y acuerdo de cada cuenta, más el efectivo en caja — alimenta la "Disponibilidad" del panel y del informe.</div>
     ${state.bancos.length? `<div class="tblwrap"><table>
       <thead><tr><th>Entidad</th><th class="right">Saldo</th><th class="right">Acuerdo</th><th></th></tr></thead>
       <tbody>${state.bancos.map(b=>`<tr>
-        <td><b>${esc(b.entidad)}</b>${state.razones.length>1?`<div class="mut3" style="font-size:11px">${esc(razonNombre(b.razon_social_id))}</div>`:''}</td>
-        <td class="right num">${pesos(b.saldo)}</td><td class="right num mut3">${pesos(b.acuerdo)}</td>
+        <td><b>${(b.tipo==='efectivo')?'💵 ':''}${esc(b.entidad)}</b>${state.razones.length>1?`<div class="mut3" style="font-size:11px">${esc(razonNombre(b.razon_social_id))}</div>`:''}</td>
+        <td class="right num">${pesos(b.saldo)}</td><td class="right num mut3">${(b.tipo==='efectivo')?'—':pesos(b.acuerdo)}</td>
         ${puedeE?`<td class="right"><button class="linkbtn" data-edit-banco="${b.id}">Editar</button><button class="linkbtn" style="color:var(--red)" data-del-banco="${b.id}">Borrar</button></td>`:'<td></td>'}
       </tr>`).join('')}</tbody>
     </table></div>` : `<div class="empty">Sin cuentas cargadas.</div>`}
@@ -1614,16 +1614,21 @@ function modalRazon(id){
   </div>`);
 }
 function modalBanco(id){
-  const b = id? state.bancos.find(x=>x.id===id):{entidad:'',saldo:0,acuerdo:0,razon_social_id:filtros.razon||state.razones[0]?.id||''};
+  const b = id? state.bancos.find(x=>x.id===id):{entidad:'',saldo:0,acuerdo:0,tipo:'banco',razon_social_id:filtros.razon||state.razones[0]?.id||''};
+  const tipo = b.tipo||'banco';
   const rzOpts = state.razones.map(r=>`<option value="${r.id}" ${b.razon_social_id===r.id?'selected':''}>${esc(r.nombre)}</option>`).join('');
   openModal(`<div class="modal" style="max-width:460px">
-    <div class="modal-h"><h3>${id?'Editar':'Nueva'} cuenta bancaria</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-h"><h3>${id?'Editar':'Nueva'} cuenta o efectivo</h3><button class="close" data-close><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
     <div class="modal-b">
-      <div class="field"><label>Entidad</label><input id="bkEnt" value="${esc(b.entidad)}" placeholder="Banco Nación — Cta Cte"></div>
+      <div class="field"><label>Tipo</label><select id="bkTipo" onchange="document.getElementById('bkAcuerdoWrap').style.display=this.value==='efectivo'?'none':'';document.getElementById('bkEnt').placeholder=this.value==='efectivo'?'Efectivo en caja':'Banco Nación — Cta Cte'">
+        <option value="banco" ${tipo==='banco'?'selected':''}>🏦 Cuenta bancaria</option>
+        <option value="efectivo" ${tipo==='efectivo'?'selected':''}>💵 Efectivo en caja</option>
+      </select></div>
+      <div class="field"><label>Nombre</label><input id="bkEnt" value="${esc(b.entidad)}" placeholder="${tipo==='efectivo'?'Efectivo en caja':'Banco Nación — Cta Cte'}"></div>
       ${state.razones.length>1?`<div class="field"><label>Razón social</label><select id="bkRz">${rzOpts}</select></div>`:`<input type="hidden" id="bkRz" value="${b.razon_social_id||''}">`}
       <div class="frow">
-        <div class="field"><label>Saldo actual</label><input id="bkSaldo" type="text" inputmode="decimal" value="${b.saldo??0}" placeholder="Ej: 1.234.567,89"></div>
-        <div class="field"><label>Acuerdo (descubierto)</label><input id="bkAcuerdo" type="text" inputmode="decimal" value="${b.acuerdo??0}" placeholder="0"></div>
+        <div class="field"><label>${tipo==='efectivo'?'Monto en caja':'Saldo actual'}</label><input id="bkSaldo" type="text" inputmode="decimal" value="${b.saldo??0}" placeholder="Ej: 1.234.567,89"></div>
+        <div class="field" id="bkAcuerdoWrap" style="${tipo==='efectivo'?'display:none':''}"><label>Acuerdo (descubierto)</label><input id="bkAcuerdo" type="text" inputmode="decimal" value="${b.acuerdo??0}" placeholder="0"></div>
       </div>
     </div>
     <div class="modal-f"><button class="btn ghost" data-close>Cancelar</button><button class="btn" data-save-banco="${id||''}">Guardar</button></div>
@@ -1838,11 +1843,13 @@ function saveRazon(id){
   save(); closeModal(); render(); toast('Razón social guardada'); cloudPush('razones',{...row});
 }
 function saveBanco(id){
-  const entidad=$('#bkEnt').value.trim(); if(!entidad){ toast('Poné la entidad'); return; }
-  const razon_social_id=$('#bkRz').value, saldo=parseImporteImp($('#bkSaldo').value), acuerdo=parseImporteImp($('#bkAcuerdo').value); let row;
-  if(id){ const b=state.bancos.find(x=>x.id===id); Object.assign(b,{entidad,razon_social_id,saldo,acuerdo}); row=b; }
-  else { row={id:uid(),entidad,razon_social_id,saldo,acuerdo}; state.bancos.push(row); }
-  save(); closeModal(); render(); toast('Cuenta guardada'); cloudPush('bancos',{...row});
+  const tipo=$('#bkTipo')?.value==='efectivo'?'efectivo':'banco';
+  const entidad=$('#bkEnt').value.trim() || (tipo==='efectivo'?'Efectivo en caja':''); if(!entidad){ toast('Poné el nombre'); return; }
+  const razon_social_id=$('#bkRz').value, saldo=parseImporteImp($('#bkSaldo').value);
+  const acuerdo=tipo==='efectivo'?0:parseImporteImp($('#bkAcuerdo').value); let row;
+  if(id){ const b=state.bancos.find(x=>x.id===id); Object.assign(b,{entidad,razon_social_id,saldo,acuerdo,tipo}); row=b; }
+  else { row={id:uid(),entidad,razon_social_id,saldo,acuerdo,tipo}; state.bancos.push(row); }
+  save(); closeModal(); render(); toast(tipo==='efectivo'?'Efectivo guardado':'Cuenta guardada'); cloudPush('bancos',{...row});
 }
 
 /* ── Export CSV / JSON / Imagen ─────────────────────────────────────────── */
@@ -2042,9 +2049,9 @@ function construirInforme(){
   let banco='';
   if(dispo.rows.length){
     const tras=dispo.disp-totPag;
-    banco = `<div class="pr-block"><div class="pr-sec"><span><span class="dot"></span>Disponibilidad bancaria</span><span class="sub">Disponible ${pesos(dispo.disp)}</span></div>
+    banco = `<div class="pr-block"><div class="pr-sec"><span><span class="dot"></span>Disponibilidad (bancos y efectivo)</span><span class="sub">Disponible ${pesos(dispo.disp)}</span></div>
       <table class="pr"><thead><tr><th>Entidad</th><th class="r">Saldo</th><th class="r">Acuerdo</th><th class="r">Disponible</th></tr></thead>
-      <tbody>${dispo.rows.map(r=>`<tr><td>${esc(r.entidad)}${r.razon?` · ${esc(r.razon)}`:''}</td><td class="r">${pesos(r.saldo)}</td><td class="r">${pesos(r.acuerdo)}</td><td class="r">${pesos(r.disp)}</td></tr>`).join('')}</tbody>
+      <tbody>${dispo.rows.map(r=>`<tr><td>${r.tipo==='efectivo'?'💵 ':''}${esc(r.entidad)}${r.razon?` · ${esc(r.razon)}`:''}</td><td class="r">${pesos(r.saldo)}</td><td class="r">${r.tipo==='efectivo'?'—':pesos(r.acuerdo)}</td><td class="r">${pesos(r.disp)}</td></tr>`).join('')}</tbody>
       <tfoot><tr><td>Total</td><td class="r">${pesos(dispo.saldo)}</td><td class="r">${pesos(dispo.acuerdo)}</td><td class="r">${pesos(dispo.disp)}</td></tr></tfoot></table>
       <div class="pr-callout ${tras<0?'neg':''}"><span class="t">Disponible tras cubrir los pagos abiertos</span><span class="n">${tras<0?'− ':''}${pesos(Math.abs(tras))}</span></div></div>`;
   }

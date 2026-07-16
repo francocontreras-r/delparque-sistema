@@ -44,7 +44,8 @@ alter table public.bancos
   add column if not exists razon_social_id uuid,
   add column if not exists entidad         text,
   add column if not exists saldo           numeric,
-  add column if not exists acuerdo         numeric;
+  add column if not exists acuerdo         numeric,
+  add column if not exists tipo            text default 'banco';
 
 -- Perfiles (nombre para el pie del informe)
 alter table public.perfiles

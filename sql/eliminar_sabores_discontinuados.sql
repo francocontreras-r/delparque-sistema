@@ -1,87 +1,58 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 --  Eliminar sabores discontinuados de TODOS los módulos
 --  ───────────────────────────────────────────────────────────────────────────
---  Sabores a quitar:
---     · Moscatel al rhum
---     · Café irlandés
---     · Strudell manzana
---     · Maracuyá
---     · Pomelo rosado
---     · Coco
+--  Sabores a quitar: Moscatel al rhum · Café irlandés · Strudell manzana ·
+--                    Maracuyá · Pomelo rosado · Coco
 --
---  QUÉ HACE: los saca como ítems ACTUALES de Recetas, Finanzas, Producción,
---  Órdenes y Cámaras (tablas maestras + stock + catálogo de producción).
+--  Los saca como ítems ACTUALES de Recetas, Finanzas, Producción, Órdenes y
+--  Cámaras. NO toca el historial (`producciones` / `movimientos_camara`); ver el
+--  bloque OPCIONAL al final.
 --
---  QUÉ NO TOCA: el historial de producción (`producciones`) ni los movimientos
---  de cámara (`movimientos_camara`), para que los informes/estadísticas pasados
---  sigan cuadrando. Si TAMBIÉN querés borrar ese historial, descomentá el bloque
---  OPCIONAL del final.
---
---  Correr en el proyecto Supabase de la HELADERÍA. Es transaccional e idempotente
---  (si ya no existen, no borra nada).
+--  Correr en el proyecto Supabase de la HELADERÍA. Transaccional e idempotente.
+--  (Sin tablas temporales: el editor de Supabase no las conserva entre sentencias.)
 -- ───────────────────────────────────────────────────────────────────────────
 begin;
 
--- Patrones (sin distinguir mayúsculas/acentos de más) que identifican a cada sabor.
-create temporary table _disc (patron text) on commit drop;
-insert into _disc (patron) values
-  ('moscatel%'),   -- Moscatel al rhum
-  ('%irland%'),    -- Café irlandés / Cafe Irlandes
-  ('strudel%'),    -- Strudell manzana / Strudel manzana
-  ('maracuy%'),    -- Maracuya / Maracuyá
-  ('pomelo%'),     -- Pomelo Rosado
-  ('coco');        -- Coco (exacto, para no tocar otros sabores)
-
 -- 1) Ingredientes de esos sabores (hijos de `sabores`)
-delete from public.sabor_ingredientes si
- using public.sabores s
+delete from public.sabor_ingredientes si using public.sabores s
  where si.sabor_id = s.id
-   and exists (select 1 from _disc d where lower(trim(s.nombre)) like d.patron);
+   and ( s.nombre ilike 'moscatel%' or s.nombre ilike '%irland%' or s.nombre ilike 'strudel%'
+      or s.nombre ilike 'maracuy%'  or s.nombre ilike 'pomelo%'  or trim(s.nombre) ilike 'coco' );
 
--- 1b) Órdenes de producción de esos sabores (FK ordenes_produccion.sabor_id → sabores.id).
---     Hay que borrarlas antes que el sabor, si no la FK bloquea el DELETE.
-delete from public.ordenes_produccion o
- using public.sabores s
+-- 2) Órdenes de producción de esos sabores (FK ordenes_produccion.sabor_id → sabores.id)
+delete from public.ordenes_produccion o using public.sabores s
  where o.sabor_id = s.id
-   and exists (select 1 from _disc d where lower(trim(s.nombre)) like d.patron);
+   and ( s.nombre ilike 'moscatel%' or s.nombre ilike '%irland%' or s.nombre ilike 'strudel%'
+      or s.nombre ilike 'maracuy%'  or s.nombre ilike 'pomelo%'  or trim(s.nombre) ilike 'coco' );
 
--- 2) Los sabores (Recetas · Finanzas · Órdenes)
+-- 3) Los sabores (Recetas · Finanzas · Órdenes)
 delete from public.sabores s
- where exists (select 1 from _disc d where lower(trim(s.nombre)) like d.patron);
+ where ( s.nombre ilike 'moscatel%' or s.nombre ilike '%irland%' or s.nombre ilike 'strudel%'
+      or s.nombre ilike 'maracuy%'  or s.nombre ilike 'pomelo%'  or trim(s.nombre) ilike 'coco' );
 
--- 3) Catálogo de Producción
+-- 4) Catálogo de Producción
 delete from public.productos_produccion p
- where exists (select 1 from _disc d where lower(trim(p.nombre)) like d.patron);
+ where ( p.nombre ilike 'moscatel%' or p.nombre ilike '%irland%' or p.nombre ilike 'strudel%'
+      or p.nombre ilike 'maracuy%'  or p.nombre ilike 'pomelo%'  or trim(p.nombre) ilike 'coco' );
 
--- 4) Stock actual en Cámaras
+-- 5) Stock actual en Cámaras
 delete from public.stock_camaras c
- where exists (select 1 from _disc d where lower(trim(coalesce(c.nombre, ''))) like d.patron);
+ where ( c.nombre ilike 'moscatel%' or c.nombre ilike '%irland%' or c.nombre ilike 'strudel%'
+      or c.nombre ilike 'maracuy%'  or c.nombre ilike 'pomelo%'  or trim(c.nombre) ilike 'coco' );
 
 commit;
 
 -- ═══════════════════════════════════════════════════════════════════════════
---  OPCIONAL — borrar TAMBIÉN el historial de esos sabores (descomentá si querés).
---  Ojo: esto reescribe informes/estadísticas pasadas.
+--  OPCIONAL — borrar TAMBIÉN el historial (reescribe informes/estadísticas viejas).
+--  Descomentá solo si querés que desaparezcan del historial también.
 -- ───────────────────────────────────────────────────────────────────────────
 -- begin;
--- create temporary table _disc2 (patron text) on commit drop;
--- insert into _disc2 (patron) values
---   ('moscatel%'), ('%irland%'), ('strudel%'), ('maracuy%'), ('pomelo%'), ('coco');
---
 -- delete from public.movimientos_camara m
---  where exists (select 1 from _disc2 d where
---        lower(trim(coalesce(m.sabor_nombre, '')))    like d.patron
---     or lower(trim(coalesce(m.producto_nombre, ''))) like d.patron
---     or lower(trim(coalesce(m.nombre, '')))          like d.patron);
---
+--  where m.sabor_nombre ilike 'moscatel%' or m.sabor_nombre ilike '%irland%' or m.sabor_nombre ilike 'strudel%'
+--     or m.sabor_nombre ilike 'maracuy%'  or m.sabor_nombre ilike 'pomelo%'  or trim(m.sabor_nombre) ilike 'coco'
+--     or m.producto_nombre ilike 'moscatel%' or m.producto_nombre ilike '%irland%' or m.producto_nombre ilike 'strudel%'
+--     or m.producto_nombre ilike 'maracuy%'  or m.producto_nombre ilike 'pomelo%'  or trim(m.producto_nombre) ilike 'coco';
 -- delete from public.producciones pr
---  where exists (select 1 from _disc2 d where
---        lower(trim(coalesce(pr.sabor_nombre, '')))    like d.patron
---     or lower(trim(coalesce(pr.producto_nombre, ''))) like d.patron);
---
--- delete from public.ordenes_produccion o
---  where exists (select 1 from _disc2 d where
---        lower(trim(coalesce(o.sabor_nombre, '')))    like d.patron
---     or lower(trim(coalesce(o.producto_nombre, ''))) like d.patron
---     or lower(trim(coalesce(o.nombre, '')))          like d.patron);
+--  where pr.sabor_nombre ilike 'moscatel%' or pr.sabor_nombre ilike '%irland%' or pr.sabor_nombre ilike 'strudel%'
+--     or pr.sabor_nombre ilike 'maracuy%'  or pr.sabor_nombre ilike 'pomelo%'  or trim(pr.sabor_nombre) ilike 'coco';
 -- commit;

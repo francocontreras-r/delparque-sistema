@@ -25,6 +25,24 @@ export const TIER_LABEL = {
 // Orden de aparición en la lista/PDF.
 export const TIER_ORDEN = ['Agua', 'Lisa', 'Con Agregado', 'Especial', 'Rocher', 'Pistacho']
 
+// Helpers para armar presentaciones (una misma bocha en distinto envase).
+// SERVIDA: envase + servilleta + cuchara (helados servidos: 1/2/3 sabores, copa).
+function presServida(nombre, envase) {
+  return { nombre, packaging: [
+    { nombre: envase, cantidad: 1 },
+    { nombre: 'Servilletas Servitas', cantidad: 1 },
+    { nombre: 'Cucharas esmeriladas', cantidad: 1 },
+  ] }
+}
+// POTE: envase térmico + servilleta + bolsa (helados por kg para llevar).
+function presPote(nombre, envase, bolsa) {
+  return { nombre, packaging: [
+    { nombre: envase, cantidad: 1 },
+    { nombre: 'Servilletas Servitas', cantidad: 1 },
+    { nombre: bolsa, cantidad: 1 },
+  ] }
+}
+
 export const SEED_LISTA_PRECIOS = {
   vigencia: 'JUNIO 2026',
   franquicia: {
@@ -109,38 +127,93 @@ export const SEED_LISTA_PRECIOS = {
   // uno tiene DOS valores: el costo (automático = precio de Depósito ÷ unidades
   // por paquete) y el precio de franquicia/reventa (editable, lo que le cobrás).
   // `nombre` debe coincidir con el insumo en Depósito para tomar su costo en vivo.
+  // `unidadesPorPaquete` sale del Excel de costos (Q por caja).
   reventa: [
-    { nombre: 'cono 00', unidadesPorPaquete: 190, precioFranquicia: 0 },
-    { nombre: 'servilletas', unidadesPorPaquete: 100, precioFranquicia: 0 },
-    { nombre: 'cucharas', unidadesPorPaquete: 100, precioFranquicia: 0 },
-    { nombre: 'barquillón', unidadesPorPaquete: 1, precioFranquicia: 0 },
-    { nombre: 'copa', unidadesPorPaquete: 1, precioFranquicia: 0 },
-    { nombre: 'pote térmico 1/4', unidadesPorPaquete: 1, precioFranquicia: 0 },
-    { nombre: 'pote térmico 1/2', unidadesPorPaquete: 1, precioFranquicia: 0 },
-    { nombre: 'pote térmico 3/4', unidadesPorPaquete: 1, precioFranquicia: 0 },
-    { nombre: 'pote térmico 1kg', unidadesPorPaquete: 1, precioFranquicia: 0 },
-    { nombre: 'pote térmico 2,5kg', unidadesPorPaquete: 1, precioFranquicia: 0 },
-    { nombre: 'pote térmico 4kg', unidadesPorPaquete: 1, precioFranquicia: 0 },
-    { nombre: 'bolsa', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'Caja Cono N°00', unidadesPorPaquete: 190, precioFranquicia: 0 },
+    { nombre: 'Caja Cono N°1', unidadesPorPaquete: 220, precioFranquicia: 0 },
+    { nombre: 'Caja Cono N°2', unidadesPorPaquete: 220, precioFranquicia: 0 },
+    { nombre: 'Caja Cono Pasta 70', unidadesPorPaquete: 180, precioFranquicia: 0 },
+    { nombre: 'Caja Cono Pasta Doble', unidadesPorPaquete: 90, precioFranquicia: 0 },
+    { nombre: 'Caja Vaso de pasta 90 Hexagonal', unidadesPorPaquete: 261, precioFranquicia: 0 },
+    { nombre: 'Caja Vaso Pasta 125', unidadesPorPaquete: 174, precioFranquicia: 0 },
+    { nombre: 'Cucuruchon Barquillo Doble', unidadesPorPaquete: 100, precioFranquicia: 0 },
+    { nombre: 'Pote impreso DELPARQUE 120', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'Vaso Polipapel 250', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'Copa Helada(envase)', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'Servilletas Servitas', unidadesPorPaquete: 2000, precioFranquicia: 0 },
+    { nombre: 'Cucharas esmeriladas', unidadesPorPaquete: 900, precioFranquicia: 0 },
+    { nombre: 'Bolsas chicas 30x40', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'Bolsas Grandes 40x50', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'Bolsa para Postre', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'Térmico c/ tapa 1/4kg', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'Térmico c/ tapa 1/2 kg', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'Térmico c/ tapa 3/4 kg', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'Térmico c/ tapa 1 kg', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'Térmico c/ tapa 2,5 kg', unidadesPorPaquete: 1, precioFranquicia: 0 },
+    { nombre: 'Térmico c/ tapa 4 kg', unidadesPorPaquete: 1, precioFranquicia: 0 },
   ],
 
-  // Recetas de FORMATO de venta al público: kg de helado + packaging que usa.
-  // `producto` coincide con un ítem de publico.HELADOS para tomar su precio.
-  // `packaging[].nombre` referencia un insumo de `reventa`. Valores PROPUESTOS:
-  // ajustá kg y cantidades a tu realidad.
+  // Recetas de FORMATO de venta al público (lado FRANQUICIADO). Cada producto:
+  //  - kg de helado (bocha) y precioVenta (lo que cobra el franquiciado al público),
+  //  - varias PRESENTACIONES: el mismo helado servido en distinto envase. Cada una
+  //    tiene su propio packaging → su propio costo → su propio margen.
+  // `packaging[].nombre` referencia un insumo de `reventa`. Datos del Excel de
+  // costos de franquicia (2809): ajustá kg/precio a tu realidad cuando cambien.
   formatos: [
-    { producto: '1 sabor', kg: 0.12, packaging: [{ nombre: 'cono 00', cantidad: 1 }, { nombre: 'servilletas', cantidad: 1 }, { nombre: 'cucharas', cantidad: 1 }] },
-    { producto: '2 sabores', kg: 0.22, packaging: [{ nombre: 'cono 00', cantidad: 1 }, { nombre: 'servilletas', cantidad: 2 }, { nombre: 'cucharas', cantidad: 1 }] },
-    { producto: '3 sabores', kg: 0.30, packaging: [{ nombre: 'cono 00', cantidad: 1 }, { nombre: 'servilletas', cantidad: 2 }, { nombre: 'cucharas', cantidad: 1 }] },
-    { producto: 'Barquillón grande', kg: 0.25, packaging: [{ nombre: 'barquillón', cantidad: 1 }, { nombre: 'servilletas', cantidad: 2 }] },
-    { producto: 'Copa', kg: 0.20, packaging: [{ nombre: 'copa', cantidad: 1 }, { nombre: 'cucharas', cantidad: 1 }, { nombre: 'servilletas', cantidad: 1 }] },
-    { producto: '1/4 kg', kg: 0.25, packaging: [{ nombre: 'pote térmico 1/4', cantidad: 1 }, { nombre: 'bolsa', cantidad: 1 }] },
-    { producto: '1/2 kg', kg: 0.50, packaging: [{ nombre: 'pote térmico 1/2', cantidad: 1 }, { nombre: 'bolsa', cantidad: 1 }] },
-    { producto: '3/4 kg', kg: 0.75, packaging: [{ nombre: 'pote térmico 3/4', cantidad: 1 }, { nombre: 'bolsa', cantidad: 1 }] },
-    { producto: '1 kg', kg: 1.00, packaging: [{ nombre: 'pote térmico 1kg', cantidad: 1 }, { nombre: 'bolsa', cantidad: 1 }] },
-    { producto: '2,5 kg', kg: 2.50, packaging: [{ nombre: 'pote térmico 2,5kg', cantidad: 1 }, { nombre: 'bolsa', cantidad: 1 }] },
-    { producto: '4 kg', kg: 4.00, packaging: [{ nombre: 'pote térmico 4kg', cantidad: 1 }, { nombre: 'bolsa', cantidad: 1 }] },
+    { producto: 'Helado 1 sabor', kg: 0.12, precioVenta: 1900, presentaciones: [
+      presServida('Cono N°00', 'Caja Cono N°00'),
+      presServida('Cono Pasta 70', 'Caja Cono Pasta 70'),
+      presServida('Vaso Hexagonal 90', 'Caja Vaso de pasta 90 Hexagonal'),
+      presServida('Pote impreso 120', 'Pote impreso DELPARQUE 120'),
+    ] },
+    { producto: 'Helado 2 sabores', kg: 0.19, precioVenta: 3400, presentaciones: [
+      presServida('Cono N°1', 'Caja Cono N°1'),
+      presServida('Cono N°2', 'Caja Cono N°2'),
+      presServida('Vaso Pasta 125', 'Caja Vaso Pasta 125'),
+      presServida('Cono Pasta Doble', 'Caja Cono Pasta Doble'),
+      presServida('Pote impreso 120', 'Pote impreso DELPARQUE 120'),
+    ] },
+    { producto: 'Helado 3 sabores', kg: 0.25, precioVenta: 4100, presentaciones: [
+      presServida('Cucuruchón Doble', 'Cucuruchon Barquillo Doble'),
+      presServida('Cono N°2', 'Caja Cono N°2'),
+      presServida('Vaso Polipapel 250', 'Vaso Polipapel 250'),
+    ] },
+    { producto: 'Copa Helada', kg: 0.25, precioVenta: 5800, presentaciones: [
+      presServida('Copa', 'Copa Helada(envase)'),
+    ] },
+    { producto: '1/4 Kg Helado', kg: 0.25, precioVenta: 3700, presentaciones: [
+      presPote('Térmico 1/4', 'Térmico c/ tapa 1/4kg', 'Bolsas chicas 30x40'),
+    ] },
+    { producto: '1/2 Kg Helado', kg: 0.50, precioVenta: 6900, presentaciones: [
+      presPote('Térmico 1/2', 'Térmico c/ tapa 1/2 kg', 'Bolsas chicas 30x40'),
+    ] },
+    { producto: '3/4 Kg Helado', kg: 0.75, precioVenta: 10300, presentaciones: [
+      presPote('Térmico 3/4', 'Térmico c/ tapa 3/4 kg', 'Bolsas Grandes 40x50'),
+    ] },
+    { producto: '1 Kg Helado', kg: 1.00, precioVenta: 13200, presentaciones: [
+      presPote('Térmico 1 kg', 'Térmico c/ tapa 1 kg', 'Bolsas Grandes 40x50'),
+    ] },
+    { producto: '2,5 Kg Helado', kg: 2.50, precioVenta: 25500, presentaciones: [
+      presPote('Térmico 2,5 kg', 'Térmico c/ tapa 2,5 kg', 'Bolsa para Postre'),
+    ] },
+    { producto: '4 Kg Helado', kg: 4.00, precioVenta: 40000, presentaciones: [
+      presPote('Térmico 4 kg', 'Térmico c/ tapa 4 kg', 'Bolsa para Postre'),
+    ] },
   ],
+}
+
+// Migra listas guardadas con el modelo viejo (un packaging por formato) al nuevo
+// (varias presentaciones). Idempotente: si ya tiene presentaciones, no toca nada.
+export function migrarLista(lista) {
+  if (!lista || !Array.isArray(lista.formatos)) return lista
+  lista.formatos.forEach(f => {
+    if (!Array.isArray(f.presentaciones)) {
+      f.presentaciones = [{ nombre: f.presentacion || 'Única', packaging: f.packaging || [] }]
+    }
+    if (f.precioVenta == null) f.precioVenta = 0
+    delete f.packaging
+  })
+  return lista
 }
 
 // Copia profunda de la semilla (para no mutar la constante al editar en memoria).

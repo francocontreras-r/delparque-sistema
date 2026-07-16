@@ -23,7 +23,7 @@ import { normalizarNombre } from '../lib/texto'
 import { cargarHistorialCostos } from '../lib/historialCostos'
 import { construirPrecioMapCamara, valorTotalCamara } from '../lib/valorCamara'
 import { generarPdfListaPrecios } from '../lib/pdfListaPrecios'
-import { clonarSemilla, preciosPorTier, TIER_ORDEN } from '../lib/listaPreciosData'
+import { clonarSemilla, preciosPorTier, TIER_ORDEN, migrarLista } from '../lib/listaPreciosData'
 import { useSearchParams } from 'react-router-dom'
 import {
   DollarSign, RefreshCw, Warehouse, Thermometer, Percent,
@@ -234,7 +234,7 @@ export default function Finanzas() {
         const merged = { ...seed, ...pl.data }
         if (!merged.reventa) merged.reventa = seed.reventa
         if (!merged.formatos) merged.formatos = seed.formatos
-        setPrecioLista(merged)
+        setPrecioLista(migrarLista(merged))
       }
     } catch { /* tabla ausente → semilla */ }
     setLoading(false)
@@ -584,27 +584,37 @@ export default function Finanzas() {
   // reventa, lo que el franquiciado te paga). También el margen que TE deja a vos
   // el packaging (reventa − costo).
   const margenPorFormato = useMemo(() => {
-    const pub = {}
-    ;(precioLista.publico?.HELADOS || []).forEach(r => { pub[r.producto] = Number(r.precio) || 0 })
-    return (precioLista.formatos || []).map(f => {
-      const publico = pub[f.producto] || 0
+    const rows = []
+    ;(precioLista.formatos || []).forEach(f => {
       const kg = Number(f.kg) || 0
+      const publico = Number(f.precioVenta) || 0
       const costoHelado = kg * avgFranquiciaKg
-      let costoPack = 0, gananciaPackFabrica = 0, sinVincular = false
-      ;(f.packaging || []).forEach(p => {
-        const info = reventaCostos[normalizarNombre(p.nombre)]
-        const cant = Number(p.cantidad) || 0
-        if (!info) { sinVincular = true; return }
-        costoPack += cant * info.reventaU
-        gananciaPackFabrica += cant * (info.reventaU - info.costoU)
+      // Compat: si por algún motivo quedó sin presentaciones, tomamos el packaging suelto.
+      const presentaciones = (f.presentaciones && f.presentaciones.length)
+        ? f.presentaciones
+        : [{ nombre: 'Única', packaging: f.packaging || [] }]
+      presentaciones.forEach(pr => {
+        let costoPack = 0, gananciaPackFabrica = 0, sinVincular = false
+        ;(pr.packaging || []).forEach(p => {
+          const info = reventaCostos[normalizarNombre(p.nombre)]
+          const cant = Number(p.cantidad) || 0
+          if (!info) { sinVincular = true; return }
+          // El franquiciado paga la reventa; si no la cargaste, usamos el costo (como el Excel).
+          const packUnit = info.reventaU > 0 ? info.reventaU : info.costoU
+          costoPack += cant * packUnit
+          gananciaPackFabrica += cant * (info.reventaU > 0 ? info.reventaU - info.costoU : 0)
+        })
+        const costoFranq = costoHelado + costoPack
+        rows.push({
+          key: `${f.producto}·${pr.nombre}`,
+          producto: f.producto, presentacion: pr.nombre, kg, publico,
+          costoHelado, costoPack, costoFranq,
+          margen: margenPct(costoFranq, publico), marcacion: marcacionPct(costoFranq, publico),
+          gananciaPackFabrica, sinVincular,
+        })
       })
-      const costoFranq = costoHelado + costoPack
-      return {
-        producto: f.producto, kg, publico, costoHelado, costoPack, costoFranq,
-        margen: margenPct(costoFranq, publico), marcacion: marcacionPct(costoFranq, publico),
-        gananciaPackFabrica, sinVincular,
-      }
     })
+    return rows
   }, [precioLista, avgFranquiciaKg, reventaCostos])
 
   const resumenFormato = useMemo(() => {
@@ -628,35 +638,65 @@ export default function Finanzas() {
   function quitarReventa(idx) {
     setPrecioLista(prev => ({ ...prev, reventa: (prev.reventa || []).filter((_, i) => i !== idx) }))
   }
-  function editarFormatoKg(idx, valor) {
+  function editarFormatoCampo(idx, campo, valor) {
     setPrecioLista(prev => {
       const next = JSON.parse(JSON.stringify(prev))
       const f = (next.formatos || [])[idx]
-      if (f) f.kg = valor === '' ? 0 : Number(valor)
+      if (f) f[campo] = campo === 'producto' ? valor : (valor === '' ? 0 : Number(valor))
       return next
     })
   }
-  function editarFormatoPack(fIdx, pIdx, campo, valor) {
+  function agregarFormato() {
+    setPrecioLista(prev => ({ ...prev, formatos: [...(prev.formatos || []), { producto: 'Nuevo producto', kg: 0, precioVenta: 0, presentaciones: [{ nombre: 'Presentación 1', packaging: [] }] }] }))
+  }
+  function quitarFormato(fIdx) {
+    setPrecioLista(prev => ({ ...prev, formatos: (prev.formatos || []).filter((_, i) => i !== fIdx) }))
+  }
+  function editarPresentacionNombre(fIdx, prIdx, valor) {
     setPrecioLista(prev => {
       const next = JSON.parse(JSON.stringify(prev))
-      const p = next.formatos?.[fIdx]?.packaging?.[pIdx]
+      const pr = next.formatos?.[fIdx]?.presentaciones?.[prIdx]
+      if (pr) pr.nombre = valor
+      return next
+    })
+  }
+  function agregarPresentacion(fIdx) {
+    setPrecioLista(prev => {
+      const next = JSON.parse(JSON.stringify(prev))
+      const f = next.formatos?.[fIdx]
+      if (f) { f.presentaciones = f.presentaciones || []; f.presentaciones.push({ nombre: `Presentación ${f.presentaciones.length + 1}`, packaging: [] }) }
+      return next
+    })
+  }
+  function quitarPresentacion(fIdx, prIdx) {
+    setPrecioLista(prev => {
+      const next = JSON.parse(JSON.stringify(prev))
+      const f = next.formatos?.[fIdx]
+      if (f?.presentaciones) f.presentaciones = f.presentaciones.filter((_, i) => i !== prIdx)
+      return next
+    })
+  }
+  function editarFormatoPack(fIdx, prIdx, pIdx, campo, valor) {
+    setPrecioLista(prev => {
+      const next = JSON.parse(JSON.stringify(prev))
+      const p = next.formatos?.[fIdx]?.presentaciones?.[prIdx]?.packaging?.[pIdx]
       if (p) p[campo] = campo === 'nombre' ? valor : (valor === '' ? 0 : Number(valor))
       return next
     })
   }
-  function agregarFormatoPack(fIdx) {
+  function agregarFormatoPack(fIdx, prIdx) {
     setPrecioLista(prev => {
       const next = JSON.parse(JSON.stringify(prev))
-      const f = next.formatos?.[fIdx]
-      if (f) { f.packaging = f.packaging || []; f.packaging.push({ nombre: (next.reventa?.[0]?.nombre) || '', cantidad: 1 }) }
+      const pr = next.formatos?.[fIdx]?.presentaciones?.[prIdx]
+      if (pr) { pr.packaging = pr.packaging || []; pr.packaging.push({ nombre: '', cantidad: 1 }) }
       return next
     })
   }
-  function quitarFormatoPack(fIdx, pIdx) {
+  function quitarFormatoPack(fIdx, prIdx, pIdx) {
     setPrecioLista(prev => {
       const next = JSON.parse(JSON.stringify(prev))
-      const f = next.formatos?.[fIdx]
-      if (f?.packaging) f.packaging = f.packaging.filter((_, i) => i !== pIdx)
+      const pr = next.formatos?.[fIdx]?.presentaciones?.[prIdx]
+      if (pr?.packaging) pr.packaging = pr.packaging.filter((_, i) => i !== pIdx)
       return next
     })
   }
@@ -715,14 +755,17 @@ export default function Finanzas() {
       const ln = doc.splitTextToSize(nar, pw - 28)
       ln.forEach((l, i) => doc.text(l, 14, y + i * 5)); y += ln.length * 5 + 6
 
-      // Margen del franquiciado por formato
-      y = dibujarSeccion(doc, pw, 'Margen del franquiciado por formato', y)
+      // Margen del franquiciado por presentación
+      y = dibujarSeccion(doc, pw, 'Margen del franquiciado por presentación', y)
       autoTable(doc, {
         ...EST, startY: y,
-        head: [['FORMATO', 'KG', 'COSTO HELADO', 'COSTO PACK.', 'COSTO TOTAL', 'PRECIO PÚBL.', 'MARGEN s/venta', 'MARCACIÓN s/costo']],
-        body: margenPorFormato.map(f => [f.producto, String(f.kg), money(f.costoHelado), money(f.costoPack), money(f.costoFranq), money(f.publico), pct(f.margen), `${f.marcacion.toFixed(0)}%`]),
-        columnStyles: { 0: { halign: 'left' } },
-        didParseCell: d => { if (d.section === 'body' && d.column.index === 6) d.cell.styles.textColor = semaforo(margenPorFormato[d.row.index]?.margen ?? 0) },
+        head: [['PRODUCTO', 'PRESENTACIÓN', 'KG', 'C. HELADO', 'C. PACK.', 'C. TOTAL', 'P. VENTA', 'MARGEN s/venta', 'MARC. s/costo']],
+        body: margenPorFormato.map((f, i) => [
+          (i === 0 || margenPorFormato[i - 1].producto !== f.producto) ? f.producto : '',
+          f.presentacion, String(f.kg), money(f.costoHelado), money(f.costoPack), money(f.costoFranq), money(f.publico), pct(f.margen), `${f.marcacion.toFixed(0)}%`,
+        ]),
+        columnStyles: { 0: { halign: 'left' }, 1: { halign: 'left' } },
+        didParseCell: d => { if (d.section === 'body' && d.column.index === 7) d.cell.styles.textColor = semaforo(margenPorFormato[d.row.index]?.margen ?? 0) },
       })
       y = doc.lastAutoTable.finalY + 8
 
@@ -1719,22 +1762,24 @@ export default function Finanzas() {
               {/* Margen del FRANQUICIADO por formato (helado promedio + packaging) */}
               <div className="overflow-hidden" style={SURFACE}>
                 <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-1" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Margen del franquiciado por formato</span>
-                  <span className="text-[11px]" style={{ color: colors.textMuted }}>Fábrica prom.: ${pesos(avgFranquiciaKg)}/kg</span>
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Margen del franquiciado por presentación</span>
+                  <span className="text-[11px]" style={{ color: colors.textMuted }}>Helado: ${pesos(avgFranquiciaKg)}/kg · una fila por cómo se sirve</span>
                 </div>
                 <div className="overflow-x-auto">
-                  <Table className="min-w-[820px]">
+                  <Table className="min-w-[860px]">
                     <Thead>
                       <Tr>
-                        <Th>Formato</Th><Th>Kg</Th><Th>Costo helado</Th><Th>Costo packaging</Th><Th>Costo total</Th><Th>Precio público</Th><Th>Margen s/venta</Th><Th>Marcación s/costo</Th>
+                        <Th>Producto</Th><Th>Presentación</Th><Th>Kg</Th><Th>Costo helado</Th><Th>Costo packaging</Th><Th>Costo total</Th><Th>Precio venta</Th><Th>Margen s/venta</Th><Th>Marcación s/costo</Th>
                       </Tr>
                     </Thead>
                     <Tbody>
-                      {margenPorFormato.map(f => {
+                      {margenPorFormato.map((f, i) => {
                         const nv = nivelMargen(f.margen)
+                        const primeraDelGrupo = i === 0 || margenPorFormato[i - 1].producto !== f.producto
                         return (
-                          <Tr key={f.producto}>
-                            <Td className="font-medium">{f.producto}{f.sinVincular && <span title="Algún packaging no matchea un insumo cargado" className="ml-1 text-xs" style={{ color: '#f59e0b' }}>⚠</span>}</Td>
+                          <Tr key={f.key} style={primeraDelGrupo && i > 0 ? { borderTop: `2px solid ${colors.border}` } : undefined}>
+                            <Td className="font-medium" style={!primeraDelGrupo ? { color: colors.textMuted } : undefined}>{primeraDelGrupo ? f.producto : ''}</Td>
+                            <Td style={{ color: colors.textSecondary }}>{f.presentacion}{f.sinVincular && <span title="Algún packaging no está vinculado a un insumo de Depósito" className="ml-1 text-xs" style={{ color: '#f59e0b' }}>⚠</span>}</Td>
                             <Td style={{ color: colors.textMuted }}>{f.kg}</Td>
                             <Td style={{ color: colors.textMuted }}>${pesos(f.costoHelado)}</Td>
                             <Td style={{ color: colors.textMuted }}>${pesos(f.costoPack)}</Td>
@@ -1923,38 +1968,60 @@ export default function Finanzas() {
                 </div>
               </div>
 
-              {/* Editor: recetas de formato (kg de helado + packaging que usa) */}
+              {/* Editor: formatos (producto + kg + precio + presentaciones) */}
               <div className="p-4 space-y-3" style={SURFACE}>
-                <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Recetas de formato</span>
-                <p className="text-[11px]" style={{ color: colors.textMuted }}>Cada formato de venta: kg de helado + qué packaging usa (elegido del listado de arriba). Con esto se calcula el margen del franquiciado.</p>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Formatos y presentaciones</span>
+                  <Button variant="secondary" size="sm" onClick={agregarFormato}>+ Agregar producto</Button>
+                </div>
+                <p className="text-[11px]" style={{ color: colors.textMuted }}>
+                  Cada producto tiene sus <b>kg de helado</b>, su <b>precio de venta</b> y una o varias <b>presentaciones</b> (el mismo helado servido en distinto envase). Cada presentación se costea aparte → margen propio.
+                </p>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   {(precioLista.formatos || []).map((f, fIdx) => (
-                    <div key={f.producto} className="p-3 rounded-lg space-y-2" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-semibold" style={{ color: colors.textPrimary }}>{f.producto}</span>
-                        <div className="flex items-center gap-1.5">
-                          <input type="number" step="0.01" value={f.kg ?? ''} onChange={e => editarFormatoKg(fIdx, e.target.value)}
-                            className="px-2 py-1 rounded-md text-sm w-20 text-right" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
-                          <span className="text-xs" style={{ color: colors.textMuted }}>kg</span>
-                        </div>
+                    <div key={fIdx} className="p-3 rounded-lg space-y-2.5" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+                      {/* Cabecera producto */}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <input value={f.producto || ''} onChange={e => editarFormatoCampo(fIdx, 'producto', e.target.value)}
+                          className="px-2 py-1 rounded-md text-sm font-semibold flex-1 min-w-[120px]" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                        <input type="number" step="0.01" value={f.kg ?? ''} onChange={e => editarFormatoCampo(fIdx, 'kg', e.target.value)}
+                          className="px-2 py-1 rounded-md text-sm w-16 text-right" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                        <span className="text-xs" style={{ color: colors.textMuted }}>kg</span>
+                        <span className="text-xs" style={{ color: colors.textMuted }}>$</span>
+                        <input type="number" value={f.precioVenta ?? ''} onChange={e => editarFormatoCampo(fIdx, 'precioVenta', e.target.value)}
+                          className="px-2 py-1 rounded-md text-sm w-24 text-right" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                        <button onClick={() => quitarFormato(fIdx)} title="Quitar producto" className="text-xs hover:opacity-70 px-1" style={{ color: colors.danger }}>🗑</button>
                       </div>
-                      <div className="space-y-1">
-                        {(f.packaging || []).map((p, pIdx) => (
-                          <div key={pIdx} className="flex items-center gap-1.5">
-                            <select value={p.nombre || ''} onChange={e => editarFormatoPack(fIdx, pIdx, 'nombre', e.target.value)}
-                              className="px-2 py-1 rounded-md text-xs flex-1" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.textPrimary }}>
-                              <option value="">— elegir packaging —</option>
-                              {p.nombre && !(precioLista.reventa || []).some(r => r.nombre === p.nombre) && <option value={p.nombre}>⚠ {p.nombre}</option>}
-                              {(precioLista.reventa || []).filter(r => r.nombre).map((r, i) => <option key={i} value={r.nombre}>{r.nombre}</option>)}
-                            </select>
-                            <span className="text-xs" style={{ color: colors.textMuted }}>×</span>
-                            <input type="number" value={p.cantidad ?? ''} onChange={e => editarFormatoPack(fIdx, pIdx, 'cantidad', e.target.value)}
-                              className="px-2 py-1 rounded-md text-xs w-14 text-right" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
-                            <button onClick={() => quitarFormatoPack(fIdx, pIdx)} className="text-xs hover:opacity-70" style={{ color: colors.danger }}>✕</button>
+
+                      {/* Presentaciones */}
+                      {(f.presentaciones || []).map((pr, prIdx) => (
+                        <div key={prIdx} className="rounded-md p-2 space-y-1.5" style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}` }}>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold uppercase" style={{ color: colors.brand }}>Presentación</span>
+                            <input value={pr.nombre || ''} onChange={e => editarPresentacionNombre(fIdx, prIdx, e.target.value)}
+                              className="px-2 py-0.5 rounded text-xs font-semibold flex-1" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                            {(f.presentaciones || []).length > 1 && (
+                              <button onClick={() => quitarPresentacion(fIdx, prIdx)} title="Quitar presentación" className="text-xs hover:opacity-70" style={{ color: colors.danger }}>✕</button>
+                            )}
                           </div>
-                        ))}
-                        <button onClick={() => agregarFormatoPack(fIdx)} className="text-xs hover:opacity-70" style={{ color: colors.brand }}>+ packaging</button>
-                      </div>
+                          {(pr.packaging || []).map((p, pIdx) => (
+                            <div key={pIdx} className="flex items-center gap-1.5">
+                              <select value={p.nombre || ''} onChange={e => editarFormatoPack(fIdx, prIdx, pIdx, 'nombre', e.target.value)}
+                                className="px-2 py-1 rounded-md text-xs flex-1" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textPrimary }}>
+                                <option value="">— elegir packaging —</option>
+                                {p.nombre && !(precioLista.reventa || []).some(r => r.nombre === p.nombre) && <option value={p.nombre}>⚠ {p.nombre}</option>}
+                                {(precioLista.reventa || []).filter(r => r.nombre).map((r, i) => <option key={i} value={r.nombre}>{r.nombre}</option>)}
+                              </select>
+                              <span className="text-xs" style={{ color: colors.textMuted }}>×</span>
+                              <input type="number" value={p.cantidad ?? ''} onChange={e => editarFormatoPack(fIdx, prIdx, pIdx, 'cantidad', e.target.value)}
+                                className="px-2 py-1 rounded-md text-xs w-12 text-right" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                              <button onClick={() => quitarFormatoPack(fIdx, prIdx, pIdx)} className="text-xs hover:opacity-70" style={{ color: colors.danger }}>✕</button>
+                            </div>
+                          ))}
+                          <button onClick={() => agregarFormatoPack(fIdx, prIdx)} className="text-xs hover:opacity-70" style={{ color: colors.brand }}>+ packaging</button>
+                        </div>
+                      ))}
+                      <button onClick={() => agregarPresentacion(fIdx)} className="text-xs font-semibold hover:opacity-70" style={{ color: colors.brand }}>+ Agregar presentación</button>
                     </div>
                   ))}
                 </div>

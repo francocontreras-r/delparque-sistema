@@ -297,6 +297,13 @@ export default function Informes() {
       const nombreN = normalizarNombre(r.producto_nombre || '')      // para matchear tablas
       const cat = (r.categoria || categoriaPorCodigo[r.producto_codigo] || '').toLowerCase()
 
+      // 0. BARRAS (y sus MINI): se producen y se venden por PESO (kg), nunca por
+      // unidad. La MINI barra recibe EXACTAMENTE el mismo trato que la barra
+      // entera, aunque figure en la tabla de impulsivos para su venta suelta.
+      // Va ANTES de todo lo demás para que nunca caiga en la columna de unidades.
+      // ("barra helada" ya se excluye aguas arriba en NOMBRES_EXCLUIDOS.)
+      if (/\bbarra\b/.test(nombre)) return 'postre'
+
       // 1. Campo tipo_producto explícito (movimientos_camara normalizados)
       if (r.tipo_producto === 'impulsivo') return 'impulsivo'
       if (r.tipo_producto === 'postre')    return 'postre'

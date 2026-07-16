@@ -1047,16 +1047,18 @@ export default function Finanzas() {
   async function emitirPdfLista() {
     setEmitiendoPdf(true)
     try {
-      // Cargar el logo blanco (para el banner naranja) como dataURL, con su relación
-      // de aspecto real para no deformarlo. Si falla, el PDF usa el texto "Del Parque".
-      let logo = null
-      try {
-        const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = '/logo-wordmark-white-hd.png' })
+      // Cargar assets de marca como dataURL (logo a color + isotipo watermark),
+      // con su relación de aspecto real. Si falla, el PDF cae al texto "Del Parque".
+      const cargarImg = async (src) => {
+        const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src })
         const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight
         c.getContext('2d').drawImage(img, 0, 0)
-        logo = { data: c.toDataURL('image/png'), ratio: img.naturalWidth / img.naturalHeight }
-      } catch { logo = null }
-      const doc = generarPdfListaPrecios(precioLista, { logo, fecha: new Date().toLocaleDateString('es-AR') })
+        return { data: c.toDataURL('image/png'), ratio: img.naturalWidth / img.naturalHeight }
+      }
+      let logo = null, marca = null
+      try { logo = await cargarImg('/logo-lista-color.png') } catch { logo = null }
+      try { marca = await cargarImg('/isotipo-naranja.png') } catch { marca = null }
+      const doc = generarPdfListaPrecios(precioLista, { logo, marca, fecha: new Date().toLocaleDateString('es-AR') })
       const slug = (precioLista.vigencia || 'lista').toLowerCase().replace(/\s+/g, '-')
       doc.save(`lista-precios-${slug}.pdf`)
     } catch (e) { showToast('No se pudo generar el PDF: ' + (e.message || ''), 'error') }

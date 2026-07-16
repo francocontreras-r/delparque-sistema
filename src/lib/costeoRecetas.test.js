@@ -81,3 +81,23 @@ describe('crearCosteador — rinde en kg por densidad de la base', () => {
     expect(c.costoDe('Sambayón')).toBeCloseTo(42000 / 138, 1)
   })
 })
+
+describe('crearCosteador — rinde del sabor fijado a mano (peso_kg)', () => {
+  // Intermedio sin base (masa con insumos sueltos), rinde fijado en 6 kg.
+  const c = crearCosteador({
+    insumos: [{ nombre: 'LPE', costo_unitario: 8625 }, { nombre: 'Pronto Senza', costo_unitario: 36206 }],
+    bases: [],
+    sabores: [{ id: 5, nombre: 'Americana Light', litros_base: 0, peso_kg: 6 }],
+    saborIngredientes: [
+      { sabor_id: 5, insumo_nombre: 'LPE', cantidad: 0.5, unidad: 'kg' },
+      { sabor_id: 5, insumo_nombre: 'Pronto Senza', cantidad: 1.8, unidad: 'kg' },
+      { sabor_id: 5, insumo_nombre: 'Agua', cantidad: 3.7, unidad: 'L' },
+    ],
+  })
+
+  it('usa peso_kg como rinde (6 kg), no los litros de base', () => {
+    // total materia prima = 0.5×8625 + 1.8×36206 = 4312.5 + 65170.8 = 69483.3
+    // $/kg = 69483.3 / 6 ≈ 11580.55
+    expect(c.costoDe('Americana Light')).toBeCloseTo(69483.3 / 6, 1)
+  })
+})

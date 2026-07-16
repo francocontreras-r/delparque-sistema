@@ -48,9 +48,13 @@ export function crearCostoUnitario(ctx = {}) {
   function infoDe(nombre) {
     const s = saborPorNombre[norm(nombre)]
     if (s) {
-      // Rinde en KG: litros de base × densidad de la base + kg de agregados.
+      // Rinde en KG. Si el sabor tiene peso_kg fijado a mano, manda ese valor
+      // (ej. una masa hecha con insumos sueltos, sin base). Si no, se calcula:
+      // litros de base × densidad de la base + kg de agregados.
       const litrosBase = Number(s.litros_base) || LITROS_BATCH
-      const rinde = litrosBase * densBase(s.base_nombre) + (extraKg[s.id] || 0)
+      const rinde = Number(s.peso_kg) > 0
+        ? Number(s.peso_kg)
+        : litrosBase * densBase(s.base_nombre) + (extraKg[s.id] || 0)
       const total = matSabor(s) + (Number(s.mano_de_obra) || 0)
       return { costo: rinde > 0 ? total / rinde : total, unidad: 'kg', tipo: 'sabor', rinde }
     }

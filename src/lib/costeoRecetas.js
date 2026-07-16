@@ -80,7 +80,9 @@ export function crearCosteador({ insumos = [], bases = [], baseIngredientes = []
     const extraKg = ings
       .filter(i => (i.unidad || '').toLowerCase() === 'kg' && !esAgua(i.insumo_nombre) && !esBase(i.insumo_nombre) && !esSabor(i.insumo_nombre))
       .reduce((a, i) => a + (Number(i.cantidad) || 0), 0)
-    const rinde = kgBase + extraKg
+    // Rinde: si el sabor tiene peso_kg fijado a mano, manda (ej. una masa/intermedio
+    // sin base). Si no, kg de base (litros × densidad) + kg de agregados.
+    const rinde = Number(sabor.peso_kg) > 0 ? Number(sabor.peso_kg) : (kgBase + extraKg)
     let total = 0
     ings.forEach(i => { if (!esAguaLibre(i.insumo_nombre)) total += (Number(i.cantidad) || 0) * costoDe(i.insumo_nombre, visit) })
     // Si la base no estaba como ingrediente, se suma vía base_nombre

@@ -257,7 +257,8 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
     }
     // Bases: guardar el rinde real en kg (para el $/kg de sus sabores). Si la
     // columna no existe todavía, reintentamos sin ella (degradación segura).
-    if (tipo === 'Bases') updatePadre.peso_kg = (pesoKg === '' || pesoKg == null) ? null : Number(pesoKg)
+    // Rinde real en kg (bases y sabores/intermedios). Si la columna no existe, degrada.
+    if (tipo === 'Bases' || tipo === 'Sabores') updatePadre.peso_kg = (pesoKg === '' || pesoKg == null) ? null : Number(pesoKg)
     if (tipo === 'Sabores') updatePadre.es_intermedio = !!esIntermedio
     if (tipo === 'Sabores') {
       // La base del sabor se toma del ingrediente que ES una base (mismo criterio
@@ -418,17 +419,22 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
             style={{ borderColor: colors.border }} />
         </div>
 
-        {/* Rinde real en kg (solo bases): la base es más densa que el agua, así que
-            120 L pesan más de 120 kg. Con esto el $/kg de sus sabores sale real. */}
-        {tipo === 'Bases' && (
+        {/* Rinde real en kg (bases y sabores/intermedios): cuántos kg rinde la tanda.
+            En bases sirve para el $/kg de sus sabores; en sabores/intermedios fija el
+            rinde cuando no sale de una base (ej. una masa hecha con insumos sueltos). */}
+        {(tipo === 'Bases' || tipo === 'Sabores') && (
           <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
             <div className="flex-1">
               <label className="text-sm font-medium" style={{ color: colors.textSecondary }}>Rinde real (kg por tanda)</label>
-              <p className="text-[11px]" style={{ color: colors.textMuted }}>Cuánto pesa la tanda al salir de la máquina (pesa más que los litros). Vacío = usa los litros.</p>
+              <p className="text-[11px]" style={{ color: colors.textMuted }}>
+                {tipo === 'Bases'
+                  ? 'Cuánto pesa la tanda al salir de la máquina (pesa más que los litros). Vacío = usa los litros.'
+                  : 'Cuántos kg rinde esta receta. Vacío = se calcula por los litros de base + los kg de ingredientes.'}
+              </p>
             </div>
             <input type="number" min="0" step="0.1" value={pesoKg}
               onChange={e => setPesoKg(e.target.value)}
-              placeholder={`${receta.litros_batch || 120}`}
+              placeholder={tipo === 'Bases' ? `${receta.litros_batch || 120}` : 'ej. 6'}
               className="w-36 text-right rounded-md border text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-orange-300"
               style={{ borderColor: colors.border }} />
           </div>
@@ -610,7 +616,8 @@ export default function Recetas() {
         tipo: (s.es_intermedio ? 'Intermedio' : (tipoPorNombre[s.nombre] || 'Sabor')),
         baseNombre: s.base_nombre,
         litros_batch: s.litros_base || 0,
-        rinde: info.rinde || 0,   // kg reales que rinde la tanda (litros × densidad de base + agregados)
+        peso_kg: s.peso_kg ?? null,   // rinde real en kg fijado a mano (si se cargó)
+        rinde: info.rinde || 0,   // kg reales que rinde la tanda (peso_kg, o litros × densidad + agregados)
         notas: s.notas,
         manoDeObra: s.mano_de_obra || 0,
         costoTotal: s.costo_total || 0,

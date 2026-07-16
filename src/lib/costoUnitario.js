@@ -52,18 +52,18 @@ export function crearCostoUnitario(ctx = {}) {
       const litrosBase = Number(s.litros_base) || LITROS_BATCH
       const rinde = litrosBase * densBase(s.base_nombre) + (extraKg[s.id] || 0)
       const total = matSabor(s) + (Number(s.mano_de_obra) || 0)
-      return { costo: rinde > 0 ? total / rinde : total, unidad: 'kg', tipo: 'sabor' }
+      return { costo: rinde > 0 ? total / rinde : total, unidad: 'kg', tipo: 'sabor', rinde }
     }
     const im = impPorNombre[norm(nombre)]
     if (im) {
       const total = matImp(im) + (Number(im.mano_de_obra) || 0)
       if (tipoProd(im.nombre) === 'postre') {
         const peso = pesoImp[im.id] || 1
-        return { costo: peso > 0 ? total / peso : total, unidad: 'kg', tipo: 'postre' }
+        return { costo: peso > 0 ? total / peso : total, unidad: 'kg', tipo: 'postre', rinde: peso }
       }
-      return { costo: total, unidad: 'u', tipo: 'impulsivo' }
+      return { costo: total, unidad: 'u', tipo: 'impulsivo', rinde: 1 }
     }
-    return { costo: 0, unidad: 'u', tipo: null }
+    return { costo: 0, unidad: 'u', tipo: null, rinde: 0 }
   }
 
   return {

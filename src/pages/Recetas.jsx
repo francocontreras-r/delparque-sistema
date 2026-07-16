@@ -610,6 +610,7 @@ export default function Recetas() {
         tipo: (s.es_intermedio ? 'Intermedio' : (tipoPorNombre[s.nombre] || 'Sabor')),
         baseNombre: s.base_nombre,
         litros_batch: s.litros_base || 0,
+        rinde: info.rinde || 0,   // kg reales que rinde la tanda (litros × densidad de base + agregados)
         notas: s.notas,
         manoDeObra: s.mano_de_obra || 0,
         costoTotal: s.costo_total || 0,
@@ -820,7 +821,10 @@ export default function Recetas() {
           // Meta (sin costos): base, tanda, rinde
           const meta = []
           if (g === 'Bases') meta.push(`Tanda: ${r.litros_batch || 120} L`)
-          if (g === 'Sabores') { if (r.baseNombre) meta.push(`Base: ${r.baseNombre}`); meta.push(`Tanda base: ${r.litros_batch || 120} L`) }
+          if (g === 'Sabores') {
+            if (r.baseNombre) meta.push(`Base: ${r.baseNombre}`)
+            meta.push(r.rinde > 0 ? `Rinde ≈ ${Math.round(r.rinde).toLocaleString('es-AR')} kg` : `Tanda base: ${r.litros_batch || 120} L`)
+          }
           doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(110, 110, 110)
           if (meta.length) doc.text(meta.join('   ·   '), 14, y + 9)
           y += meta.length ? 12 : 8
@@ -1020,7 +1024,9 @@ export default function Recetas() {
             const esPostre = r.tipo === 'Postre'
             const costoPorUnidad = (r.subtotalMP || 0) + (r.manoDeObra || 0)
             const partes = []
-            if (r.litros_batch > 0) partes.push(`${r.litros_batch} L/batch`)
+            // Sabores: mostramos el RINDE real en kg (litros de base × densidad). Bases: litros.
+            if (r.litros_batch > 0 && r.unidadUnit === 'kg' && r.rinde > 0) partes.push(`Rinde ≈ ${Math.round(r.rinde).toLocaleString('es-AR')} kg`)
+            else if (r.litros_batch > 0) partes.push(`${r.litros_batch} L/batch`)
             if (r.baseNombre) partes.push(`Base: ${r.baseNombre}`)
 
             return (
@@ -1152,7 +1158,7 @@ export default function Recetas() {
                       {r.litros_batch > 0 && (
                         <div className="flex justify-between text-xs">
                           <span style={{ color: colors.textMuted }}>
-                            Costo del batch {costoUnit > 0 && `(rinde ≈ ${(((r.subtotalMP + r.manoDeObra) / costoUnit) || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })} ${unidadUnit})`}
+                            Costo del batch {costoUnit > 0 && `(rinde ≈ ${((r.rinde > 0 ? r.rinde : (r.subtotalMP + r.manoDeObra) / costoUnit) || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })} ${unidadUnit})`}
                           </span>
                           <span style={{ color: colors.textSecondary }}>${pesos(r.subtotalMP + r.manoDeObra)}</span>
                         </div>

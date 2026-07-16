@@ -971,8 +971,13 @@ export default function Informes() {
         }
       }
 
-      // Firmas (al final del contenido; salta de hoja solo si no entran)
-      dibujarFirmas(doc, pw, ph, doc.lastAutoTable?.finalY, MOD, hoy, ['Dirección', 'Responsable de Producción', 'Control de Calidad'])
+      // Firmas (al final del contenido; salta de hoja solo si no entran).
+      // Usamos la posición real más baja: el mayor entre el `y` de texto (reseñas)
+      // y el fin de la última tabla. Antes tomaba solo lastAutoTable.finalY, y cuando
+      // el informe terminaba en texto (ej. Producción sin tabla de consumo) las líneas
+      // de firma se dibujaban ENCIMA del análisis.
+      const yFirmas = Math.max(Number(y) || 0, doc.lastAutoTable?.finalY || 0)
+      dibujarFirmas(doc, pw, ph, yFirmas, MOD, hoy, ['Dirección', 'Responsable de Producción', 'Control de Calidad'])
 
       doc.save(`informe_${tab.toLowerCase()}_${hoyISO()}.pdf`)
     } catch (err) {

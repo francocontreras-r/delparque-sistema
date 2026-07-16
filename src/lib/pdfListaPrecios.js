@@ -180,10 +180,14 @@ function celda(doc, ctx, f, cat, x, top, cw, cellH, twoCol) {
   const pmain = f.precio == null || f.precio === '' ? '—' : `$ ${numARS(f.precio)}`
   doc.setFont(R, 'bold'); doc.setFontSize(11); doc.setTextColor(...ORANGE)
   doc.text(pmain, tx, pY, { baseline: 'middle' })
+  // Precio Pedidos Ya: segunda línea, clara y legible (antes iba en gris chico y no se veía).
   if (twoCol && f.precio2 != null && f.precio2 !== '') {
-    const w = doc.getTextWidth(pmain)
-    doc.setFont(R, 'bold'); doc.setFontSize(7.3); doc.setTextColor(...MUTE)
-    doc.text(`YA $ ${numARS(f.precio2)}`, tx + w + 4, pY, { baseline: 'middle' })
+    const ly = pY + 5.6
+    doc.setFont(R, 'bold'); doc.setFontSize(6); doc.setTextColor(...MUTE)
+    doc.text('PEDIDOS YA', tx, ly, { baseline: 'middle' })
+    const wl = doc.getTextWidth('PEDIDOS YA')
+    doc.setFont(R, 'bold'); doc.setFontSize(9); doc.setTextColor(...ESPRESSO)
+    doc.text(`$ ${numARS(f.precio2)}`, tx + wl + 3, ly, { baseline: 'middle' })
   }
 }
 
@@ -192,7 +196,7 @@ function dibujarSecciones(doc, ctx, secciones, twoCol) {
   const { ml, mr, pw } = ctx
   const gutter = 16                       // más aire entre columnas (evita que se vean encimadas)
   const cw = (pw - ml - mr - gutter) / 2
-  const cellH = 17.5
+  const cellH = twoCol ? 21 : 17.5        // público más alto: entra el precio de Pedidos Ya en 2ª línea
 
   secciones.forEach(([titulo, subtitulo, filas]) => {
     if (!filas || !filas.length) return

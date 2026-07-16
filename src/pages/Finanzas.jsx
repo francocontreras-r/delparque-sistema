@@ -22,7 +22,8 @@ import { crearCosteador } from '../lib/costeoRecetas'
 import { normalizarNombre } from '../lib/texto'
 import { cargarHistorialCostos } from '../lib/historialCostos'
 import { construirPrecioMapCamara, valorTotalCamara } from '../lib/valorCamara'
-import { generarPdfListaPrecios } from '../lib/pdfListaPrecios'
+// generarPdfListaPrecios se importa de forma diferida en emitirPdfLista (trae fuentes
+// e íconos embebidos ~400KB; no debe pesar en la carga de Finanzas).
 import { clonarSemilla, preciosPorTier, TIER_ORDEN, migrarLista } from '../lib/listaPreciosData'
 import { useSearchParams } from 'react-router-dom'
 import {
@@ -1058,6 +1059,7 @@ export default function Finanzas() {
       let logo = null, marca = null
       try { logo = await cargarImg('/logo-lista-color.png') } catch { logo = null }
       try { marca = await cargarImg('/isotipo-naranja.png') } catch { marca = null }
+      const { generarPdfListaPrecios } = await import('../lib/pdfListaPrecios')
       const doc = generarPdfListaPrecios(precioLista, { logo, marca, fecha: new Date().toLocaleDateString('es-AR') })
       const slug = (precioLista.vigencia || 'lista').toLowerCase().replace(/\s+/g, '-')
       doc.save(`lista-precios-${slug}.pdf`)

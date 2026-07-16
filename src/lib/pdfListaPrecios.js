@@ -97,14 +97,20 @@ function cabecera(doc, ctx, vigencia, logo) {
 function encabezadoCont(doc, ctx) {
   const { ml, mr, pw } = ctx
   doc.setFillColor(...ORANGE); doc.rect(0, 0, pw, 3, 'F')
-  doc.setFont(RB, 'normal'); doc.setFontSize(11); doc.setTextColor(...ESPRESSO)
-  doc.text('DEL PARQUE', ml, 13)
-  const wMarca = doc.getTextWidth('DEL PARQUE')
+  let xTxt = ml
+  // Logo real de marca (no texto): wordmark + isologotipo a color.
+  if (ctx.logo) {
+    const h = 7.5, w = h * (ctx.logoRatio || 2.917)
+    try { doc.addImage(ctx.logo, 'PNG', ml, 8.5, w, h, undefined, 'FAST'); xTxt = ml + w + 5 }
+    catch { doc.setFont(RB, 'normal'); doc.setFontSize(11); doc.setTextColor(...ESPRESSO); doc.text('Del Parque', ml, 14); xTxt = ml + doc.getTextWidth('Del Parque') + 5 }
+  } else {
+    doc.setFont(RB, 'normal'); doc.setFontSize(11); doc.setTextColor(...ESPRESSO); doc.text('Del Parque', ml, 14); xTxt = ml + doc.getTextWidth('Del Parque') + 5
+  }
   doc.setFont(R, 'normal'); doc.setFontSize(7.5); doc.setTextColor(...MUTE)
-  doc.text('Lista de precios · Heladería', ml + wMarca + 5, 13)
-  if (ctx.fecha) doc.text(ctx.fecha, pw - mr, 13, { align: 'right' })
-  doc.setDrawColor(...HAIR); doc.setLineWidth(0.3); doc.line(ml, 17, pw - mr, 17)
-  ctx.y = 25
+  doc.text('Lista de precios · Heladería', xTxt, 13.5)
+  if (ctx.fecha) doc.text(ctx.fecha, pw - mr, 13.5, { align: 'right' })
+  doc.setDrawColor(...HAIR); doc.setLineWidth(0.3); doc.line(ml, 18, pw - mr, 18)
+  ctx.y = 26
   watermark(doc, ctx)
 }
 
@@ -217,7 +223,7 @@ function pieDeTodas(doc, ctx) {
     doc.setFont(R, 'bold'); doc.setFontSize(7); doc.setTextColor(...ORANGE)
     tracked(doc, '#ESTÁBUENÍSIMO', ml, ph - 8.5, { cs: 1 })
     doc.setFont(R, 'normal'); doc.setTextColor(...MUTE)
-    doc.text('@delparqueheladerias  ·  Helados del Parque', pw / 2, ph - 8.5, { align: 'center' })
+    doc.text('Helados del Parque · Lista de precios', pw / 2, ph - 8.5, { align: 'center' })
     doc.text(`Pág. ${p} / ${total}`, pw - mr, ph - 8.5, { align: 'right' })
   }
 }
@@ -229,7 +235,10 @@ export function generarPdfListaPrecios(lista, opts = {}) {
   registrarFuentes(doc)
   const ctx = {
     ml: 16, mr: 16, pw: doc.internal.pageSize.getWidth(), ph: doc.internal.pageSize.getHeight(),
-    y: 20, pagina: 1, fecha: opts.fecha || '', marca: (typeof opts.marca === 'string' ? opts.marca : opts.marca?.data) || null,
+    y: 20, pagina: 1, fecha: opts.fecha || '',
+    marca: (typeof opts.marca === 'string' ? opts.marca : opts.marca?.data) || null,
+    logo: (typeof opts.logo === 'string' ? opts.logo : opts.logo?.data) || null,
+    logoRatio: (opts.logo && opts.logo.ratio) || 2.917,
   }
   const F = lista.franquicia || {}
   const P = lista.publico || {}

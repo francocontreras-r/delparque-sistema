@@ -54,32 +54,39 @@ function drawIcon(doc, key, x, y, size) {
   const url = _iconURL[key] || (_iconURL[key] = 'data:image/png;base64,' + b64)
   try { doc.addImage(url, 'PNG', x, y, size, size, key, 'FAST') } catch { /* noop */ }
 }
-// Mapea un nombre de producto a un ícono de marca (por palabra clave + fallback).
+// Mapea un nombre de producto a un ícono de marca. Primero por FORMATO (cómo se
+// sirve), que es lo que ilustra el ícono; los sabores de HELADOS (agua, crema,
+// rocher, pistacho…) van todos con cono y no se desvían por su nombre.
 function iconoDe(nombre, cat) {
   const n = (nombre || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
   const has = s => n.includes(s)
+  const esKg = () => /\bkg\b/.test(n) || has('1/4') || has('1/2') || has('3/4') || has('2,5') || has(' kg')
+  // Formato de helado (aplica en cualquier categoría)
   if (has('1 sabor') || has('un sabor')) return 'cono'
   if (has('2 sabor') || has('dos sabor')) return 'cono2'
   if (has('3 sabor') || has('tres sabor')) return 'cono3'
   if (has('barquillon')) return 'barquillon'
+  if (has('cucurucho')) return 'cono'
   if (has('copa')) return 'copa'
+  if (esKg()) return 'pote'
+  // HELADOS = sabores/tiers por kg → siempre cono (no interpretar el nombre del sabor)
+  if (cat === 'HELADOS') return 'cono'
+  // Productos con forma propia (unitarios, tortas, bebidas, otros)
   if (has('cubanito')) return 'cubanito'
   if (has('bocadito')) return 'bocaditos'
   if (has('escoces')) return 'escoces'
   if (has('suizo')) return 'suizo'
-  if (has('almendrad')) return 'almendrado'
-  if (has('alfajor')) return 'alfajor'
-  if (has('tricolor')) return 'tricolor'
   if (has('pionono')) return 'porcion'
+  if (has('tricolor')) return 'tricolor'
+  if (has('almendrad')) return 'almendrado'
   if (has('torta')) return 'torta'
+  if (has('alfajor')) return 'alfajor'
   if (has('palito') || has('paleta')) return 'paleta'
+  if (has('vegano') || has('light') || has('pote')) return 'pote'
   if (has('bano') || has('chocolate')) return 'chocolate'
   if (has('batido') || has('malteada')) return 'batido'
-  if (has('pote') || has('vegano') || has('light')) return 'pote'
-  if (/\bkg\b/.test(n) || has('1/4') || has('1/2') || has('3/4') || has('2,5') || has(' kg')) return 'pote'
-  if (has('cucurucho')) return 'cono'
   if (has('bebida')) return 'bebida'
-  const fb = { HELADOS: 'cono', UNITARIOS: 'paleta', TORTAS: 'torta', BEBIDAS: 'batido', OTROS: 'chocolate' }
+  const fb = { UNITARIOS: 'paleta', TORTAS: 'torta', BEBIDAS: 'batido', OTROS: 'chocolate' }
   return fb[cat] || 'cono'
 }
 

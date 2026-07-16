@@ -866,7 +866,10 @@ export default function Finanzas() {
         { id: 1, data: precioLista, vigencia: precioLista.vigencia || null, actualizado: new Date().toISOString() },
         { onConflict: 'id' })
       if (error) {
-        if (error.code === '42P01') showToast('Falta crear la tabla precios_lista (corré sql/precios_lista.sql).', 'error')
+        // Tabla ausente: Postgres devuelve 42P01; PostgREST, PGRST205 / "schema cache".
+        const faltaTabla = error.code === '42P01' || error.code === 'PGRST205' ||
+          /schema cache|could not find the table/i.test(error.message || '')
+        if (faltaTabla) showToast('Falta crear la tabla precios_lista en Supabase (corré sql/precios_lista.sql). Los precios están cargados pero no se pueden guardar hasta crearla.', 'error')
         else showToast(error.message, 'error')
       } else showToast('Lista de precios guardada')
     } catch (e) { showToast(e.message || 'No se pudo guardar', 'error') }

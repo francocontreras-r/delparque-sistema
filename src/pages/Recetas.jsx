@@ -29,7 +29,7 @@ function tipoIngrediente(nombre, intermedios) {
 }
 
 
-const TABS = ['Bases', 'Sabores', 'Impulsivos', 'Postres']
+const TABS = ['Bases', 'Sabores', 'Intermedios', 'Impulsivos', 'Postres']
 const UNIDADES = ['kg', 'L', 'u', 'g', 'ml']
 
 function tipoVariant(tipo) {
@@ -111,6 +111,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
   const [deletedIds, setDeletedIds] = useState([])
   const [mano, setMano]     = useState(receta.manoDeObra || 0)
   const [pesoKg, setPesoKg] = useState(receta.peso_kg ?? '') // solo bases: kg reales por tanda
+  const [esIntermedio, setEsIntermedio] = useState(!!receta.es_intermedio) // solo sabores
   const [saving, setSaving] = useState(false)
   const [busq, setBusq]     = useState('')
 
@@ -257,6 +258,7 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
     // Bases: guardar el rinde real en kg (para el $/kg de sus sabores). Si la
     // columna no existe todavía, reintentamos sin ella (degradación segura).
     if (tipo === 'Bases') updatePadre.peso_kg = (pesoKg === '' || pesoKg == null) ? null : Number(pesoKg)
+    if (tipo === 'Sabores') updatePadre.es_intermedio = !!esIntermedio
     if (tipo === 'Sabores') {
       // La base del sabor se toma del ingrediente que ES una base (mismo criterio
       // que el costeo). Así, al agregar la base como ingrediente, queda vinculada
@@ -268,10 +270,10 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
       if (baseIng) updatePadre.base_nombre = baseIng.nombre
     }
     let { error: errP } = await supabase.from(tablaP).update(updatePadre).eq('id', receta.id)
-    if (errP && errP.code === '42703' && 'peso_kg' in updatePadre) {
-      // La columna peso_kg todavía no existe → guardamos el resto igual.
-      const { peso_kg, ...sinPeso } = updatePadre // eslint-disable-line no-unused-vars
-      ;({ error: errP } = await supabase.from(tablaP).update(sinPeso).eq('id', receta.id))
+    if (errP && errP.code === '42703') {
+      // Alguna columna nueva (peso_kg / es_intermedio) todavía no existe → guardamos el resto.
+      const { peso_kg, es_intermedio, ...safe } = updatePadre // eslint-disable-line no-unused-vars
+      ;({ error: errP } = await supabase.from(tablaP).update(safe).eq('id', receta.id))
     }
     if (errP) {
       setSaving(false)
@@ -432,6 +434,21 @@ function ModalEditarReceta({ receta, tipo, rawIngs, onClose, onSaved, insumos, b
           </div>
         )}
 
+        {/* Intermedio (solo sabores): no se vende solo, va dentro de otro producto */}
+        {tipo === 'Sabores' && (
+          <button type="button" onClick={() => setEsIntermedio(v => !v)}
+            className="w-full flex items-center gap-3 p-3 rounded-lg text-left"
+            style={{ backgroundColor: colors.bg, border: `1px solid ${esIntermedio ? colors.brand : colors.border}` }}>
+            <span className="relative inline-block rounded-full flex-shrink-0" style={{ width: 38, height: 22, backgroundColor: esIntermedio ? colors.brand : colors.border, transition: 'background-color .15s' }}>
+              <span className="absolute rounded-full" style={{ top: 2, width: 18, height: 18, backgroundColor: '#fff', left: esIntermedio ? 18 : 2, transition: 'left .15s' }} />
+            </span>
+            <span className="flex-1">
+              <span className="block text-sm font-medium" style={{ color: colors.textSecondary }}>Intermedio (no se vende solo)</span>
+              <span className="block text-[11px]" style={{ color: colors.textMuted }}>Se costea y va adentro de otro producto (pote, cubanito). No aparece en listas de venta ni márgenes.</span>
+            </span>
+          </button>
+        )}
+
         {/* Resumen de costos */}
         <div className="rounded-xl p-4 space-y-2" style={{ backgroundColor: '#fff7ed', border: '1px solid #fed7aa' }}>
           <div className="flex justify-between text-sm">
@@ -582,6 +599,28 @@ export default function Recetas() {
     // Nombres que son postres (para no mostrarlos en la pestaña Impulsivos).
     const postreNombres = new Set(postres.map(p => normalizarNombre(p.nombre || '')))
 
+    // Sabores: se dividen en "de venta" (Sabores) e "intermedios" (van dentro de
+    // otro producto, no se venden solos → es_intermedio).
+    const sabRows = sabores.map(s => {
+      const ings = enrichIngs(saborIngsPor[s.id] || [])
+      const subtotalMP = ings.reduce((a, i) => a + i.costoTotal, 0)
+      const info = costoUnitario.infoDe(s.nombre)
+      return {
+        id: s.id, nombre: (s.nombre || '').toUpperCase(),
+        tipo: (s.es_intermedio ? 'Intermedio' : (tipoPorNombre[s.nombre] || 'Sabor')),
+        baseNombre: s.base_nombre,
+        litros_batch: s.litros_base || 0,
+        notas: s.notas,
+        manoDeObra: s.mano_de_obra || 0,
+        costoTotal: s.costo_total || 0,
+        costoUnit: info.costo, unidadUnit: 'kg',
+        subtotalMP, ingredientes: ings,
+        sinPrecio: ings.some(i => i.tIng === 'insumo' && !i.tienePreco),
+        es_intermedio: !!s.es_intermedio,
+        updatedAt: s.updated_at,
+      }
+    })
+
     return {
       Bases: bases.map(b => {
         const ings = enrichIngs(baseIngsPor[b.id] || [])
@@ -600,24 +639,8 @@ export default function Recetas() {
           updatedAt: b.updated_at,
         }
       }),
-      Sabores: sabores.map(s => {
-        const ings = enrichIngs(saborIngsPor[s.id] || [])
-        const subtotalMP = ings.reduce((a, i) => a + i.costoTotal, 0)
-        const info = costoUnitario.infoDe(s.nombre) // $/kg exacto (MP rolleada + MOD / rinde)
-        return {
-          id: s.id, nombre: (s.nombre || '').toUpperCase(),
-          tipo: tipoPorNombre[s.nombre] || 'Sabor',
-          baseNombre: s.base_nombre,
-          litros_batch: s.litros_base || 0,
-          notas: s.notas,
-          manoDeObra: s.mano_de_obra || 0,
-          costoTotal: s.costo_total || 0,
-          costoUnit: info.costo, unidadUnit: 'kg',
-          subtotalMP, ingredientes: ings,
-          sinPrecio: ings.some(i => i.tIng === 'insumo' && !i.tienePreco),
-          updatedAt: s.updated_at,
-        }
-      }),
+      Sabores: sabRows.filter(r => !r.es_intermedio),
+      Intermedios: sabRows.filter(r => r.es_intermedio),
       Impulsivos: impulsivos.filter(i => !postreNombres.has(normalizarNombre(i.nombre || ''))).map(i => {
         const ings = enrichIngs(impIngsPor[i.id] || [])
         const subtotalMP = ings.reduce((a, i2) => a + i2.costoTotal, 0)
@@ -716,10 +739,19 @@ export default function Recetas() {
         const { data, error } = await supabase.from('bases').insert({ nombre: nom, litros_batch: litros, costo_materiales: 0, mano_de_obra: 0, costo_total: 0 }).select().single()
         if (error) throw error
         await cargar(); setTab('Bases'); setEditando({ receta: { ...data, nombre: nom, manoDeObra: 0 }, tipo: 'Bases', rawIngs: [] })
-      } else if (t === 'Sabores') {
-        const { data, error } = await supabase.from('sabores').insert({ nombre: nom, litros_base: litros, costo_materiales: 0, mano_de_obra: 0, costo_total: 0 }).select().single()
+      } else if (t === 'Sabores' || t === 'Intermedios') {
+        const esInt = t === 'Intermedios'
+        const fila = { nombre: nom, litros_base: litros, costo_materiales: 0, mano_de_obra: 0, costo_total: 0 }
+        if (esInt) fila.es_intermedio = true
+        let { data, error } = await supabase.from('sabores').insert(fila).select().single()
+        if (error && error.code === '42703' && esInt) {
+          // La columna es_intermedio todavía no existe → creamos sin ella (se marca al guardar).
+          delete fila.es_intermedio
+          ;({ data, error } = await supabase.from('sabores').insert(fila).select().single())
+        }
         if (error) throw error
-        await cargar(); setTab('Sabores'); setEditando({ receta: { ...data, nombre: nom, manoDeObra: 0 }, tipo: 'Sabores', rawIngs: [] })
+        await cargar(); setTab(esInt ? 'Intermedios' : 'Sabores')
+        setEditando({ receta: { ...data, nombre: nom, manoDeObra: 0, es_intermedio: esInt }, tipo: 'Sabores', rawIngs: [] })
       } else if (t === 'Impulsivos') {
         const { data, error } = await supabase.from('impulsivos').insert({ nombre: nom, costo_materiales: 0, mano_de_obra: 0, costo_total: 0 }).select().single()
         if (error) throw error
@@ -858,9 +890,12 @@ export default function Recetas() {
     const rawMap = {
       Bases:      baseIngs.filter(i => i.base_id === receta.id),
       Sabores:    saborIngs.filter(i => i.sabor_id === receta.id),
+      Intermedios: saborIngs.filter(i => i.sabor_id === receta.id),
       Impulsivos: impIngs.filter(i => i.impulsivo_id === receta.id),
     }
-    setEditando({ receta, tipo: tab, rawIngs: rawMap[tab] || [] })
+    // Los intermedios viven en la tabla `sabores`: se editan como Sabores.
+    const tipoEfectivo = tab === 'Intermedios' ? 'Sabores' : tab
+    setEditando({ receta, tipo: tipoEfectivo, rawIngs: rawMap[tab] || [] })
   }
 
   async function renombrarReceta(nuevoNombre) {
@@ -1203,10 +1238,15 @@ export default function Recetas() {
             </div>
             <Input label="Nombre *" type="text" value={nuevaReceta.nombre} autoFocus
               onChange={e => setNuevaReceta(p => ({ ...p, nombre: e.target.value }))}
-              placeholder={nuevaReceta.tipo === 'Bases' ? 'Ej: NEUTRA LECHE' : nuevaReceta.tipo === 'Sabores' ? 'Ej: DULCE DE LECHE' : 'Nombre del producto'} />
-            {(nuevaReceta.tipo === 'Bases' || nuevaReceta.tipo === 'Sabores') && (
+              placeholder={nuevaReceta.tipo === 'Bases' ? 'Ej: NEUTRA LECHE' : nuevaReceta.tipo === 'Sabores' ? 'Ej: DULCE DE LECHE' : nuevaReceta.tipo === 'Intermedios' ? 'Ej: MASA DE CUBANITO' : 'Nombre del producto'} />
+            {(nuevaReceta.tipo === 'Bases' || nuevaReceta.tipo === 'Sabores' || nuevaReceta.tipo === 'Intermedios') && (
               <Input label={nuevaReceta.tipo === 'Bases' ? 'Litros por tanda' : 'Litros de base por tanda'} type="number" min="0"
                 value={nuevaReceta.litros} onChange={e => setNuevaReceta(p => ({ ...p, litros: e.target.value }))} />
+            )}
+            {nuevaReceta.tipo === 'Intermedios' && (
+              <p className="text-[11px]" style={{ color: colors.textMuted }}>
+                Si es un helado que usa base (ej. Chocolate Light), poné los litros de base (120). Si NO usa base de helado (ej. masa), poné <b>0</b> y cargá los ingredientes en kg — el rinde sale de esos kg.
+              </p>
             )}
             <p className="text-[11px]" style={{ color: colors.textMuted }}>
               Se crea la receta y se abre el editor para cargar los ingredientes.

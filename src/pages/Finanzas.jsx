@@ -366,6 +366,7 @@ export default function Finanzas() {
         divisor, unidad, costo_unit: costoUnit,
         precio_venta: r.precio_venta || 0,
         litros_base: r.litros_base || 0,
+        es_intermedio: !!r.es_intermedio,
       }
     }
     const cifSabor = (r) => cifPorLitro * (litrosBasePorNombre[(r.nombre || '').toUpperCase()] || 0)
@@ -380,8 +381,9 @@ export default function Finanzas() {
     }
   }, [bases, sabores, impulsivos, tiposMap, cifPorLitro, litrosBasePorNombre, costeador, saborIngredientes, impulsivoIngredientes, baseIngredientes, rindeKgSabor, pesoKgImpulsivo])
 
+  // Márgenes de VENTA: excluye los intermedios (no se venden solos).
   const productos = useMemo(() => (
-    [...secciones.Bases, ...secciones.Sabores, ...secciones.Impulsivos, ...secciones.Postres]
+    [...secciones.Bases, ...secciones.Sabores.filter(s => !s.es_intermedio), ...secciones.Impulsivos, ...secciones.Postres]
       .sort((x, y) => x.nombre.localeCompare(y.nombre))
   ), [secciones])
 
@@ -512,7 +514,7 @@ export default function Finanzas() {
   // Margen de FÁBRICA por sabor: precio de franquicia (por tier) vs. costo unit.
   const margenesFranquicia = useMemo(() => {
     const tp = preciosPorTier(precioLista)
-    return (secciones.Sabores || []).map(s => {
+    return (secciones.Sabores || []).filter(s => !s.es_intermedio).map(s => {
       const tier = tierDeSabor(s.nombre)
       const precio = tier ? (Number(tp[tier]) || 0) : 0
       const costo = Number(s.costo_unit) || 0

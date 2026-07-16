@@ -755,6 +755,46 @@ export default function Finanzas() {
       const ln = doc.splitTextToSize(nar, pw - 28)
       ln.forEach((l, i) => doc.text(l, 14, y + i * 5)); y += ln.length * 5 + 6
 
+      // ── Cómo leer los márgenes (para explicárselo a los dueños) ──────────────
+      if (y > ph - 78) { doc.addPage(); dibujarEncabezado(doc, pw, 'FINANZAS', 'INFORME DE MÁRGENES', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber); y = PDF_CONTENT_Y }
+      y = dibujarSeccion(doc, pw, 'Cómo leer los márgenes', y)
+      const NARANJA = [220, 69, 26]
+      // Ejemplo real: primera presentación con precio y costo válidos.
+      const ej = margenPorFormato.find(f => f.publico > 0 && f.costoFranq > 0)
+      const eCosto = ej ? ej.costoFranq : 1179
+      const ePrecio = ej ? ej.publico : 1900
+      const eGan = ePrecio - eCosto
+      const eNom = ej ? `${ej.producto} · ${ej.presentacion}` : 'Helado 1 sabor · Cono N°00'
+      const eMargen = ePrecio ? eGan / ePrecio * 100 : 0
+      const eMarc = eCosto ? eGan / eCosto * 100 : 0
+      const bx = 14, bw = pw - 28, bTop = y
+      const drawTxt = (t, x, yy, opt = {}) => {
+        doc.setFont('helvetica', opt.b ? 'bold' : 'normal'); doc.setFontSize(opt.s || 9); doc.setTextColor(...(opt.c || PDF_NEGRO))
+        doc.text(t, x, yy)
+      }
+      let iy = bTop + 8
+      drawTxt(`Ejemplo — ${eNom}`, bx + 6, iy, { b: true, s: 9.5 })
+      iy += 6
+      drawTxt(`Costo ${money(eCosto)}    ·    Precio de venta ${money(ePrecio)}    ·    Ganancia ${money(eGan)}`, bx + 6, iy, { s: 9 })
+      iy += 9
+      drawTxt(`Margen s/venta   ${money(eGan)} / ${money(ePrecio)} = ${eMargen.toFixed(1)}%`, bx + 6, iy, { b: true, c: PDF_SEM_OK, s: 9.5 })
+      iy += 5
+      doc.setTextColor(...PDF_NEGRO)
+      doc.splitTextToSize(`Rentabilidad real: de cada $100 que vende, ${eMargen.toFixed(0)} son ganancia. Nunca supera el 100%. Sirve para saber si un producto conviene y comparar entre productos.`, bw - 14)
+        .forEach((l, i) => drawTxt(l, bx + 6, iy + i * 4.5, { s: 8.5 }))
+      iy += 4.5 * 2 + 6
+      drawTxt(`Marcación s/costo   ${money(eGan)} / ${money(eCosto)} = ${eMarc.toFixed(0)}%`, bx + 6, iy, { b: true, c: NARANJA, s: 9.5 })
+      iy += 5
+      doc.splitTextToSize(`Cuánto se agrega sobre el costo. Puede superar el 100% (el precio es más del doble del costo). Sirve para poner precios: "a este producto le pongo X% arriba del costo".`, bw - 14)
+        .forEach((l, i) => drawTxt(l, bx + 6, iy + i * 4.5, { s: 8.5 }))
+      iy += 4.5 * 2 + 6
+      drawTxt('En una frase: s/venta = cuánto ganás;  s/costo = cuánto le sumás al costo para fijar el precio.', bx + 6, iy, { b: true, s: 9 })
+      const bBottom = iy + 4
+      // Marco y barra de acento (dibujados detrás no se puede; los ponemos alrededor).
+      doc.setDrawColor(220); doc.setLineWidth(0.3); doc.roundedRect(bx, bTop, bw, bBottom - bTop, 2, 2, 'S')
+      doc.setFillColor(...NARANJA); doc.rect(bx, bTop, 1.5, bBottom - bTop, 'F')
+      y = bBottom + 8
+
       // Margen del franquiciado por presentación
       y = dibujarSeccion(doc, pw, 'Margen del franquiciado por presentación', y)
       autoTable(doc, {

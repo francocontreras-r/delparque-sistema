@@ -630,6 +630,26 @@ export default function Finanzas() {
     return m
   }, [margenPorFormato])
 
+  // Stats por producto: promedio de margen + cuál presentación es la más rentable
+  // (best) y la de menor margen (worst). Solo marca best/worst si hay más de una.
+  const formatoStats = useMemo(() => {
+    const g = {}
+    margenPorFormato.forEach(f => { (g[f.producto] = g[f.producto] || []).push(f) })
+    const m = {}
+    Object.entries(g).forEach(([prod, rows]) => {
+      const conP = rows.filter(r => r.publico > 0)
+      const prom = conP.length ? conP.reduce((a, r) => a + r.margen, 0) / conP.length : 0
+      let bestKey = null, worstKey = null
+      if (conP.length > 1) {
+        const ord = [...conP].sort((a, b) => b.margen - a.margen)
+        bestKey = ord[0].key
+        worstKey = ord[ord.length - 1].key
+      }
+      m[prod] = { count: rows.length, prom, bestKey, worstKey }
+    })
+    return m
+  }, [margenPorFormato])
+
   // Handlers de edición de reventa (packaging) y formatos.
   function editarReventa(idx, campo, valor) {
     setPrecioLista(prev => {
@@ -809,10 +829,11 @@ export default function Finanzas() {
         head: [['PRODUCTO', 'PRESENTACIÓN', 'KG', 'C. HELADO', 'C. PACK.', 'C. TOTAL', 'P. VENTA', 'MARGEN s/venta', 'MARC. s/costo']],
         body: margenPorFormato.map((f, i) => {
           const first = i === 0 || margenPorFormato[i - 1].producto !== f.producto
-          const grupo = margenPorFormato.filter(x => x.producto === f.producto).length
+          const st = formatoStats[f.producto] || {}
           const rest = [f.presentacion, String(f.kg), money(f.costoHelado), money(f.costoPack), money(f.costoFranq), money(f.publico), pct(f.margen), `${f.marcacion.toFixed(0)}%`]
-          // Celda "Producto" unificada (rowSpan) en la primera presentación del grupo.
-          return first ? [{ content: f.producto, rowSpan: grupo, styles: { valign: 'middle' } }, ...rest] : rest
+          // Celda "Producto" unificada (rowSpan); con promedio si tiene más de una presentación.
+          const etiqueta = st.count > 1 ? `${f.producto}\n(prom ${st.prom.toFixed(0)}%)` : f.producto
+          return first ? [{ content: etiqueta, rowSpan: st.count || 1, styles: { valign: 'middle' } }, ...rest] : rest
         }),
         columnStyles: { 0: { halign: 'left' }, 1: { halign: 'left' } },
         didParseCell: d => { if (d.section === 'body' && d.column.index === 7) d.cell.styles.textColor = semaforo(margenPorFormato[d.row.index]?.margen ?? 0) },
@@ -1847,12 +1868,27 @@ export default function Finanzas() {
                       {margenPorFormato.map((f, i) => {
                         const nv = nivelMargen(f.margen)
                         const primeraDelGrupo = i === 0 || margenPorFormato[i - 1].producto !== f.producto
+                        const st = formatoStats[f.producto] || {}
+                        const bajo = f.publico > 0 && f.margen < 30
+                        const esBest = st.bestKey === f.key
+                        const esWorst = st.worstKey === f.key
                         return (
-                          <Tr key={f.key} style={primeraDelGrupo && i > 0 ? { borderTop: `2px solid ${colors.border}` } : undefined}>
+                          <Tr key={f.key} style={{
+                            ...(primeraDelGrupo && i > 0 ? { borderTop: `2px solid ${colors.border}` } : {}),
+                            ...(bajo ? { backgroundColor: nv.rowBg } : {}),
+                          }}>
                             {primeraDelGrupo && (
-                              <Td rowSpan={formatoGrupoCount[f.producto]} className="font-medium" style={{ verticalAlign: 'middle', borderRight: `1px solid ${colors.border}`, backgroundColor: colors.bg }}>{f.producto}</Td>
+                              <Td rowSpan={formatoGrupoCount[f.producto]} className="font-medium" style={{ verticalAlign: 'middle', borderRight: `1px solid ${colors.border}`, backgroundColor: colors.bg }}>
+                                {f.producto}
+                                {st.count > 1 && <div className="text-[11px] font-normal mt-0.5" style={{ color: nivelMargen(st.prom).barColor }}>prom {st.prom.toFixed(0)}%</div>}
+                              </Td>
                             )}
-                            <Td style={{ color: colors.textSecondary }}>{f.presentacion}{f.sinVincular && <span title="Algún packaging no está vinculado a un insumo de Depósito" className="ml-1 text-xs" style={{ color: '#f59e0b' }}>⚠</span>}</Td>
+                            <Td style={{ color: colors.textSecondary }}>
+                              {f.presentacion}
+                              {esBest && <span title="La más rentable de este producto" className="ml-1 font-bold" style={{ color: colors.success }}>✓</span>}
+                              {esWorst && <span title="La de menor margen de este producto" className="ml-1 font-bold" style={{ color: '#f59e0b' }}>↓</span>}
+                              {f.sinVincular && <span title="Algún packaging no está vinculado a un insumo de Depósito" className="ml-1 text-xs" style={{ color: '#f59e0b' }}>⚠</span>}
+                            </Td>
                             <Td style={{ color: colors.textMuted }}>{f.kg}</Td>
                             <Td style={{ color: colors.textMuted }}>${pesos(f.costoHelado)}</Td>
                             <Td style={{ color: colors.textMuted }}>${pesos(f.costoPack)}</Td>
@@ -1867,6 +1903,12 @@ export default function Finanzas() {
                       })}
                     </Tbody>
                   </Table>
+                </div>
+                <div className="px-4 py-2.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px]" style={{ borderTop: `1px solid ${colors.border}`, color: colors.textMuted }}>
+                  <span><b style={{ color: colors.success }}>✓</b> presentación más rentable del producto</span>
+                  <span><b style={{ color: '#f59e0b' }}>↓</b> la de menor margen</span>
+                  <span><span className="inline-block w-2.5 h-2.5 rounded-sm align-middle" style={{ backgroundColor: nivelMargen(20).rowBg, border: `1px solid ${colors.border}` }} /> fila resaltada = margen bajo (&lt;30%)</span>
+                  <span><b>prom</b> bajo el producto = promedio de sus presentaciones</span>
                 </div>
               </div>
 

@@ -38,6 +38,13 @@ delete from public.sabor_ingredientes si
  where si.sabor_id = s.id
    and exists (select 1 from _disc d where lower(trim(s.nombre)) like d.patron);
 
+-- 1b) Órdenes de producción de esos sabores (FK ordenes_produccion.sabor_id → sabores.id).
+--     Hay que borrarlas antes que el sabor, si no la FK bloquea el DELETE.
+delete from public.ordenes_produccion o
+ using public.sabores s
+ where o.sabor_id = s.id
+   and exists (select 1 from _disc d where lower(trim(s.nombre)) like d.patron);
+
 -- 2) Los sabores (Recetas · Finanzas · Órdenes)
 delete from public.sabores s
  where exists (select 1 from _disc d where lower(trim(s.nombre)) like d.patron);

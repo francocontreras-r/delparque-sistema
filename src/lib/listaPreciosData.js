@@ -200,6 +200,27 @@ export const SEED_LISTA_PRECIOS = {
       presPote('Térmico 4 kg', 'Térmico c/ tapa 4 kg', 'Bolsa para Postre'),
     ] },
   ],
+
+  // Comparativa de precio de venta al público contra la competencia. `competidores`
+  // son los nombres de las columnas; cada fila tiene el precio propio y el de cada
+  // competidor (0 = sin dato). Datos de la hoja "Comparativa competencia" del Excel.
+  competencia: {
+    competidores: ['Portho Gelatto', 'DIROMA'],
+    filas: [
+      { producto: '1 sabor', propio: 300, comp: [300, 280] },
+      { producto: '2 sabores', propio: 400, comp: [400, 360] },
+      { producto: '3 sabores', propio: 500, comp: [500, 440] },
+      { producto: 'Cucuruchón', propio: 700, comp: [700, 0] },
+      { producto: 'Capelina', propio: 0, comp: [700, 460] },
+      { producto: 'Copa Helada', propio: 650, comp: [0, 660] },
+      { producto: '1/4 Kg', propio: 500, comp: [500, 480] },
+      { producto: '1/2 Kg', propio: 850, comp: [850, 800] },
+      { producto: '3/4 Kg', propio: 1150, comp: [1150, 1000] },
+      { producto: '1 Kg', propio: 1600, comp: [1600, 1380] },
+      { producto: '2,5 Kg', propio: 3400, comp: [3400, 3000] },
+      { producto: '4 Kg', propio: 5400, comp: [0, 0] },
+    ],
+  },
 }
 
 // Migra listas guardadas con el modelo viejo (un packaging por formato) al nuevo
@@ -213,6 +234,10 @@ export function migrarLista(lista) {
     if (f.precioVenta == null) f.precioVenta = 0
     delete f.packaging
   })
+  // Listas guardadas antes de la comparativa de competencia: sembrar la estructura.
+  if (!lista.competencia || !Array.isArray(lista.competencia.filas)) {
+    lista.competencia = JSON.parse(JSON.stringify(SEED_LISTA_PRECIOS.competencia))
+  }
   return lista
 }
 

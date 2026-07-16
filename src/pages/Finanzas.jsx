@@ -37,6 +37,9 @@ import {
 // ── Constantes ─────────────────────────────────────────────────────────────────
 const TABS = ['Costos', 'CIF', 'Márgenes', 'Lista de precios', 'Historial', 'Resumen Ejecutivo']
 
+// Etiqueta corta de cada tier para la línea de referencia de costo por kg.
+const TIER_CORTO = { Agua: 'Agua', Lisa: 'Crema', 'Con Agregado': 'C/Agregado', Especial: 'Especial', Rocher: 'Rocher', Pistacho: 'Pistacho' }
+
 const CIF_PREDEFINIDOS = [
   { concepto: 'Alquiler del local',        categoria: 'fijo',     monto_mensual: 0 },
   { concepto: 'Amortización maquinaria',   categoria: 'fijo',     monto_mensual: 0 },
@@ -650,6 +653,57 @@ export default function Finanzas() {
     return m
   }, [margenPorFormato])
 
+  // Referencia del costo del helado por kg: promedio + desglose por tier (precio de
+  // franquicia de cada categoría). Contextualiza el promedio que usa la tabla.
+  const tierRef = useMemo(() => {
+    const tp = preciosPorTier(precioLista)
+    return TIER_ORDEN.filter(t => (tp[t] || 0) > 0).map(t => ({ tier: t, precio: tp[t] }))
+  }, [precioLista])
+
+  // Simulador: si aplicás +pct% a la lista de franquicia, cómo quedan los promedios
+  // de margen (fábrica y franquiciado) SIN aplicar todavía. Redondea a $50 como el
+  // aumento real. Devuelve null si el % es 0.
+  const proyeccionAumento = useMemo(() => {
+    const pct = Number(pctAumento) || 0
+    if (!pct) return null
+    const fac = 1 + pct / 100
+    const r50 = n => Math.round((Number(n) || 0) * fac / 50) * 50
+    const tp = preciosPorTier(precioLista)
+    const nuevoTp = {}; Object.entries(tp).forEach(([t, p]) => { nuevoTp[t] = r50(p) })
+    const sab = margenesFranquicia.filter(m => m.tier)
+    const fabDesp = sab.length ? sab.reduce((a, m) => a + margenPct(m.costo, nuevoTp[m.tier] || 0), 0) / sab.length : 0
+    const conP = sab.filter(m => (nuevoTp[m.tier] || 0) > 0)
+    const nuevoAvgKg = conP.length ? conP.reduce((a, m) => a + (nuevoTp[m.tier] || 0), 0) / conP.length : 0
+    let acc = 0, n = 0
+    ;(precioLista.formatos || []).forEach(f => {
+      const pv = Number(f.precioVenta) || 0; if (!pv) return
+      const kg = Number(f.kg) || 0
+      ;(f.presentaciones || []).forEach(pr => {
+        let cp = 0
+        ;(pr.packaging || []).forEach(p => {
+          const info = reventaCostos[normalizarNombre(p.nombre)]
+          if (info) cp += (Number(p.cantidad) || 0) * (info.reventaU > 0 ? info.reventaU : info.costoU)
+        })
+        acc += margenPct(kg * nuevoAvgKg + cp, pv); n++
+      })
+    })
+    return { pct, fabAntes: resumenFranquicia.prom, fabDesp, franqAntes: resumenFormato.prom, franqDesp: n ? acc / n : 0 }
+  }, [pctAumento, precioLista, margenesFranquicia, reventaCostos, resumenFranquicia, resumenFormato]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Comparativa vs. competencia: posición de cada producto (más barato / más caro).
+  const competenciaStats = useMemo(() => {
+    const filas = precioLista.competencia?.filas || []
+    return filas.map(f => {
+      const comps = (f.comp || []).map(Number).filter(x => x > 0)
+      const propio = Number(f.propio) || 0
+      const minC = comps.length ? Math.min(...comps) : null
+      const maxC = comps.length ? Math.max(...comps) : null
+      let pos = null
+      if (propio > 0 && comps.length) pos = propio < minC ? 'barato' : propio > maxC ? 'caro' : 'medio'
+      return { ...f, propio, pos }
+    })
+  }, [precioLista.competencia])
+
   // Handlers de edición de reventa (packaging) y formatos.
   function editarReventa(idx, campo, valor) {
     setPrecioLista(prev => {
@@ -724,6 +778,41 @@ export default function Finanzas() {
       const next = JSON.parse(JSON.stringify(prev))
       const pr = next.formatos?.[fIdx]?.presentaciones?.[prIdx]
       if (pr?.packaging) pr.packaging = pr.packaging.filter((_, i) => i !== pIdx)
+      return next
+    })
+  }
+  // Competencia
+  function editarCompetidorNombre(cIdx, valor) {
+    setPrecioLista(prev => {
+      const next = JSON.parse(JSON.stringify(prev))
+      if (next.competencia?.competidores) next.competencia.competidores[cIdx] = valor
+      return next
+    })
+  }
+  function editarCompetenciaFila(idx, campo, valor, cIdx) {
+    setPrecioLista(prev => {
+      const next = JSON.parse(JSON.stringify(prev))
+      const fila = next.competencia?.filas?.[idx]
+      if (!fila) return next
+      if (campo === 'producto') fila.producto = valor
+      else if (campo === 'propio') fila.propio = valor === '' ? 0 : Number(valor)
+      else if (campo === 'comp') { fila.comp = fila.comp || []; fila.comp[cIdx] = valor === '' ? 0 : Number(valor) }
+      return next
+    })
+  }
+  function agregarCompetenciaFila() {
+    setPrecioLista(prev => {
+      const next = JSON.parse(JSON.stringify(prev))
+      const nComp = (next.competencia?.competidores || []).length
+      next.competencia = next.competencia || { competidores: ['Competidor 1', 'Competidor 2'], filas: [] }
+      next.competencia.filas.push({ producto: 'Nuevo', propio: 0, comp: Array(nComp).fill(0) })
+      return next
+    })
+  }
+  function quitarCompetenciaFila(idx) {
+    setPrecioLista(prev => {
+      const next = JSON.parse(JSON.stringify(prev))
+      if (next.competencia?.filas) next.competencia.filas = next.competencia.filas.filter((_, i) => i !== idx)
       return next
     })
   }
@@ -863,6 +952,26 @@ export default function Finanzas() {
         didParseCell: d => { if (d.section === 'body' && d.column.index === 4) d.cell.styles.textColor = semaforo(margenesFranquicia[d.row.index]?.margen ?? 0) },
         didDrawPage: () => { dibujarEncabezado(doc, pw, 'FINANZAS', 'INFORME DE MÁRGENES', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber) },
       })
+      y = doc.lastAutoTable.finalY + 8
+
+      // Comparativa vs. competencia (precio al público)
+      const comp = precioLista.competencia
+      if (comp?.filas?.length) {
+        if (y > ph - 50) { doc.addPage(); dibujarEncabezado(doc, pw, 'FINANZAS', 'INFORME DE MÁRGENES', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber); y = PDF_CONTENT_Y }
+        y = dibujarSeccion(doc, pw, 'Comparativa vs. competencia (precio al público)', y)
+        const posTxt = f => {
+          const cs = (f.comp || []).map(Number).filter(x => x > 0), pr = Number(f.propio) || 0
+          if (!pr || !cs.length) return '—'
+          return pr < Math.min(...cs) ? 'Más barato' : pr > Math.max(...cs) ? 'Más caro' : 'En el medio'
+        }
+        autoTable(doc, {
+          ...EST, startY: y, margin: { top: PDF_CONTENT_Y, left: 14, right: 14 },
+          head: [['PRODUCTO', 'DEL PARQUE', ...(comp.competidores || []).map(c => c.toUpperCase()), 'POSICIÓN']],
+          body: comp.filas.map(f => [f.producto, Number(f.propio) > 0 ? money(f.propio) : '—', ...(f.comp || []).map(c => Number(c) > 0 ? money(c) : '—'), posTxt(f)]),
+          columnStyles: { 0: { halign: 'left' } },
+          didDrawPage: () => { dibujarEncabezado(doc, pw, 'FINANZAS', 'INFORME DE MÁRGENES', hoy); dibujarPie(doc, pw, ph, doc.internal.getCurrentPageInfo().pageNumber) },
+        })
+      }
 
       doc.save(`informe-margenes-franquicias-${(precioLista.vigencia || 'lista').toLowerCase().replace(/\s+/g, '-')}.pdf`)
     } catch (e) { showToast('No se pudo generar el informe: ' + (e.message || ''), 'error') }
@@ -1853,9 +1962,18 @@ export default function Finanzas() {
 
               {/* Margen del FRANQUICIADO por formato (helado promedio + packaging) */}
               <div className="overflow-hidden" style={SURFACE}>
-                <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-1" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Margen del franquiciado por presentación</span>
-                  <span className="text-[11px]" style={{ color: colors.textMuted }}>Helado: ${pesos(avgFranquiciaKg)}/kg · una fila por cómo se sirve</span>
+                <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Margen del franquiciado por presentación</span>
+                    <span className="text-[11px]" style={{ color: colors.textMuted }}>una fila por cómo se sirve</span>
+                  </div>
+                  {tierRef.length > 0 && (
+                    <p className="text-[11px] mt-1" style={{ color: colors.textMuted }}>
+                      Costo del helado/kg: <b style={{ color: colors.textSecondary }}>prom ${pesos(avgFranquiciaKg)}</b>
+                      {tierRef.map(t => <span key={t.tier}> · {TIER_CORTO[t.tier] || t.tier} ${pesos(t.precio)}</span>)}
+                      <span className="ml-1">(la tabla usa el promedio)</span>
+                    </p>
+                  )}
                 </div>
                 <div className="overflow-x-auto">
                   <Table className="min-w-[860px]">
@@ -1971,6 +2089,41 @@ export default function Finanzas() {
                 </div>
               </div>
 
+              {/* Comparativa vs. competencia (precio de venta al público) */}
+              {competenciaStats.length > 0 && (
+                <div className="overflow-hidden" style={SURFACE}>
+                  <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-1" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Comparativa vs. competencia — precio al público</span>
+                    <span className="text-[11px]" style={{ color: colors.textMuted }}>Se edita en «Editar precios»</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <Table className="min-w-[560px]">
+                      <Thead>
+                        <Tr>
+                          <Th>Producto</Th><Th>Del Parque</Th>
+                          {(precioLista.competencia?.competidores || []).map((c, i) => <Th key={i}>{c}</Th>)}
+                          <Th>Posición</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {competenciaStats.map((f, idx) => {
+                          const posMap = { barato: { t: '↓ más barato', c: colors.success }, caro: { t: '↑ más caro', c: colors.danger }, medio: { t: '≈ en el medio', c: colors.textMuted } }
+                          const p = f.pos ? posMap[f.pos] : null
+                          return (
+                            <Tr key={idx}>
+                              <Td className="font-medium">{f.producto}</Td>
+                              <Td className="font-semibold">{f.propio > 0 ? `$${pesos(f.propio)}` : '—'}</Td>
+                              {(f.comp || []).map((c, i) => <Td key={i} style={{ color: colors.textMuted }}>{Number(c) > 0 ? `$${pesos(c)}` : '—'}</Td>)}
+                              <Td>{p ? <span className="text-xs font-semibold" style={{ color: p.c }}>{p.t}</span> : <span className="text-xs" style={{ color: colors.textMuted }}>—</span>}</Td>
+                            </Tr>
+                          )
+                        })}
+                      </Tbody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+
               </>)}
 
               {subLista === 'editar' && (<>
@@ -1997,6 +2150,19 @@ export default function Finanzas() {
                   <Button variant="secondary" size="sm" onClick={() => aumentarPrecios('publico')}>Aplicar a Público</Button>
                   <Button variant="secondary" size="sm" onClick={() => aumentarPrecios('todo')}>Aplicar a Todo</Button>
                   <span className="text-[11px] w-full sm:w-auto" style={{ color: colors.textMuted }}>Redondea a $50. No guarda solo: revisá y tocá «Guardar precios».</span>
+                  {/* Simulador: proyección al subir la lista de franquicia, sin aplicar */}
+                  {proyeccionAumento && (
+                    <div className="w-full mt-1 pt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]" style={{ borderTop: `1px dashed ${colors.border}` }}>
+                      <span className="font-semibold" style={{ color: colors.textSecondary }}>Simulación +{proyeccionAumento.pct}% a Franquicia:</span>
+                      <span style={{ color: colors.textMuted }}>
+                        Margen fábrica <b style={{ color: colors.textSecondary }}>{proyeccionAumento.fabAntes.toFixed(1)}%</b> → <b style={{ color: nivelMargen(proyeccionAumento.fabDesp).barColor }}>{proyeccionAumento.fabDesp.toFixed(1)}%</b>
+                      </span>
+                      <span style={{ color: colors.textMuted }}>
+                        Margen franquiciado <b style={{ color: colors.textSecondary }}>{proyeccionAumento.franqAntes.toFixed(1)}%</b> → <b style={{ color: nivelMargen(proyeccionAumento.franqDesp).barColor }}>{proyeccionAumento.franqDesp.toFixed(1)}%</b>
+                      </span>
+                      <span style={{ color: colors.textMuted }}>(al franquiciado le sube el costo)</span>
+                    </div>
+                  )}
                 </div>
 
                 {[
@@ -2139,6 +2305,52 @@ export default function Finanzas() {
                       <button onClick={() => agregarPresentacion(fIdx)} className="text-xs font-semibold hover:opacity-70" style={{ color: colors.brand }}>+ Agregar presentación</button>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* Editor: comparativa de competencia */}
+              <div className="p-4 space-y-3" style={SURFACE}>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: colors.textSecondary }}>Comparativa de competencia</span>
+                  <Button variant="secondary" size="sm" onClick={agregarCompetenciaFila}>+ Agregar producto</Button>
+                </div>
+                <p className="text-[11px]" style={{ color: colors.textMuted }}>Precio de venta al público: el tuyo vs. cada competidor (0 = sin dato). Los nombres de las columnas son editables.</p>
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[560px]">
+                    <Thead>
+                      <Tr>
+                        <Th>Producto</Th><Th>Del Parque</Th>
+                        {(precioLista.competencia?.competidores || []).map((c, i) => (
+                          <Th key={i}>
+                            <input value={c} onChange={e => editarCompetidorNombre(i, e.target.value)}
+                              className="px-1.5 py-0.5 rounded text-xs font-semibold w-28" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                          </Th>
+                        ))}
+                        <Th></Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {(precioLista.competencia?.filas || []).map((f, idx) => (
+                        <Tr key={idx}>
+                          <Td>
+                            <input value={f.producto || ''} onChange={e => editarCompetenciaFila(idx, 'producto', e.target.value)}
+                              className="px-2 py-1 rounded-md text-sm w-36" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                          </Td>
+                          <Td>
+                            <input type="number" value={f.propio ?? ''} onChange={e => editarCompetenciaFila(idx, 'propio', e.target.value)}
+                              className="px-2 py-1 rounded-md text-sm w-24 text-right" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                          </Td>
+                          {(precioLista.competencia?.competidores || []).map((_, i) => (
+                            <Td key={i}>
+                              <input type="number" value={f.comp?.[i] ?? ''} onChange={e => editarCompetenciaFila(idx, 'comp', e.target.value, i)}
+                                className="px-2 py-1 rounded-md text-sm w-24 text-right" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.textPrimary }} />
+                            </Td>
+                          ))}
+                          <Td><button onClick={() => quitarCompetenciaFila(idx)} className="text-xs hover:opacity-70" style={{ color: colors.danger }}>Quitar</button></Td>
+                        </Tr>
+                      ))}
+                    </Tbody>
+                  </Table>
                 </div>
               </div>
 

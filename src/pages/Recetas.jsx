@@ -800,7 +800,8 @@ export default function Recetas() {
       const encab = () => dibujarEncabezado(doc, pw, MOD, TIT, hoy)
       const HEAD = { fillColor: [35, 35, 35], textColor: [255, 255, 255], halign: 'left', fontStyle: 'bold', lineWidth: 0.1, lineColor: [180, 180, 180] }
       const BODY = { textColor: [25, 25, 25], lineWidth: 0.1, lineColor: [215, 215, 215] }
-      const grpLabel = { Bases: '🧱 BASES', Sabores: '🧊 SABORES', Impulsivos: '📦 IMPULSIVOS', Postres: '🍰 POSTRES' }
+      // Sin emojis: la fuente del PDF (helvetica) no los soporta y salen como "Ø>YÉ".
+      const grpLabel = { Bases: 'BASES', Sabores: 'SABORES', Impulsivos: 'IMPULSIVOS', Postres: 'POSTRES' }
 
       doc.addPage(); encab()
       let y = PDF_CONTENT_Y

@@ -191,26 +191,36 @@ function celda(doc, ctx, f, cat, x, top, cw, cellH, twoCol) {
   }
 }
 
+// Altura que necesita una celda según su contenido (evita huecos: la fila solo
+// crece cuando de verdad hace falta — nombre en 2 líneas o precio Pedidos Ya).
+function altoCelda(doc, ctx, f, cw, twoCol) {
+  doc.setFont(RS, 'normal'); doc.setFontSize(8.9)
+  const twoLine = doc.splitTextToSize(String(f.producto), cw - 19).length > 1
+  const hasPYA = twoCol && f.precio2 != null && f.precio2 !== ''
+  return 14.5 + (twoLine ? 3.8 : 0) + (hasPYA ? 5.6 : 0)
+}
+
 // ── Grilla de una sección por categorías ─────────────────────────────────────
 function dibujarSecciones(doc, ctx, secciones, twoCol) {
   const { ml, mr, pw } = ctx
   const gutter = 16                       // más aire entre columnas (evita que se vean encimadas)
   const cw = (pw - ml - mr - gutter) / 2
-  const cellH = twoCol ? 21 : 17.5        // público más alto: entra el precio de Pedidos Ya en 2ª línea
 
   secciones.forEach(([titulo, subtitulo, filas]) => {
     if (!filas || !filas.length) return
     const cat = String(titulo).toUpperCase()
     barraCategoria(doc, ctx, titulo, subtitulo)
-    let col = 0
-    for (let i = 0; i < filas.length; i++) {
-      if (col === 0 && ctx.y + cellH > ctx.ph - 16) { nuevaPagina(doc, ctx); barraCategoria(doc, ctx, titulo + ' (cont.)', subtitulo) }
-      const x = ml + col * (cw + gutter)
-      celda(doc, ctx, filas[i], cat, x, ctx.y, cw, cellH, twoCol)
-      col++
-      if (col === 2) { col = 0; ctx.y += cellH }
+    // Recorremos de a filas (pares): así ambas columnas comparten alto y las
+    // líneas divisorias quedan alineadas, pero cada fila mide lo justo.
+    for (let i = 0; i < filas.length; i += 2) {
+      const par = [filas[i], filas[i + 1]].filter(Boolean)
+      const rowH = Math.max(...par.map(f => altoCelda(doc, ctx, f, cw, twoCol)))
+      // Corte de página por fila entera: nunca partimos una fila ni dejamos la
+      // barra de categoría huérfana al pie (repetimos la barra con "(cont.)").
+      if (ctx.y + rowH > ctx.ph - 16) { nuevaPagina(doc, ctx); barraCategoria(doc, ctx, titulo + ' (cont.)', subtitulo) }
+      par.forEach((f, c) => celda(doc, ctx, f, cat, ml + c * (cw + gutter), ctx.y, cw, rowH, twoCol))
+      ctx.y += rowH
     }
-    if (col === 1) ctx.y += cellH
     ctx.y += 8
   })
 }

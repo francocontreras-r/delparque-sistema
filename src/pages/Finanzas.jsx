@@ -1071,8 +1071,8 @@ export default function Finanzas() {
       let logo = null, marca = null
       // ?v: cache-buster para que el navegador tome el logo actualizado (el
       // isotipo se rehizo en alta calidad) y no sirva la versión vieja cacheada.
-      try { logo = await cargarImg('/logo-lista-color.png?v=164') } catch { logo = null }
-      try { marca = await cargarImg('/isotipo-naranja.png') } catch { marca = null }
+      try { logo = await cargarImg('/logo-lista-color.png?v=166') } catch { logo = null }
+      try { marca = await cargarImg('/isotipo-naranja.png?v=166') } catch { marca = null }
       const { generarPdfListaPrecios } = await import('../lib/pdfListaPrecios')
       const doc = generarPdfListaPrecios(precioLista, { logo, marca, fecha: new Date().toLocaleDateString('es-AR') })
       const slug = (precioLista.vigencia || 'lista').toLowerCase().replace(/\s+/g, '-')

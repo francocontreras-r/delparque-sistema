@@ -95,6 +95,28 @@ function estadoTemp(grados) {
   return                   { label: '✅ OK',                variant: 'success', color: '#22c55e' }
 }
 
+// Rango de fechas del informe según el período (ancla = fecha del filtro).
+// Diario = ese día · Semanal = lunes a domingo de esa semana · Mensual = mes calendario.
+function rangoInforme(periodo, anchorISO) {
+  const base = anchorISO || new Date().toISOString().split('T')[0]
+  const [Y, M, D] = base.split('-').map(Number)
+  const isoDe = x => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
+  const dmy = x => x.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const cap = s => s.charAt(0).toUpperCase() + s.slice(1)
+  if (periodo === 'semanal') {
+    const dow = (new Date(Y, M - 1, D).getDay() + 6) % 7   // 0 = lunes
+    const lun = new Date(Y, M - 1, D - dow)
+    const dom = new Date(Y, M - 1, D - dow + 6)
+    return { desde: isoDe(lun), hasta: isoDe(dom), etiqueta: `Semanal · ${dmy(lun)} al ${dmy(dom)}` }
+  }
+  if (periodo === 'mensual') {
+    const ini = new Date(Y, M - 1, 1), fin = new Date(Y, M, 0)
+    return { desde: isoDe(ini), hasta: isoDe(fin), etiqueta: `Mensual · ${cap(ini.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }))}` }
+  }
+  const d = new Date(Y, M - 1, D)
+  return { desde: isoDe(d), hasta: isoDe(d), etiqueta: `Diario · ${dmy(d)}` }
+}
+
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
 function SkeletonCard() {
@@ -1242,6 +1264,8 @@ export default function Camaras() {
   const [savingTemp, setSavingTemp]         = useState(false)
   const [filtroTempCamara, setFiltroTempCamara] = useState('')
   const [filtroTempFecha, setFiltroTempFecha]   = useState(new Date().toISOString().split('T')[0])
+  const [tempPeriodo, setTempPeriodo]       = useState('diario')  // informe: diario | semanal | mensual
+  const [exportandoTemp, setExportandoTemp] = useState(false)
   const [tempForm, setTempForm]             = useState({ camara: 'Cámara 1', grados: '', responsable: '', observaciones: '' })
 
   const { isAdmin, user } = useUser()
@@ -1763,54 +1787,108 @@ export default function Camaras() {
     cargarTemperaturas()
   }
 
-  function exportarTemperaturasPDF() {
+  async function exportarInformeTemperaturas() {
+    const periodo = tempPeriodo
+    const { desde, hasta, etiqueta } = rangoInforme(periodo, filtroTempFecha)
+    setExportandoTemp(true)
+    let q = supabase.from('temperaturas_camaras').select('*')
+      .gte('created_at', desde + 'T00:00:00').lte('created_at', hasta + 'T23:59:59')
+      .order('created_at', { ascending: true })
+    if (filtroTempCamara) q = q.eq('camara', filtroTempCamara)
+    const { data, error } = await q
+    setExportandoTemp(false)
+    if (error) { mostrarToast(error.message, 'error'); return }
+    const rows = data || []
+    if (!rows.length) { mostrarToast('No hay registros en el período seleccionado', 'error'); return }
+
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const pw = doc.internal.pageSize.getWidth()
-    const fecha = filtroTempFecha || new Date().toISOString().split('T')[0]
-    try { doc.addImage(LOGO_PDF, 'PNG', 14, 7, 12 * 906 / 521, 12) } catch {}
-    doc.setFontSize(13); doc.setTextColor(40, 40, 40)
-    doc.text('Del Parque — Registro de Temperaturas de Cámaras', pw - 14, 14, { align: 'right' })
-    doc.setFontSize(8.5); doc.setTextColor(120, 120, 120)
-    doc.text(`Período: ${fecha}  ·  Emitido: ${new Date().toLocaleString('es-AR')}`, pw / 2, 20, { align: 'center' })
-    doc.text('Planilla para control de Salud Pública', pw / 2, 25, { align: 'center' })
+    const ph = doc.internal.pageSize.getHeight()
+    const hoy = new Date().toLocaleDateString('es-AR')
+    const MOD = 'Cámaras', TIT = 'Registro de Temperaturas'
+    const est0 = getEstiloInforme()
+    const encab = () => dibujarEncabezado(doc, pw, MOD, TIT, hoy)
+    // Tinta según estado de la lectura (rojo = alta, ámbar = atención, verde = OK).
+    const colorEstado = (d, temp) => {
+      const e = estadoTemp(temp)
+      d.cell.styles.fontStyle = 'bold'
+      d.cell.styles.textColor = e.variant === 'danger' ? [198, 40, 40] : e.variant === 'warning' ? [224, 134, 0] : [46, 125, 50]
+    }
+    const limpiar = s => s.replace(/[⚠️✅]/g, '').trim()
+
+    // Métricas del período
+    const n = rows.length
+    const temps = rows.map(r => Number(r.temperatura))
+    const prom = temps.reduce((a, b) => a + b, 0) / n
+    const fuera = rows.filter(r => estadoTemp(r.temperatura).variant !== 'success').length
+    const cumpl = (n - fuera) / n * 100
+
+    // ── P1 Portada ──
+    dibujarPortada(doc, pw, ph, MOD, TIT, etiqueta, hoy)
+
+    // ── P2 Resumen ──
+    doc.addPage(); encab(); let y = PDF_CONTENT_Y
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(110, 110, 110)
+    doc.text('Planilla para control de Salud Pública', 14, y); y += 6
+    y = dibujarSeccion(doc, pw, 'Resumen del período', y)
+    const kw = (pw - 28 - 6) / 4
+    dibujarKpiCard(doc, 14,              y, kw, 20, 'Registros',      String(n),               PDF_NEGRO)
+    dibujarKpiCard(doc, 14 + (kw + 2),   y, kw, 20, 'Temp. promedio', `${prom.toFixed(1)}°C`,   PDF_NEGRO)
+    dibujarKpiCard(doc, 14 + (kw + 2)*2, y, kw, 20, 'Fuera de rango', String(fuera),           fuera > 0 ? PDF_SEM_NEG : PDF_SEM_OK)
+    dibujarKpiCard(doc, 14 + (kw + 2)*3, y, kw, 20, 'Cumplimiento',   `${cumpl.toFixed(0)}%`,   cumpl >= 95 ? PDF_SEM_OK : PDF_SEM_NEG)
+    y += 28
+
+    // ── Estado por cámara ──
+    const porCam = {}
+    rows.forEach(r => {
+      const k = r.camara || '—'
+      const c = porCam[k] || (porCam[k] = { n: 0, min: Infinity, max: -Infinity, sum: 0, last: null })
+      const t = Number(r.temperatura)
+      c.n++; c.sum += t; c.min = Math.min(c.min, t); c.max = Math.max(c.max, t)
+      if (!c.last || new Date(r.created_at) > new Date(c.last.created_at)) c.last = r
+    })
+    const camKeys = Object.keys(porCam).sort()
+    y = dibujarSeccion(doc, pw, 'Estado por cámara', y)
     autoTable(doc, {
-      startY: 30,
-      head: [['Fecha', 'Hora', 'Cámara', 'Temperatura', 'Estado', 'Responsable', 'Observaciones', 'Firma']],
-      body: temperaturas.map(t => {
-        const d = new Date(t.created_at)
-        const est = estadoTemp(t.temperatura)
+      ...est0, startY: y, didDrawPage: encab,
+      head: [['CÁMARA', 'REGISTROS', 'MÍN', 'MÁX', 'PROMEDIO', 'ÚLTIMA', 'ESTADO ACTUAL']],
+      body: camKeys.map(k => {
+        const c = porCam[k]
+        return [k, String(c.n), `${c.min.toFixed(0)}°C`, `${c.max.toFixed(0)}°C`, `${(c.sum / c.n).toFixed(1)}°C`, `${c.last.temperatura}°C`, limpiar(estadoTemp(c.last.temperatura).label)]
+      }),
+      styles: { ...est0.styles, halign: 'center' },
+      headStyles: { ...est0.headStyles, halign: 'center' },
+      columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
+      didParseCell(d) { if (d.section === 'body' && d.column.index === 6) colorEstado(d, porCam[camKeys[d.row.index]].last.temperatura) },
+    })
+    y = doc.lastAutoTable.finalY + 8
+
+    // ── Detalle de registros ──
+    if (y + 20 > ph - 20) { doc.addPage(); encab(); y = PDF_CONTENT_Y }
+    y = dibujarSeccion(doc, pw, 'Detalle de registros', y)
+    autoTable(doc, {
+      ...est0, startY: y, didDrawPage: encab,
+      head: [['FECHA', 'HORA', 'CÁMARA', 'TEMP.', 'ESTADO', 'RESPONSABLE', 'OBSERVACIONES']],
+      body: rows.map(r => {
+        const d = new Date(r.created_at)
         return [
-          d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+          d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' }),
           d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
-          t.camara,
-          `${t.temperatura}°C`,
-          est.label.replace('⚠️ ', '').replace('✅ ', ''),
-          t.responsable || '—',
-          t.observaciones || '',
-          '',
+          r.camara || '—', `${r.temperatura}°C`, limpiar(estadoTemp(r.temperatura).label), r.responsable || '—', r.observaciones || '',
         ]
       }),
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [255, 71, 19], textColor: 255 },
-      columnStyles: { 7: { cellWidth: 22 } },
-      didParseCell(data) {
-        if (data.section !== 'body' || data.column.index !== 4) return
-        const t = temperaturas[data.row.index]
-        if (!t) return
-        const est = estadoTemp(t.temperatura)
-        if (est.variant === 'danger')  data.cell.styles.textColor = [220, 38, 38]
-        else if (est.variant === 'warning') data.cell.styles.textColor = [217, 119, 6]
-        else data.cell.styles.textColor = [22, 163, 74]
-      },
+      columnStyles: { 3: { halign: 'center' }, 4: { halign: 'center' }, 6: { cellWidth: 44 } },
+      didParseCell(d) { if (d.section === 'body' && d.column.index === 4) colorEstado(d, rows[d.row.index].temperatura) },
     })
-    const finalY = (doc.lastAutoTable?.finalY || 30) + 20
-    doc.setFontSize(8); doc.setTextColor(80, 80, 80)
-    ;['Responsable de Cámaras · Firma y fecha', 'Supervisor · Firma y fecha', 'Control de Calidad'].forEach((label, i) => {
-      const x = 14 + i * 62
-      doc.line(x, finalY, x + 54, finalY)
-      doc.text(label, x + 27, finalY + 5, { align: 'center' })
-    })
-    doc.save(`temperaturas_camaras_${fecha}.pdf`)
+    y = doc.lastAutoTable.finalY + 10
+
+    // ── Firmas ──
+    dibujarFirmas(doc, pw, ph, y, MOD, hoy, ['Responsable de Cámaras', 'Supervisor', 'Control de Calidad'])
+
+    const tot = doc.internal.getNumberOfPages()
+    for (let p = 2; p <= tot; p++) { doc.setPage(p); dibujarPie(doc, pw, ph, p) }
+    doc.save(`temperaturas_${periodo}_${desde}${desde !== hasta ? '_a_' + hasta : ''}.pdf`)
+    mostrarToast(`Informe ${periodo} generado · ${n} registro${n !== 1 ? 's' : ''}`)
   }
 
   const stockTipo = useMemo(() => (
@@ -2626,9 +2704,22 @@ export default function Camaras() {
                 />
               </div>
               {isAdmin && (
-                <Button variant="secondary" size="sm" onClick={exportarTemperaturasPDF} disabled={temperaturas.length === 0}>
-                  <FileDown size={14} /> Exportar PDF (Salud Pública)
-                </Button>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={tempPeriodo}
+                    onChange={e => setTempPeriodo(e.target.value)}
+                    title="Alcance del informe (según la fecha elegida)"
+                    className="rounded-lg border text-sm px-3 py-1.5 outline-none"
+                    style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.surface }}
+                  >
+                    <option value="diario">Informe diario</option>
+                    <option value="semanal">Informe semanal</option>
+                    <option value="mensual">Informe mensual</option>
+                  </select>
+                  <Button variant="secondary" size="sm" onClick={exportarInformeTemperaturas} loading={exportandoTemp} disabled={exportandoTemp}>
+                    <FileDown size={14} /> Exportar PDF
+                  </Button>
+                </div>
               )}
             </div>
 

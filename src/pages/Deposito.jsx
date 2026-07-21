@@ -42,7 +42,7 @@ import {
 
 const TABS         = ['Movimientos', 'Stock', 'Trazabilidad', 'Informes', 'Control Semanal', 'Plan de compras']
 const DESTINOS     = ['Bases', 'Sabores', 'Postres', 'Impulsivos', 'Escocés', 'Bombones', 'Panadería', 'Uso interno', 'Venta', 'Otro']
-const PRESENTACIONES = ['Balde', 'Bolsa', 'Lata', 'Caja', 'Botella', 'Bidón', 'Pomo', 'Pote', 'Sin Presentación']
+const PRESENTACIONES = ['Balde', 'Bolsa', 'Lata', 'Caja', 'Botella', 'Bidón', 'Pomo', 'Pote', 'Rollo', 'Sin Presentación']
 const UNIDADES     = ['u', 'kg', 'L']
 
 const CATS_MAT_PRIMAS = new Set(['LÁCTEOS', 'AZÚCARES', 'CHOCOLATES', 'PASTAS', 'FRUTAS', 'VARIEGATOS', 'OTROS', 'NUEVO', 'General'])

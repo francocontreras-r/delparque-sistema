@@ -1070,6 +1070,7 @@ export default function Deposito() {
   const [informeDia, setInformeDia]     = useState(new Date().toISOString().split('T')[0])
   const [informeDesde, setInformeDesde] = useState(new Date().toISOString().split('T')[0])
   const [informeHasta, setInformeHasta] = useState(new Date().toISOString().split('T')[0])
+  const [movsInformeRaw, setMovsInformeRaw] = useState([])   // dataset propio del informe (según período)
   const [editInsumo, setEditInsumo]     = useState(null)
   const [savingInsumo, setSavingInsumo] = useState(false)
   const [creandoInsumo, setCreandoInsumo] = useState(false)
@@ -1150,6 +1151,32 @@ export default function Deposito() {
   useEffect(() => {
     if (!loading) cargarMovimientosFiltrados(filtroMovDesde, filtroMovHasta)
   }, [filtroMovDesde, filtroMovHasta]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // El informe carga SU PROPIO conjunto de movimientos según el período elegido
+  // (no depende de la ventana de 7 días de la pestaña Movimientos). Con margen de
+  // ±1 día sobre created_at para no perder registros por desfase de zona horaria;
+  // el filtrado fino por fecha real lo hace `pasaInforme`.
+  useEffect(() => {
+    if (tab !== 'Informes') return
+    const shift = (iso, n) => { const [Y, M, D] = iso.split('-').map(Number); const x = new Date(Y, M - 1, D + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}` }
+    let d, h
+    if (informeRango) { d = informeRango.desde; h = informeRango.hasta }
+    else if (informeMes === 0 && informeAnio === 0) { d = null; h = null }
+    else {
+      const y = informeAnio || new Date().getFullYear()
+      if (informeMes === 0) { d = `${y}-01-01`; h = `${y}-12-31` }
+      else { const mm = String(informeMes).padStart(2, '0'); const last = new Date(y, informeMes, 0).getDate(); d = `${y}-${mm}-01`; h = `${y}-${mm}-${String(last).padStart(2, '0')}` }
+    }
+    let cancel = false
+    ;(async () => {
+      let q = supabase.from('movimientos_deposito').select('*').order('created_at', { ascending: false }).limit(5000)
+      if (d) q = q.gte('created_at', shift(d, -1) + 'T00:00:00')
+      if (h) q = q.lte('created_at', shift(h, 1) + 'T23:59:59')
+      const { data } = await q
+      if (!cancel) setMovsInformeRaw(data || [])
+    })()
+    return () => { cancel = true }
+  }, [tab, informeRango, informeMes, informeAnio]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function cargarMovimientosFiltrados(desde, hasta) {
     const { data: m } = await supabase.from('movimientos_deposito').select('*')
@@ -1983,12 +2010,15 @@ export default function Deposito() {
   }, [informeModo, informeDia, informeDesde, informeHasta])
 
   // Predicado único de filtrado del informe (rango de fechas o mes/año).
+  // `fecha` puede venir como 'YYYY-MM-DD' o como timestamp ('...T..'); se normaliza
+  // a fecha (10 primeros) para comparar bien los modos por rango.
   const pasaInforme = useCallback((fecha) => {
     if (!informeRango) return dentroDePeriodo(fecha, informeMes, informeAnio)
     const { desde, hasta } = informeRango
-    if (!fecha) return !desde && !hasta
-    if (desde && fecha < desde) return false
-    if (hasta && fecha > hasta) return false
+    const f = (fecha || '').slice(0, 10)
+    if (!f) return !desde && !hasta
+    if (desde && f < desde) return false
+    if (hasta && f > hasta) return false
     return true
   }, [informeRango, informeMes, informeAnio])
 
@@ -2002,8 +2032,8 @@ export default function Deposito() {
   }, [movimientos, filtroDestino, filtroMes, filtroAnio])
 
   const movsInforme = useMemo(() => (
-    movimientos.filter(m => pasaInforme(m.fecha))
-  ), [movimientos, pasaInforme])
+    movsInformeRaw.filter(m => pasaInforme(m.fecha || m.created_at))
+  ), [movsInformeRaw, pasaInforme])
 
   const comprasPorProveedor = useMemo(() => {
     const grupos = {}
@@ -2143,7 +2173,7 @@ export default function Deposito() {
     const movs = (recetasCosteo.camaraIngresos || []).filter(m => {
       const mt = (m.motivo || '').toLowerCase()
       if (mt === 'transferencia' || mt === 'devolución' || mt === 'devolucion' || mt.includes('ajuste')) return false
-      return pasaInforme(m.fecha)
+      return pasaInforme(m.fecha || m.created_at)
     })
     return { ...costearProduccion(movs, { ...recetasCosteo, insumos }), nMovs: movs.length }
   }, [recetasCosteo, insumos, pasaInforme]) // eslint-disable-line react-hooks/exhaustive-deps

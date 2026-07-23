@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, Fragment } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useUser } from '../context/UserContext'
@@ -1066,6 +1066,10 @@ export default function Deposito() {
   const [informeVista, setInformeVista] = useState('egresos')
   const [informeMes, setInformeMes]     = useState(0)
   const [informeAnio, setInformeAnio]   = useState(0)
+  const [informeModo, setInformeModo]   = useState('mes')  // dia | semana | mes | personalizado
+  const [informeDia, setInformeDia]     = useState(new Date().toISOString().split('T')[0])
+  const [informeDesde, setInformeDesde] = useState(new Date().toISOString().split('T')[0])
+  const [informeHasta, setInformeHasta] = useState(new Date().toISOString().split('T')[0])
   const [editInsumo, setEditInsumo]     = useState(null)
   const [savingInsumo, setSavingInsumo] = useState(false)
   const [creandoInsumo, setCreandoInsumo] = useState(false)
@@ -1958,6 +1962,36 @@ export default function Deposito() {
     return true
   }
 
+  // Semana (lunes a domingo) que contiene la fecha ancla (ISO 'YYYY-MM-DD').
+  function semanaDe(iso) {
+    const [Y, M, D] = iso.split('-').map(Number)
+    const dow = (new Date(Y, M - 1, D).getDay() + 6) % 7   // 0 = lunes
+    const isoDe = x => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
+    return { desde: isoDe(new Date(Y, M - 1, D - dow)), hasta: isoDe(new Date(Y, M - 1, D - dow + 6)) }
+  }
+
+  // Rango del informe según el modo. Devuelve null en modo 'mes' (usa mes/año).
+  const informeRango = useMemo(() => {
+    if (informeModo === 'dia') return { desde: informeDia, hasta: informeDia }
+    if (informeModo === 'semana') return semanaDe(informeDia)
+    if (informeModo === 'personalizado') {
+      let d = informeDesde || null, h = informeHasta || null
+      if (d && h && h < d) { const t = d; d = h; h = t }
+      return { desde: d, hasta: h }
+    }
+    return null
+  }, [informeModo, informeDia, informeDesde, informeHasta])
+
+  // Predicado único de filtrado del informe (rango de fechas o mes/año).
+  const pasaInforme = useCallback((fecha) => {
+    if (!informeRango) return dentroDePeriodo(fecha, informeMes, informeAnio)
+    const { desde, hasta } = informeRango
+    if (!fecha) return !desde && !hasta
+    if (desde && fecha < desde) return false
+    if (hasta && fecha > hasta) return false
+    return true
+  }, [informeRango, informeMes, informeAnio])
+
   const egresos = useMemo(() => {
     return movimientos.filter(m => {
       if (m.tipo !== 'egreso') return false
@@ -1968,8 +2002,8 @@ export default function Deposito() {
   }, [movimientos, filtroDestino, filtroMes, filtroAnio])
 
   const movsInforme = useMemo(() => (
-    movimientos.filter(m => dentroDePeriodo(m.fecha, informeMes, informeAnio))
-  ), [movimientos, informeMes, informeAnio])
+    movimientos.filter(m => pasaInforme(m.fecha))
+  ), [movimientos, pasaInforme])
 
   const comprasPorProveedor = useMemo(() => {
     const grupos = {}
@@ -2109,10 +2143,10 @@ export default function Deposito() {
     const movs = (recetasCosteo.camaraIngresos || []).filter(m => {
       const mt = (m.motivo || '').toLowerCase()
       if (mt === 'transferencia' || mt === 'devolución' || mt === 'devolucion' || mt.includes('ajuste')) return false
-      return dentroDePeriodo(m.fecha, informeMes, informeAnio)
+      return pasaInforme(m.fecha)
     })
     return { ...costearProduccion(movs, { ...recetasCosteo, insumos }), nMovs: movs.length }
-  }, [recetasCosteo, insumos, informeMes, informeAnio]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [recetasCosteo, insumos, pasaInforme]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Distribución REAL: producción = MP calculada por receta (no lo registrado) ─
   // El consumo de producción se toma del backflush (real); el resto son egresos
@@ -3010,6 +3044,15 @@ export default function Deposito() {
   }
 
   function _periodoLabel() {
+    const dmy = iso => { const [a, m, d] = iso.split('-'); return `${d}/${m}/${a}` }
+    if (informeModo === 'dia') return `Día ${dmy(informeDia)}`
+    if (informeModo === 'semana') { const r = semanaDe(informeDia); return `Semana ${dmy(r.desde)} al ${dmy(r.hasta)}` }
+    if (informeModo === 'personalizado') {
+      const r = informeRango
+      if (!r.desde && !r.hasta) return 'Todo el período'
+      if (r.desde && r.hasta) return `${dmy(r.desde)} al ${dmy(r.hasta)}`
+      return r.desde ? `Desde ${dmy(r.desde)}` : `Hasta ${dmy(r.hasta)}`
+    }
     if (informeMes === 0 && informeAnio === 0) return 'Todo el período'
     if (informeMes === 0) return String(informeAnio)
     if (informeAnio === 0) return MESES[informeMes - 1]
@@ -3787,18 +3830,47 @@ export default function Deposito() {
                   <Button variant="secondary" size="sm" onClick={exportarInformePDF} loading={generandoPDFInforme}>
                     <FileDown size={14} /> Exportar PDF
                   </Button>
-                  <div className="w-40">
-                    <Select value={informeMes} onChange={e => setInformeMes(Number(e.target.value))}>
-                      <option value={0}>Todos los meses</option>
-                      {MESES.map((m, idx) => <option key={m} value={idx + 1}>{m}</option>)}
+                  <div className="w-32">
+                    <Select value={informeModo} onChange={e => setInformeModo(e.target.value)}>
+                      <option value="dia">Diario</option>
+                      <option value="semana">Semanal</option>
+                      <option value="mes">Mensual</option>
+                      <option value="personalizado">Personalizado</option>
                     </Select>
                   </div>
-                  <div className="w-28">
-                    <Select value={informeAnio} onChange={e => setInformeAnio(Number(e.target.value))}>
-                      <option value={0}>Todos</option>
-                      {aniosDisponibles.map(a => <option key={a} value={a}>{a}</option>)}
-                    </Select>
-                  </div>
+                  {informeModo === 'mes' && (
+                    <>
+                      <div className="w-36">
+                        <Select value={informeMes} onChange={e => setInformeMes(Number(e.target.value))}>
+                          <option value={0}>Todos los meses</option>
+                          {MESES.map((m, idx) => <option key={m} value={idx + 1}>{m}</option>)}
+                        </Select>
+                      </div>
+                      <div className="w-24">
+                        <Select value={informeAnio} onChange={e => setInformeAnio(Number(e.target.value))}>
+                          <option value={0}>Todos</option>
+                          {aniosDisponibles.map(a => <option key={a} value={a}>{a}</option>)}
+                        </Select>
+                      </div>
+                    </>
+                  )}
+                  {(informeModo === 'dia' || informeModo === 'semana') && (
+                    <input type="date" value={informeDia} onChange={e => setInformeDia(e.target.value)}
+                      title={informeModo === 'semana' ? 'Cualquier día de la semana (lun a dom)' : 'Fecha del informe'}
+                      className="rounded-lg border text-sm px-3 py-1.5 outline-none"
+                      style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.surface }} />
+                  )}
+                  {informeModo === 'personalizado' && (
+                    <div className="flex items-center gap-1.5">
+                      <input type="date" value={informeDesde} onChange={e => setInformeDesde(e.target.value)}
+                        className="rounded-lg border text-sm px-2.5 py-1.5 outline-none"
+                        style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.surface }} />
+                      <span className="text-xs" style={{ color: colors.textMuted }}>a</span>
+                      <input type="date" value={informeHasta} onChange={e => setInformeHasta(e.target.value)}
+                        className="rounded-lg border text-sm px-2.5 py-1.5 outline-none"
+                        style={{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.surface }} />
+                    </div>
+                  )}
                 </div>
               </div>
 
